@@ -33,6 +33,8 @@ function mockPool(tokenCount = 2): PoolInfo {
       protocolFeesOwed: new BN(0),
       vault: pk(),
       concentration: 1,
+      isActive: true,
+      maxSelloffPct: 0,
     };
   });
 

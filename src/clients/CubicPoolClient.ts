@@ -143,6 +143,8 @@ export class CubicPoolClient {
           this.config.tokens?.[raw.tokenMints[i].toBase58()] ??
           resolveKnownToken(raw.tokenMints[i].toBase58()),
         concentration,
+        isActive: raw.isActive[i],
+        maxSelloffPct: raw.maxSelloffPct[i],
       });
     }
 

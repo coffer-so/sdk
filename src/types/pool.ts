@@ -23,6 +23,17 @@ export interface PoolTokenInfo {
   metadata?: TokenInfo;
   /** factBalance / virtBalance as a float, for display/math. */
   concentration: number;
+  /**
+   * Per-token input kill switch. When `false`, swaps with THIS token as
+   * input revert (`TokenInactive`); it can still be a swap output and
+   * liquidity ops are unaffected. Defaults to `true`.
+   */
+  isActive: boolean;
+  /**
+   * Max cumulative sell volume per window, as a percent of virtual balance
+   * (`PERCENT_SCALE` units; 10_000 = 100%). `0` ⇒ no cap.
+   */
+  maxSelloffPct: number;
 }
 
 /**

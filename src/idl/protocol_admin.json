@@ -539,10 +539,9 @@
     {
       "name": "pool_migrate_v4",
       "docs": [
-        "Operator-driven v3 → v4 pool storage migration. Treasury PDA",
-        "signs the CPI to `cubic_pool::migrate_pool_v4`; cubic-pool",
-        "accepts `config.protocol_admin` as authority in addition to",
-        "`pool.pool_admin`. `admin` pays the rent diff for the realloc.",
+        "Operator-driven pool storage migration wrapper. Currently a",
+        "**no-op placeholder** (cubic-pool's `migrate_pool_v4` is empty) —",
+        "kept as a generic Treasury-signed shell for a future migration.",
         "",
         "# Authority",
         "`treasury.admin` only — supervisor cannot trigger storage",
@@ -562,38 +561,28 @@
         {
           "name": "treasury",
           "docs": [
-            "Treasury PDA — signs the cubic-pool CPI via `signer_seeds`.",
-            "Marked `mut` because cubic-pool's `MigratePoolV4` declares",
-            "`authority: #[account(mut)]` (it conditionally transfers from",
-            "authority for the realloc rent top-up). Anchor's CPI machinery",
-            "requires the outer writability flag to match the inner one even",
-            "when no actual write happens (in our flow the transfer is a",
-            "no-op because we pre-fund the pool directly from `admin`).",
-            "Without `mut` here the runtime reports \"writable privilege",
-            "escalated\"."
+            "Treasury PDA — signs the cubic-pool CPI via `signer_seeds`. Kept",
+            "`mut` so its writability flag matches cubic-pool's `authority`",
+            "(a future migration may transfer rent from it)."
           ],
           "writable": true
         },
         {
           "name": "admin",
           "docs": [
-            "Operator — pays both tx fees and the rent diff."
+            "Operator — pays tx fees (and any rent a future migration needs)."
           ],
           "writable": true,
           "signer": true
         },
         {
           "name": "pool",
-          "docs": [
-            "(owner = cubic-pool, size = `LEN_V3`, discriminator matches)."
-          ],
           "writable": true
         },
         {
           "name": "config",
           "docs": [
-            "and reads `protocol_admin` from its raw bytes to gate the",
-            "alternative-authority path."
+            "and accepts `config.protocol_admin` (= this Treasury PDA) as authority."
           ]
         },
         {
@@ -750,6 +739,61 @@
       "args": [
         {
           "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "pool_set_token_active",
+      "docs": [
+        "Flip a token's input kill switch on a pool. Signs the cubic-pool",
+        "`set_token_active` CPI as the Treasury PDA (= `config.protocol_admin`).",
+        "",
+        "# Authority",
+        "`treasury.admin` OR `treasury.supervisor` (when set) — the",
+        "circuit-breaker authority model, so a supervisor can stop accepting a",
+        "compromised token without full admin rights."
+      ],
+      "discriminator": [
+        210,
+        225,
+        91,
+        13,
+        36,
+        177,
+        85,
+        242
+      ],
+      "accounts": [
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "docs": [
+            "must equal `pool.config`, and `config.protocol_admin` must equal the",
+            "Treasury PDA signing this CPI)."
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "cubic_pool_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_index",
+          "type": "u8"
+        },
+        {
+          "name": "is_active",
           "type": "bool"
         }
       ]
@@ -1298,19 +1342,6 @@
       ]
     },
     {
-      "name": "PoolMigratedV4ByTreasury",
-      "discriminator": [
-        222,
-        163,
-        236,
-        129,
-        117,
-        208,
-        55,
-        12
-      ]
-    },
-    {
       "name": "PoolProtocolAdminTransferAccepted",
       "discriminator": [
         235,
@@ -1386,6 +1417,19 @@
         26,
         198,
         168
+      ]
+    },
+    {
+      "name": "PoolTokenActiveSet",
+      "discriminator": [
+        90,
+        223,
+        24,
+        229,
+        249,
+        84,
+        133,
+        43
       ]
     },
     {
@@ -1736,6 +1780,22 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "old_banned_extensions",
+            "docs": [
+              "Before/after of `config.banned_extensions` (read pre-CPI) + acting",
+              "admin. Appended (wire append-only); `banned_extensions` == `new`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "new_banned_extensions",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
           }
         ]
       }
@@ -1804,6 +1864,22 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "old_enabled",
+            "docs": [
+              "Before/after of `pool.pool_enabled` (read pre-CPI) + acting admin.",
+              "Appended (wire append-only); `enabled` == `new_enabled`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "new_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
           }
         ]
       }
@@ -1819,37 +1895,6 @@
           },
           {
             "name": "pool",
-            "type": "pubkey"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PoolMigratedV4ByTreasury",
-      "docs": [
-        "Emitted when the operator (`treasury.admin`) migrates a v3 pool to",
-        "v4 via `pool_migrate_v4`, bypassing the per-pool `pool_admin` path.",
-        "Distinguishable from `cubic_pool::PoolMigratedToV4` (which is also",
-        "emitted by the inner CPI) so observers can attribute operator-driven",
-        "migrations."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "treasury",
-            "type": "pubkey"
-          },
-          {
-            "name": "pool",
-            "type": "pubkey"
-          },
-          {
-            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -1943,6 +1988,22 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "old_rate",
+            "docs": [
+              "Before/after of `pool.protocol_fee_rate` (read pre-CPI) + acting",
+              "admin. Appended (wire append-only); `protocol_fee_rate` == `new_rate`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "new_rate",
+            "type": "u16"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
           }
         ]
       }
@@ -1999,6 +2060,70 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "old_enabled",
+            "docs": [
+              "Before/after of `pool.swaps_enabled` (read pre-CPI) + acting admin.",
+              "Appended (wire append-only); `enabled` == `new_enabled`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "new_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolTokenActiveSet",
+      "docs": [
+        "Emitted when admin/supervisor flips a token's input kill switch via",
+        "`pool_set_token_active`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_index",
+            "type": "u8"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "old_is_active",
+            "docs": [
+              "Before/after of `tokens[token_index].config.is_active` (read",
+              "pre-CPI). Appended (wire append-only); `is_active` == `new_is_active`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "new_is_active",
+            "type": "bool"
           }
         ]
       }
@@ -2389,6 +2514,14 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "old_authority",
+            "docs": [
+              "Previous BPF-loader upgrade authority (read pre-transfer). Appended",
+              "(wire append-only)."
+            ],
+            "type": "pubkey"
           }
         ]
       }

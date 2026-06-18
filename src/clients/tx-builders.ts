@@ -329,7 +329,11 @@ export function buildSingleTokenDepositIx(
   pool: PoolInfo,
   params: SingleTokenDepositParams
 ): TransactionInstruction {
-  const slip = params.slippageHundredthsBps ?? cfg.defaults.slippageHundredthsBps;
+  // v5 / new contract: deposit_single_token args are
+  // (amount_in: u64, token_in_index: u8, minimum_bpt_amount: u64).
+  // The old per-call `slippage_hundredths_bps: u32` was removed — the single
+  // `minimum_bpt_amount` floor now bounds the whole zap (internal swaps +
+  // surge fees + join); per-leg swaps use min_out = 0.
   const minBpt = requirePositiveMinimumBpt(params.minimumBptAmount, "deposit_single_token");
   const [helper] = deriveHelperPda(cfg.programs.singleTokenLiquidity, pool.address);
   const helperBpt = deriveAta(helper, pool.bptMint, TOKEN_PROGRAM_ID);
@@ -339,7 +343,6 @@ export function buildSingleTokenDepositIx(
     STLD_DISC.depositSingleToken,
     encodeU64(params.amountIn),
     encodeU8(params.tokenInIndex),
-    encodeU32(slip),
     encodeU64(minBpt),
   ]);
 
