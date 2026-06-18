@@ -670,23 +670,23 @@
       ]
     },
     {
-      "name": "migrate_pool_v4",
+      "name": "migrate_to_v5",
       "docs": [
         "Pool storage migration entrypoint. Currently a **no-op placeholder**",
         "— the historical one-shot migration is complete and its logic has",
         "been removed. Kept as a generic shell so a future storage-layout",
         "change can be implemented here without adding a new instruction.",
-        "See `instructions::migrate_pool_v4`."
+        "See `instructions::migrate_to_v5`."
       ],
       "discriminator": [
-        227,
-        124,
-        203,
-        29,
-        107,
-        79,
-        175,
-        240
+        127,
+        60,
+        135,
+        204,
+        181,
+        90,
+        202,
+        249
       ],
       "accounts": [
         {
@@ -1597,16 +1597,16 @@
       ]
     },
     {
-      "name": "PoolMigratedV4",
+      "name": "PoolMigratedToV5",
       "discriminator": [
-        118,
-        237,
-        119,
-        121,
-        97,
-        29,
-        123,
-        80
+        95,
+        55,
+        157,
+        61,
+        92,
+        6,
+        79,
+        105
       ]
     },
     {
@@ -3167,9 +3167,9 @@
       }
     },
     {
-      "name": "PoolMigratedV4",
+      "name": "PoolMigratedToV5",
       "docs": [
-        "Emitted by `migrate_pool_v4`. Marks an in-place storage migration that",
+        "Emitted by `migrate_to_v5`. Marks an in-place storage migration that",
         "re-interprets the (same-size, 1683-byte) v4 account under a newer field",
         "layout: the bytes that previously held `max_selloff: u64` /",
         "`max_selloff_period_length: u32` / `reserved` now decode as",

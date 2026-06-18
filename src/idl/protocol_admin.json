@@ -537,10 +537,10 @@
       ]
     },
     {
-      "name": "pool_migrate_v4",
+      "name": "pool_migrate_to_v5",
       "docs": [
         "Operator-driven pool storage migration wrapper. Currently a",
-        "**no-op placeholder** (cubic-pool's `migrate_pool_v4` is empty) —",
+        "**no-op placeholder** (cubic-pool's `migrate_to_v5` is empty) —",
         "kept as a generic Treasury-signed shell for a future migration.",
         "",
         "# Authority",
@@ -548,14 +548,14 @@
         "migrations."
       ],
       "discriminator": [
-        159,
-        77,
-        21,
-        158,
-        41,
-        172,
-        31,
-        249
+        153,
+        225,
+        178,
+        138,
+        8,
+        27,
+        147,
+        38
       ],
       "accounts": [
         {

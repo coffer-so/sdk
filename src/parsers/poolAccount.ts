@@ -81,14 +81,14 @@ export const POOL_DISCRIMINATOR_LEN = 8;
 const MAX_TOKENS = 10;
 /** Total on-chain size of a v4 CubicPool (includes the 8-byte discriminator). */
 export const POOL_V4_LEN = 1683;
-/** Pre-v4 size — accounts at this size still need `migrate_pool_v4`. */
+/** Pre-v4 size — accounts at this size still need `migrate_to_v5`. */
 export const POOL_V3_LEN = 1154;
 
 export function decodePoolAccount(data: Buffer): RawPoolAccount {
   if (data.length === POOL_V3_LEN) {
     throw new Error(
       `decodePoolAccount: account is at v3 size (${POOL_V3_LEN}). ` +
-        `Run migrate_pool_v4 against it before calling this decoder.`,
+        `Run migrate_to_v5 against it before calling this decoder.`,
     );
   }
   if (data.length !== POOL_V4_LEN) {
