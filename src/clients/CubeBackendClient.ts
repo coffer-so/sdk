@@ -148,6 +148,39 @@ export interface LeaderboardStatsResponse {
   totalXp: number;
 }
 
+// ── Pool admin types ──
+
+export interface AdminPoolEntry {
+  poolAddress: string;
+  poolName: string;
+  tvlUsd: number;
+  apy: number;
+  volume24h: number;
+  swapFee: number;
+  poolEnabled: boolean;
+  swapsEnabled: boolean;
+  tokens: Array<{
+    mintAddress: string;
+    ticker: string;
+    imageUrl: string | null;
+  }>;
+}
+
+export interface AdminPoolsResponse {
+  pools: AdminPoolEntry[];
+}
+
+export interface IsAdminResponse {
+  poolAddress: string;
+  isAdmin: boolean;
+}
+
+export interface RenamePoolResponse {
+  poolAddress: string;
+  name: string;
+  updated: true;
+}
+
 // ── Referral types ──
 
 export interface ReferralBindResponse {
@@ -384,6 +417,37 @@ export class CubeBackendClient {
     return this.get<StatsSeries>(`/api/stats/${kind}?${qs.toString()}`);
   }
 
+  // ── Pool admin (auth required) ──
+
+  /**
+   * Get pools where the authenticated user is the on-chain admin.
+   * Requires authentication.
+   */
+  getAdminPools(): Promise<SdkResult<AdminPoolsResponse>> {
+    return this.get<AdminPoolsResponse>("/api/pools/admin/my-pools");
+  }
+
+  /**
+   * Check if the authenticated user is the on-chain admin of a specific pool.
+   * Requires authentication.
+   */
+  isPoolAdmin(poolAddress: string): Promise<SdkResult<IsAdminResponse>> {
+    return this.get<IsAdminResponse>(
+      `/api/pools/admin/is-admin/${encodeURIComponent(poolAddress)}`,
+    );
+  }
+
+  /**
+   * Rename a pool. Only the on-chain pool admin can do this.
+   * Requires authentication.
+   */
+  renamePool(poolAddress: string, name: string): Promise<SdkResult<RenamePoolResponse>> {
+    return this.put<RenamePoolResponse>(
+      `/api/pools/admin/${encodeURIComponent(poolAddress)}/name`,
+      { name },
+    );
+  }
+
   // ── Referral ──
 
   /**
@@ -488,6 +552,10 @@ export class CubeBackendClient {
     return this.requestWithRefresh<T>("POST", path, body);
   }
 
+  put<T>(path: string, body: unknown): Promise<SdkResult<T>> {
+    return this.requestWithRefresh<T>("PUT", path, body);
+  }
+
   // ── Private: HTTP layer with auto-refresh ──
 
   /**
@@ -498,7 +566,7 @@ export class CubeBackendClient {
    *   3. On failure: notify via onAuthExpired callback, return original error
    */
   private async requestWithRefresh<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PUT",
     path: string,
     body?: unknown,
   ): Promise<SdkResult<T>> {
@@ -517,7 +585,7 @@ export class CubeBackendClient {
   }
 
   private async rawRequest<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PUT",
     path: string,
     body?: unknown
   ): Promise<SdkResult<T>> {
