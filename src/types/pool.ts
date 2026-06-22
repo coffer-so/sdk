@@ -67,6 +67,12 @@ export interface PoolInfo {
    * v0-tx builders compress per-token accounts via this ALT.
    */
   lookupTable: PublicKey;
+  /**
+   * Effective Token-2022 banned-extensions bitmap this pool's tokens were
+   * vetted against at creation. `0` ⇒ nothing banned (permissive — rug risk;
+   * surface to users before they deposit).
+   */
+  bannedExtensions: BN;
   /** Unix timestamp (ms) when sync() ran. Useful for staleness checks. */
   syncedAt: number;
 }

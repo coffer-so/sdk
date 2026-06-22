@@ -163,6 +163,7 @@ export class CubicPoolClient {
       swapsEnabled: raw.swapsEnabled,
       createdAt: raw.createdAt.toNumber(),
       lookupTable: raw.lookupTable,
+      bannedExtensions: raw.bannedExtensions,
       syncedAt: Date.now(),
     };
     this.cache = info;

@@ -502,6 +502,9 @@ export function buildInitializeCubicPoolIx(
     encodeVecU64(params.virtualBalances),
     encodeU32(params.swapFeeRate),
     encodeU64(params.poolId),
+    // Option<u64> banned_extensions_override: 0x00 = None (inherit config
+    // default), 0x01 + u64 LE = Some(bitmap) chosen by the creator.
+    encodeOptionU64(params.bannedExtensions),
   ]);
 
   const remaining: AccountMeta[] = params.tokens.map((m) => ({
@@ -656,6 +659,12 @@ function encodeU32(v: number): Buffer {
 }
 function encodeU64(v: BN): Buffer {
   return v.toArrayLike(Buffer, "le", 8);
+}
+/** Borsh `Option<u64>`: 1 tag byte (0=None, 1=Some) + u64 LE when Some. */
+function encodeOptionU64(v?: BN | number | null): Buffer {
+  if (v === undefined || v === null) return Buffer.from([0]);
+  const bn = BN.isBN(v) ? v : new BN(v);
+  return Buffer.concat([Buffer.from([1]), encodeU64(bn)]);
 }
 function encodeVecU64(vs: BN[]): Buffer {
   const len = Buffer.alloc(4);

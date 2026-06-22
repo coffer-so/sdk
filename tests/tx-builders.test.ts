@@ -53,6 +53,7 @@ function mockPool(tokenCount = 2): PoolInfo {
     swapsEnabled: true,
     createdAt: 0,
     lookupTable: PublicKey.default,
+    bannedExtensions: new BN(0),
     syncedAt: Date.now(),
   };
 }

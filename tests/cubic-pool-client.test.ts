@@ -38,6 +38,7 @@ function mockPool(): PoolInfo {
     swapsEnabled: true,
     createdAt: 0,
     lookupTable: pk(),
+    bannedExtensions: new BN(0),
     syncedAt: Date.now(),
   };
 }

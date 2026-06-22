@@ -84,4 +84,15 @@ export interface DeployPoolParams {
   swapFeeRate: number;
   /** SPL Token program to use for the BPT mint (classic SPL Token recommended). */
   bptTokenProgram?: PublicKey;
+  /**
+   * Optional creator-chosen Token-2022 banned-extensions bitmap. Omit
+   * (`undefined`/`null`) to inherit the config default. Set a bitmap to vet
+   * THIS pool's tokens against it and store it on the pool. `0` allows every
+   * extension.
+   *
+   * ⚠ A permissive policy (un-banning PermanentDelegate / TransferHook /
+   * TransferFee) makes the pool drainable/abusable by the token issuer —
+   * surface this to the user before deploying.
+   */
+  bannedExtensions?: BN | number | null;
 }

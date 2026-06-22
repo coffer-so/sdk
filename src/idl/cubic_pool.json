@@ -497,6 +497,12 @@
         {
           "name": "pool_id",
           "type": "u64"
+        },
+        {
+          "name": "banned_extensions_override",
+          "type": {
+            "option": "u64"
+          }
         }
       ]
     },
@@ -2521,6 +2527,29 @@
             "type": "pubkey"
           },
           {
+            "name": "banned_extensions",
+            "docs": [
+              "Token-2022 extension blocklist that was applied to THIS pool's tokens",
+              "at creation, in the same bit layout as",
+              "`CubicPoolConfig.banned_extensions` (bit `i` set ⇒ extension type `i`",
+              "is forbidden). Chosen by the pool **creator** at init: if they passed",
+              "an explicit override it is stored verbatim; otherwise the parent",
+              "config's default was copied here.",
+              "",
+              "Recorded for transparency so indexers / depositors can see exactly",
+              "which extension policy a pool's tokens were vetted against. It is a",
+              "snapshot only — the pool's token set is fixed at creation, so changing",
+              "this value later would not re-validate anything.",
+              "",
+              "NOTE (security): the creator may set ANY bitmap, including `0` (allow",
+              "every extension). A pool whose policy permits e.g. `PermanentDelegate`",
+              "or `TransferHook` can be drained/abused by the token issuer — LPs must",
+              "read this field and decide whether they trust the policy before",
+              "depositing. Pre-existing (pre-upgrade) pools read `0` here."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "reserved",
             "docs": [
               "Forward-compat padding for pool-level fields."
@@ -2528,7 +2557,7 @@
             "type": {
               "array": [
                 "u8",
-                32
+                24
               ]
             }
           }
@@ -3138,7 +3167,9 @@
         "* `config`      — parent config pubkey",
         "* `token_count` — active tokens (2..=10)",
         "* `bpt_mint`    — BPT mint PDA pubkey",
-        "* `timestamp`   — `Clock::unix_timestamp` at init"
+        "* `timestamp`   — `Clock::unix_timestamp` at init",
+        "* `banned_extensions` — the effective Token-2022 extension blocklist the",
+        "creator's tokens were vetted against (override, or the config default)."
       ],
       "type": {
         "kind": "struct",
@@ -3162,6 +3193,13 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "banned_extensions",
+            "docs": [
+              "Appended (wire append-only): effective per-pool banned-extensions bitmap."
+            ],
+            "type": "u64"
           }
         ]
       }

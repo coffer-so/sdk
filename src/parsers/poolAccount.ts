@@ -74,6 +74,14 @@ export interface RawPoolAccount {
    * paths.
    */
   lookupTable: PublicKey;
+
+  /**
+   * Effective Token-2022 banned-extensions bitmap this pool's tokens were
+   * vetted against at creation (creator override, or the config default).
+   * `0` ⇒ no extensions banned. Pre-upgrade pools read `0`. A permissive
+   * value is a rug-risk — surface it before depositing.
+   */
+  bannedExtensions: BN;
 }
 
 /** 8-byte anchor discriminator for CubicPool. */
@@ -196,7 +204,11 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
   const lookupTable = readPubkey(data, off);
   off += 32;
 
-  // Trailing `reserved[32]` ignored.
+  // Effective per-pool Token-2022 banned-extensions bitmap (carved out of
+  // the old reserved[32]; pre-upgrade pools read 0). Trailing reserved[24]
+  // is ignored.
+  const bannedExtensions = readU64LE(data, off);
+  off += 8;
 
   return {
     config,
@@ -233,6 +245,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
     windowStartTimestamp,
     selloffVbSnapshot,
     lookupTable,
+    bannedExtensions,
   };
 }
 
