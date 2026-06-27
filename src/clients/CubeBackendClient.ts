@@ -226,6 +226,90 @@ export interface ReferralListResponse {
   data: ReferralEntry[];
 }
 
+// ── Portfolio types ──
+
+export interface PortfolioValueChange {
+  abs: number;
+  pct: number;
+}
+
+export interface PortfolioSummaryResponse {
+  value: {
+    total: number;
+    inPositions: number;
+    inWallet: number;
+    change: {
+      d1: PortfolioValueChange;
+      d7: PortfolioValueChange;
+    };
+  };
+  totalPnl: {
+    net: number;
+    pct: number;
+    components: {
+      feesEarned: number;
+      ilCurrent: number;
+      ilRealized: number;
+    };
+  };
+}
+
+export interface PortfolioExposureToken {
+  symbol: string;
+  mint: string;
+  logo: string | null;
+  usd: number;
+  amount: number;
+  pct: number;
+  inLp: number;
+  inWallet: number;
+  pools: string[];
+}
+
+export interface PortfolioExposureResponse {
+  totalUsd: number;
+  tokens: PortfolioExposureToken[];
+}
+
+export interface PortfolioHistoryPoint {
+  t: number;
+  feesCumulative: number;
+  ilCumulative: number;
+  netPnl: number;
+}
+
+export interface PortfolioHistoryResponse {
+  range: string;
+  series: PortfolioHistoryPoint[];
+}
+
+export interface PortfolioPoolEntry {
+  poolAddress: string;
+  poolName: string;
+  tokens: Array<{ symbol: string; mint: string }>;
+  value: number;
+  feesEarned: number;
+  il: number;
+  netPnl: number;
+  apr: number;
+}
+
+export interface PortfolioPoolsResponse {
+  pools: PortfolioPoolEntry[];
+}
+
+export interface PortfolioPoolHistoryPoint {
+  t: number;
+  feesCumulative: number;
+  ilCumulative: number;
+}
+
+export interface PortfolioPoolHistoryResponse {
+  poolAddress: string;
+  range: string;
+  series: PortfolioPoolHistoryPoint[];
+}
+
 // ── Auth types ──
 
 export interface NonceResponse {
@@ -494,6 +578,55 @@ export class CubeBackendClient {
     });
     return this.get<ReferralListResponse>(
       `/api/referral/my/referrals?${qs.toString()}`,
+    );
+  }
+
+  // ── Portfolio (auth required) ──
+
+  /**
+   * Portfolio summary: value (LP + wallet) + total PnL (fees, IL current, IL realized).
+   * Returns 404 if user has no LP positions.
+   */
+  getPortfolioSummary(): Promise<SdkResult<PortfolioSummaryResponse>> {
+    return this.get<PortfolioSummaryResponse>("/api/portfolio/summary");
+  }
+
+  /**
+   * Token exposure: per-token breakdown of LP positions + wallet balances.
+   */
+  getPortfolioExposure(): Promise<SdkResult<PortfolioExposureResponse>> {
+    return this.get<PortfolioExposureResponse>("/api/portfolio/exposure");
+  }
+
+  /**
+   * Portfolio history for charts (fees cumulative + IL cumulative).
+   * Daily data points for the selected range.
+   */
+  getPortfolioHistory(
+    range: "7d" | "30d" | "90d" | "all" = "30d",
+  ): Promise<SdkResult<PortfolioHistoryResponse>> {
+    return this.get<PortfolioHistoryResponse>(
+      `/api/portfolio/history?range=${range}`,
+    );
+  }
+
+  /**
+   * Per-pool portfolio metrics (value, fees, IL, net PnL, APR).
+   */
+  getPortfolioPools(): Promise<SdkResult<PortfolioPoolsResponse>> {
+    return this.get<PortfolioPoolsResponse>("/api/portfolio/pools");
+  }
+
+  /**
+   * Per-pool history (lazy-loaded on row expand).
+   * Fees cumulative + IL cumulative series for a single pool.
+   */
+  getPortfolioPoolHistory(
+    poolAddress: string,
+    range: "7d" | "30d" | "90d" | "all" = "30d",
+  ): Promise<SdkResult<PortfolioPoolHistoryResponse>> {
+    return this.get<PortfolioPoolHistoryResponse>(
+      `/api/portfolio/pools/${encodeURIComponent(poolAddress)}/history?range=${range}`,
     );
   }
 
