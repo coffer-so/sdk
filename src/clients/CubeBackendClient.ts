@@ -148,6 +148,16 @@ export interface LeaderboardStatsResponse {
   totalXp: number;
 }
 
+// ── Platform stats ──
+
+export interface PlatformStatsResponse {
+  totalTvlUsd: number;
+  totalVirtualTvl: number;
+  totalVolume24h: number;
+  poolCount: number;
+  updatedAt: string | null;
+}
+
 // ── Pool admin types ──
 
 export interface AdminPoolEntry {
@@ -386,8 +396,8 @@ export class CubeBackendClient {
     return this.getDataField<T>(`/api/pools/by-pair?${qs.toString()}`);
   }
 
-  getPlatformStats<T>(): Promise<SdkResult<T>> {
-    return this.getDataField<T>("/api/pools/stats");
+  getPlatformStats(): Promise<SdkResult<PlatformStatsResponse>> {
+    return this.getDataField<PlatformStatsResponse>("/api/pools/stats");
   }
 
   getPortfolio<T>(wallet: string): Promise<SdkResult<T>> {
