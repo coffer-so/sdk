@@ -10,6 +10,8 @@ export type CubicPoolEvent =
   | PoolEnabledUpdatedEvent
   | SwapsEnabledUpdatedEvent
   | SingleTokenDepositEvent
+  | PoolStateLogEvent
+  | MaxSelloffWindowAdvancedEvent
   | UnknownEvent;
 
 export interface PoolInitializedEvent {
@@ -31,6 +33,11 @@ export interface SwapEvent {
   amountOut: BN;
   feeAmount: BN;
   protocolFeeAmount: BN;
+  /**
+   * Variable sell-off surge fee taken from the OUTPUT token and routed
+   * 100% to the protocol bucket. `0` in the common case.
+   */
+  surgeFeeAmount: BN;
   timestamp: number;
 }
 
@@ -91,6 +98,32 @@ export interface SingleTokenDepositEvent {
   bptReceived: BN;
   dustRefunded: BN;
   timestamp: number;
+}
+
+export interface PoolStateLogEvent {
+  kind: "PoolStateLog";
+  pool: PublicKey;
+  virtualBalances: BN[];
+  actualBalances: BN[];
+  protocolFeesOwed: BN[];
+  timestamp: number;
+}
+
+export interface MaxSelloffWindowAdvancedEvent {
+  kind: "MaxSelloffWindowAdvanced";
+  pool: PublicKey;
+  tokenIndex: number;
+  effectiveSelloff: BN;
+  maxSelloffCap: BN;
+  vbSnapshot: BN;
+  previousSelloff: BN;
+  currentSelloff: BN;
+  windowStartTimestamp: number;
+  timestamp: number;
+  /**
+   * Window fill % = `effectiveSelloff / maxSelloffCap`. When this ratio
+   * reaches 1.0 the sell-off cap for the window is fully consumed.
+   */
 }
 
 export interface UnknownEvent {

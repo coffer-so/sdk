@@ -23,12 +23,16 @@ export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
     ),
   },
   devnet: {
-    cubicPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
+    // v5 test copy deployed on devnet (fresh program IDs under our wallet;
+    // the original devnet CVKx/HJEi IDs have a non-ours upgrade authority).
+    cubicPool: new PublicKey("E6YAKuLAd8vBgJnXsVdPCFCdgUef6ZinfDst3JMxuhJJ"),
+    // stld NOT deployed on the devnet copy — placeholder (single-token
+    // deposit is disabled on devnet). Replace if/when stld ships here.
     singleTokenLiquidity: new PublicKey(
       "7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2",
     ),
     protocolAdmin: new PublicKey(
-      "3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81",
+      "6bFDi7RrLJSbhBpJ2AjHAQfbzBiHGXQXND7no8gv8gux",
     ),
   },
   localnet: {
