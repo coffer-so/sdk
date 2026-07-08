@@ -53,6 +53,9 @@ export interface SwapRouteEntry {
   poolName: string;
   amountIn: string;
   expectedOut: string;
+  /** Raw minimum output for this leg after slippage — sign this into the
+   *  swap instruction. */
+  minAmountOut: string;
   percentage: number;
   swapFee: number;
   tokenProgramIn: string;
@@ -67,6 +70,12 @@ export interface SwapRouteResponse {
   routes: SwapRouteEntry[];
   totalAmountIn: string;
   totalExpectedOut: string;
+  /** Total raw minimum received after slippage (sum of per-leg
+   *  minAmountOut). Always ≤ totalExpectedOut — display this as "Min
+   *  received" instead of extrapolating from spot price. */
+  minReceived: string;
+  /** Slippage tolerance applied by the backend (basis points; 200 = 2%). */
+  slippageBps: number;
   effectivePrice: number;
   priceImpact: number;
   spotPrice: number;
@@ -439,6 +448,7 @@ export class CubeBackendClient {
     tokenOut: string,
     amountIn: string,
     decimalsIn: number = 9,
+    slippageBps?: number,
   ): Promise<SdkResult<SwapRouteResponse>> {
     const qs = new URLSearchParams({
       tokenIn,
@@ -446,6 +456,9 @@ export class CubeBackendClient {
       amountIn,
       decimalsIn: String(decimalsIn),
     });
+    if (slippageBps !== undefined) {
+      qs.set('slippageBps', String(slippageBps));
+    }
     return this.getDataField<SwapRouteResponse>(
       `/api/pools/swap-route?${qs.toString()}`,
     );
