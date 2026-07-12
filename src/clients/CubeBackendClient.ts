@@ -308,7 +308,10 @@ export interface PortfolioPoolEntry {
   tokens: Array<{ symbol: string; mint: string }>;
   value: number;
   feesEarned: number;
+  /** LIVE unrealized IL only (≤ 0); realized part is `ilRealized` */
   il: number;
+  /** Result locked in on past withdrawals vs HODL ("Realized PnL" in UI) */
+  ilRealized: number;
   netPnl: number;
   apr: number;
 }
@@ -634,7 +637,8 @@ export class CubeBackendClient {
   }
 
   /**
-   * Per-pool portfolio metrics (value, fees, IL, net PnL, APR).
+   * Per-pool portfolio metrics (value, fees, unrealized IL, realized
+   * IL/PnL, net PnL, APR).
    */
   getPortfolioPools(): Promise<SdkResult<PortfolioPoolsResponse>> {
     return this.get<PortfolioPoolsResponse>("/api/portfolio/pools");
