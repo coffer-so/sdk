@@ -97,6 +97,7 @@ export const MAX_TOKENS = 10;
 export const BPT_DECIMALS = 9;
 export const SWAP_FEE_PRECISION = 1_000_000; // 100 %
 export const PROTOCOL_FEE_PRECISION = 10_000; // 100 %
+export const PERCENT_SCALE = 10_000; // 100 % (max-selloff / surge-fee scale)
 export const MAX_SWAP_FEE_RATE = 100_000; // 10 %
 export const MAX_PROTOCOL_FEE_RATE = 5_000; // 50 %
 export const MINIMUM_INITIAL_BPT = 1_000n;

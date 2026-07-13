@@ -24,6 +24,8 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InvalidMint: "invalid_input",
   PoolDisabled: "pool_disabled",
   SwapsDisabled: "swaps_disabled",
+  MaxSelloffExceeded: "selloff_window_full",
+  TokenInactive: "token_swaps_disabled",
   PoolMustBeDisabled: "invalid_input",
   ZeroAmount: "invalid_input",
   ZeroFeeAmount: "invalid_input",
