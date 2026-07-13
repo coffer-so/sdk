@@ -53,6 +53,9 @@ export interface SwapRouteEntry {
   poolName: string;
   amountIn: string;
   expectedOut: string;
+  /** Raw minimum output for this leg after slippage — sign this into the
+   *  swap instruction. */
+  minAmountOut: string;
   percentage: number;
   swapFee: number;
   tokenProgramIn: string;
@@ -67,6 +70,12 @@ export interface SwapRouteResponse {
   routes: SwapRouteEntry[];
   totalAmountIn: string;
   totalExpectedOut: string;
+  /** Total raw minimum received after slippage (sum of per-leg
+   *  minAmountOut). Always ≤ totalExpectedOut — display this as "Min
+   *  received" instead of extrapolating from spot price. */
+  minReceived: string;
+  /** Slippage tolerance applied by the backend (basis points; 200 = 2%). */
+  slippageBps: number;
   effectivePrice: number;
   priceImpact: number;
   spotPrice: number;
@@ -148,6 +157,49 @@ export interface LeaderboardStatsResponse {
   totalXp: number;
 }
 
+// ── Platform stats ──
+
+export interface PlatformStatsResponse {
+  totalTvlUsd: number;
+  totalVirtualTvl: number;
+  totalVolume24h: number;
+  poolCount: number;
+  updatedAt: string | null;
+}
+
+// ── Pool admin types ──
+
+export interface AdminPoolEntry {
+  poolAddress: string;
+  poolName: string;
+  tvlUsd: number;
+  apy: number;
+  volume24h: number;
+  swapFee: number;
+  poolEnabled: boolean;
+  swapsEnabled: boolean;
+  tokens: Array<{
+    mintAddress: string;
+    ticker: string;
+    imageUrl: string | null;
+  }>;
+}
+
+export interface AdminPoolsResponse {
+  pools: AdminPoolEntry[];
+}
+
+export interface IsAdminResponse {
+  poolAddress: string;
+  isAdmin: boolean;
+}
+
+export interface RenamePoolResponse {
+  poolAddress: string;
+  name: string;
+  updated: true;
+}
+
 // ── Referral types ──
 
 export interface ReferralBindResponse {
@@ -191,6 +243,93 @@ export interface ReferralListResponse {
   page: number;
   limit: number;
   data: ReferralEntry[];
+}
+
+// ── Portfolio types ──
+
+export interface PortfolioValueChange {
+  abs: number;
+  pct: number;
+}
+
+export interface PortfolioSummaryResponse {
+  value: {
+    total: number;
+    inPositions: number;
+    inWallet: number;
+    change: {
+      d1: PortfolioValueChange;
+      d7: PortfolioValueChange;
+    };
+  };
+  totalPnl: {
+    net: number;
+    pct: number;
+    components: {
+      feesEarned: number;
+      ilCurrent: number;
+      ilRealized: number;
+    };
+  };
+}
+
+export interface PortfolioExposureToken {
+  symbol: string;
+  mint: string;
+  logo: string | null;
+  usd: number;
+  amount: number;
+  pct: number;
+  inLp: number;
+  inWallet: number;
+  pools: string[];
+}
+
+export interface PortfolioExposureResponse {
+  totalUsd: number;
+  tokens: PortfolioExposureToken[];
+}
+
+export interface PortfolioHistoryPoint {
+  t: number;
+  feesCumulative: number;
+  ilCumulative: number;
+  netPnl: number;
+}
+
+export interface PortfolioHistoryResponse {
+  range: string;
+  series: PortfolioHistoryPoint[];
+}
+
+export interface PortfolioPoolEntry {
+  poolAddress: string;
+  poolName: string;
+  tokens: Array<{ symbol: string; mint: string }>;
+  value: number;
+  feesEarned: number;
+  /** LIVE unrealized IL only (≤ 0); realized part is `ilRealized` */
+  il: number;
+  /** Result locked in on past withdrawals vs HODL ("Realized PnL" in UI) */
+  ilRealized: number;
+  netPnl: number;
+  apr: number;
+}
+
+export interface PortfolioPoolsResponse {
+  pools: PortfolioPoolEntry[];
+}
+
+export interface PortfolioPoolHistoryPoint {
+  t: number;
+  feesCumulative: number;
+  ilCumulative: number;
+}
+
+export interface PortfolioPoolHistoryResponse {
+  poolAddress: string;
+  range: string;
+  series: PortfolioPoolHistoryPoint[];
 }
 
 // ── Auth types ──
@@ -269,8 +408,8 @@ export class CubeBackendClient {
     return this.getDataField<T>(`/api/pools/by-pair?${qs.toString()}`);
   }
 
-  getPlatformStats<T>(): Promise<SdkResult<T>> {
-    return this.getDataField<T>("/api/pools/stats");
+  getPlatformStats(): Promise<SdkResult<PlatformStatsResponse>> {
+    return this.getDataField<PlatformStatsResponse>("/api/pools/stats");
   }
 
   getPortfolio<T>(wallet: string): Promise<SdkResult<T>> {
@@ -289,8 +428,21 @@ export class CubeBackendClient {
     return this.getDataField<T>(`/api/pools/${addr}/tx-stats`);
   }
 
-  getTransactions<T>(addr: string, limit: number = 20, offset: number = 0): Promise<SdkResult<T>> {
-    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  getTransactions<T>(
+    addr: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      type?: "swap" | "add_liquidity" | "remove_liquidity";
+      user?: string;
+    },
+  ): Promise<SdkResult<T>> {
+    const qs = new URLSearchParams({
+      limit: String(options?.limit ?? 20),
+      offset: String(options?.offset ?? 0),
+    });
+    if (options?.type) qs.set("type", options.type);
+    if (options?.user) qs.set("user", options.user);
     return this.getDataField<T>(`/api/pools/${addr}/transactions?${qs.toString()}`);
   }
 
@@ -299,6 +451,7 @@ export class CubeBackendClient {
     tokenOut: string,
     amountIn: string,
     decimalsIn: number = 9,
+    slippageBps?: number,
   ): Promise<SdkResult<SwapRouteResponse>> {
     const qs = new URLSearchParams({
       tokenIn,
@@ -306,6 +459,9 @@ export class CubeBackendClient {
       amountIn,
       decimalsIn: String(decimalsIn),
     });
+    if (slippageBps !== undefined) {
+      qs.set('slippageBps', String(slippageBps));
+    }
     return this.getDataField<SwapRouteResponse>(
       `/api/pools/swap-route?${qs.toString()}`,
     );
@@ -371,15 +527,58 @@ export class CubeBackendClient {
     return this.get<StatsSeries>(`/api/stats/${kind}?${qs.toString()}`);
   }
 
+  // ── Pool admin (auth required) ──
+
+  /**
+   * Get pools where the authenticated user is the on-chain admin.
+   * Requires authentication.
+   */
+  getAdminPools(): Promise<SdkResult<AdminPoolsResponse>> {
+    return this.get<AdminPoolsResponse>("/api/pools/admin/my-pools");
+  }
+
+  /**
+   * Check if the authenticated user is the on-chain admin of a specific pool.
+   * Requires authentication.
+   */
+  isPoolAdmin(poolAddress: string): Promise<SdkResult<IsAdminResponse>> {
+    return this.get<IsAdminResponse>(
+      `/api/pools/admin/is-admin/${encodeURIComponent(poolAddress)}`,
+    );
+  }
+
+  /**
+   * Rename a pool. Only the on-chain pool admin can do this.
+   * Requires authentication.
+   */
+  renamePool(poolAddress: string, name: string): Promise<SdkResult<RenamePoolResponse>> {
+    return this.put<RenamePoolResponse>(
+      `/api/pools/admin/${encodeURIComponent(poolAddress)}/name`,
+      { name },
+    );
+  }
+
   // ── Referral ──
 
   /**
    * Bind the authenticated user as a referral of the given referrer.
    * The code can be a wallet address or a custom referral code.
+   * Optionally pass UTM parameters from the referral link for analytics.
    * Requires authentication (setTokens must be called first).
    */
-  bindReferral(code: string): Promise<SdkResult<ReferralBindResponse>> {
-    return this.post<ReferralBindResponse>("/api/referral/bind", { code });
+  bindReferral(
+    code: string,
+    utm?: {
+      source?: string;
+      medium?: string;
+      campaign?: string;
+      content?: string;
+      term?: string;
+    },
+  ): Promise<SdkResult<ReferralBindResponse>> {
+    const body: Record<string, unknown> = { code };
+    if (utm) body.utm = utm;
+    return this.post<ReferralBindResponse>("/api/referral/bind", body);
   }
 
   /**
@@ -405,6 +604,56 @@ export class CubeBackendClient {
     });
     return this.get<ReferralListResponse>(
       `/api/referral/my/referrals?${qs.toString()}`,
+    );
+  }
+
+  // ── Portfolio (auth required) ──
+
+  /**
+   * Portfolio summary: value (LP + wallet) + total PnL (fees, IL current, IL realized).
+   * Returns 404 if user has no LP positions.
+   */
+  getPortfolioSummary(): Promise<SdkResult<PortfolioSummaryResponse>> {
+    return this.get<PortfolioSummaryResponse>("/api/portfolio/summary");
+  }
+
+  /**
+   * Token exposure: per-token breakdown of LP positions + wallet balances.
+   */
+  getPortfolioExposure(): Promise<SdkResult<PortfolioExposureResponse>> {
+    return this.get<PortfolioExposureResponse>("/api/portfolio/exposure");
+  }
+
+  /**
+   * Portfolio history for charts (fees cumulative + IL cumulative).
+   * Daily data points for the selected range.
+   */
+  getPortfolioHistory(
+    range: "7d" | "30d" | "90d" | "all" = "30d",
+  ): Promise<SdkResult<PortfolioHistoryResponse>> {
+    return this.get<PortfolioHistoryResponse>(
+      `/api/portfolio/history?range=${range}`,
+    );
+  }
+
+  /**
+   * Per-pool portfolio metrics (value, fees, unrealized IL, realized
+   * IL/PnL, net PnL, APR).
+   */
+  getPortfolioPools(): Promise<SdkResult<PortfolioPoolsResponse>> {
+    return this.get<PortfolioPoolsResponse>("/api/portfolio/pools");
+  }
+
+  /**
+   * Per-pool history (lazy-loaded on row expand).
+   * Fees cumulative + IL cumulative series for a single pool.
+   */
+  getPortfolioPoolHistory(
+    poolAddress: string,
+    range: "7d" | "30d" | "90d" | "all" = "30d",
+  ): Promise<SdkResult<PortfolioPoolHistoryResponse>> {
+    return this.get<PortfolioPoolHistoryResponse>(
+      `/api/portfolio/pools/${encodeURIComponent(poolAddress)}/history?range=${range}`,
     );
   }
 
@@ -463,6 +712,10 @@ export class CubeBackendClient {
     return this.requestWithRefresh<T>("POST", path, body);
   }
 
+  put<T>(path: string, body: unknown): Promise<SdkResult<T>> {
+    return this.requestWithRefresh<T>("PUT", path, body);
+  }
+
   // ── Private: HTTP layer with auto-refresh ──
 
   /**
@@ -473,7 +726,7 @@ export class CubeBackendClient {
    *   3. On failure: notify via onAuthExpired callback, return original error
    */
   private async requestWithRefresh<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PUT",
     path: string,
     body?: unknown,
   ): Promise<SdkResult<T>> {
@@ -492,7 +745,7 @@ export class CubeBackendClient {
   }
 
   private async rawRequest<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PUT",
     path: string,
     body?: unknown
   ): Promise<SdkResult<T>> {
