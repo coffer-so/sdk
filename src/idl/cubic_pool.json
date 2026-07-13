@@ -2863,6 +2863,10 @@
             "type": "u64"
           },
           {
+            "name": "max_selloff_pct",
+            "type": "u64"
+          },
+          {
             "name": "max_selloff_cap",
             "type": "u64"
           },
@@ -3285,10 +3289,8 @@
         "keep its denormalised pool table in sync without an additional account",
         "fetch. Emitted by `swap`, `add_liquidity`, and `remove_liquidity`.",
         "",
-        "NOTE: BPT total supply is intentionally NOT included — it is redundant",
-        "with the BPT mint account (which indexers already stream) and was a",
-        "misleading hardcoded `0` on `swap`. Read supply from the mint at the",
-        "tx slot instead."
+        "`bpt_total_supply` is the post-tx supply (0 for `swap`, which does not",
+        "touch supply — clients should fall back to the mint account)."
       ],
       "type": {
         "kind": "struct",
@@ -3296,6 +3298,22 @@
           {
             "name": "pool",
             "type": "pubkey"
+          },
+          {
+            "name": "token_count",
+            "type": "u8"
+          },
+          {
+            "name": "token_mints",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "normalized_weights",
+            "type": {
+              "vec": "u64"
+            }
           },
           {
             "name": "virtual_balances",
@@ -3310,10 +3328,30 @@
             }
           },
           {
+            "name": "bpt_total_supply",
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_rate",
+            "type": "u32"
+          },
+          {
+            "name": "protocol_fee_rate",
+            "type": "u16"
+          },
+          {
             "name": "protocol_fees_owed",
             "type": {
               "vec": "u64"
             }
+          },
+          {
+            "name": "pool_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "swaps_enabled",
+            "type": "bool"
           },
           {
             "name": "timestamp",
