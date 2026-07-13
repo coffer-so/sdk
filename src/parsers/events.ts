@@ -27,6 +27,7 @@ const DISC = {
   PoolStateLog:             Buffer.from([59, 254, 237, 111, 163, 10, 140, 224]),
   PoolInfo:                 Buffer.from([207, 20, 87, 97, 251, 212, 234, 45]),
   BannedExtensionsUpdated:  Buffer.from([107, 126, 13, 149, 182, 108, 139, 202]),
+  MaxSelloffWindowAdvanced: Buffer.from([229, 227, 163, 30, 22, 183, 78, 57]),
   // Stld:
   SingleTokenDeposit:       Buffer.from([215, 54, 137, 104, 219, 39, 164, 235]),
 };
@@ -80,8 +81,9 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       const amountOut = r.u64();
       const feeAmount = r.u64();
       const protocolFeeAmount = r.u64();
+      const surgeFeeAmount = r.u64();
       const timestamp = r.i64().toNumber();
-      return { kind: "Swap", pool, user, tokenIn, tokenOut, amountIn, amountOut, feeAmount, protocolFeeAmount, timestamp };
+      return { kind: "Swap", pool, user, tokenIn, tokenOut, amountIn, amountOut, feeAmount, protocolFeeAmount, surgeFeeAmount, timestamp };
     }
     case "LiquidityAdded": {
       const pool = r.pubkey();
@@ -157,13 +159,43 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
         timestamp,
       };
     }
+    case "PoolStateLog": {
+      const pool = r.pubkey();
+      const virtualBalances = r.vecU64();
+      const actualBalances = r.vecU64();
+      const protocolFeesOwed = r.vecU64();
+      const timestamp = r.i64().toNumber();
+      return { kind: "PoolStateLog", pool, virtualBalances, actualBalances, protocolFeesOwed, timestamp };
+    }
+    case "MaxSelloffWindowAdvanced": {
+      const pool = r.pubkey();
+      const tokenIndex = r.u8();
+      const effectiveSelloff = r.u64();
+      const maxSelloffCap = r.u64();
+      const vbSnapshot = r.u64();
+      const previousSelloff = r.u64();
+      const currentSelloff = r.u64();
+      const windowStartTimestamp = r.i64().toNumber();
+      const timestamp = r.i64().toNumber();
+      return {
+        kind: "MaxSelloffWindowAdvanced",
+        pool,
+        tokenIndex,
+        effectiveSelloff,
+        maxSelloffCap,
+        vbSnapshot,
+        previousSelloff,
+        currentSelloff,
+        windowStartTimestamp,
+        timestamp,
+      };
+    }
     // Events we don't yet surface as typed — decode as Unknown so the
     // caller gets the discriminator name and can act on it.
     case "SwapFeeRateUpdated":
     case "ProtocolFeeRateUpdated":
     case "BannedExtensionsUpdated":
     case "DebugLiquidityWithdrawn":
-    case "PoolStateLog":
     case "PoolInfo":
       return { kind: "Unknown", name, data: { raw: buf.toString("base64") } };
   }

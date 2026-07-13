@@ -2838,10 +2838,14 @@
       "name": "MaxSelloffWindowAdvanced",
       "docs": [
         "Emitted from inside `swap` whenever the sliding-window check for",
-        "`token_in_index` runs. Carries effective_selloff plus the resolved",
-        "absolute cap (`max_selloff_cap = max_selloff_pct * vb_snapshot /",
-        "PERCENT_SCALE`) and the snapshot it was resolved against, for",
-        "indexers / monitoring dashboards."
+        "`token_in_index` runs — this is the per-swap max-selloff WINDOW-FILL log.",
+        "Window fill = `effective_selloff / max_selloff_cap` (0..1). Carries the",
+        "resolved absolute cap and the vb-snapshot it was resolved against, plus",
+        "the raw window components (previous/current selloff, window_start).",
+        "",
+        "The static config `max_selloff_pct` is intentionally NOT included here",
+        "(it does not change during a swap) — it is logged by `MaxSelloffSet`",
+        "when the policy changes, and `cap = pct * vb_snapshot / PERCENT_SCALE`."
       ],
       "type": {
         "kind": "struct",
@@ -2856,10 +2860,6 @@
           },
           {
             "name": "effective_selloff",
-            "type": "u64"
-          },
-          {
-            "name": "max_selloff_pct",
             "type": "u64"
           },
           {
@@ -3285,8 +3285,10 @@
         "keep its denormalised pool table in sync without an additional account",
         "fetch. Emitted by `swap`, `add_liquidity`, and `remove_liquidity`.",
         "",
-        "`bpt_total_supply` is the post-tx supply (0 for `swap`, which does not",
-        "touch supply — clients should fall back to the mint account)."
+        "NOTE: BPT total supply is intentionally NOT included — it is redundant",
+        "with the BPT mint account (which indexers already stream) and was a",
+        "misleading hardcoded `0` on `swap`. Read supply from the mint at the",
+        "tx slot instead."
       ],
       "type": {
         "kind": "struct",
@@ -3294,22 +3296,6 @@
           {
             "name": "pool",
             "type": "pubkey"
-          },
-          {
-            "name": "token_count",
-            "type": "u8"
-          },
-          {
-            "name": "token_mints",
-            "type": {
-              "vec": "pubkey"
-            }
-          },
-          {
-            "name": "normalized_weights",
-            "type": {
-              "vec": "u64"
-            }
           },
           {
             "name": "virtual_balances",
@@ -3324,30 +3310,10 @@
             }
           },
           {
-            "name": "bpt_total_supply",
-            "type": "u64"
-          },
-          {
-            "name": "swap_fee_rate",
-            "type": "u32"
-          },
-          {
-            "name": "protocol_fee_rate",
-            "type": "u16"
-          },
-          {
             "name": "protocol_fees_owed",
             "type": {
               "vec": "u64"
             }
-          },
-          {
-            "name": "pool_enabled",
-            "type": "bool"
-          },
-          {
-            "name": "swaps_enabled",
-            "type": "bool"
           },
           {
             "name": "timestamp",
