@@ -42,6 +42,7 @@ export {
   BPT_DECIMALS,
   SWAP_FEE_PRECISION,
   PROTOCOL_FEE_PRECISION,
+  PERCENT_SCALE,
   MAX_SWAP_FEE_RATE,
   MAX_PROTOCOL_FEE_RATE,
   MINIMUM_INITIAL_BPT,
@@ -79,6 +80,13 @@ export {
   computeTwoTokenOptimalAllocations,
 } from "./math/singleToken";
 export { applySlippage, applySwapFee, lpBalances, priceImpactHbps } from "./math/slippage";
+export {
+  computeSelloffWindow,
+  projectSelloffWindow,
+  calcSurgeFeePct,
+  calcSurgeFeeAmount,
+  SURGE_FEE_CONVEXITY,
+} from "./math/maxSelloff";
 export { RpcClient } from "./clients/RpcClient";
 export { CubeBackendClient } from "./clients/CubeBackendClient";
 export { CubicPoolClient } from "./clients/CubicPoolClient";
@@ -145,6 +153,11 @@ export type {
 export type {
   AllocationResult,
 } from "./math/singleToken";
+export type {
+  SelloffWindowInputs,
+  SelloffWindowStatus,
+  WindowProjection,
+} from "./math/maxSelloff";
 export type {
   RawPoolAccount,
   RawMintAccount,
