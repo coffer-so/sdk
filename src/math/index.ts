@@ -5,4 +5,3 @@ export * from "./weightedMath";
 export * from "./singleToken";
 export * from "./slippage";
 export * from "./maxSelloff";
-export * from "./selloff";
