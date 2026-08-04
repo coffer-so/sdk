@@ -452,6 +452,12 @@ export class CubeBackendClient {
     amountIn: string,
     decimalsIn: number = 9,
     slippageBps?: number,
+    /**
+     * Restrict the quote to this single pool: no split routing, all
+     * estimates (priceImpact against this pool's own spot, fees, XP) are
+     * computed as if swapping only through it.
+     */
+    pool?: string,
   ): Promise<SdkResult<SwapRouteResponse>> {
     const qs = new URLSearchParams({
       tokenIn,
@@ -461,6 +467,9 @@ export class CubeBackendClient {
     });
     if (slippageBps !== undefined) {
       qs.set('slippageBps', String(slippageBps));
+    }
+    if (pool !== undefined) {
+      qs.set('pool', pool);
     }
     return this.getDataField<SwapRouteResponse>(
       `/api/pools/swap-route?${qs.toString()}`,
