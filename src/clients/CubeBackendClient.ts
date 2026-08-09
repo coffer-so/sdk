@@ -172,6 +172,10 @@ export interface PlatformStatsResponse {
 export interface AdminPoolEntry {
   poolAddress: string;
   poolName: string;
+  /** Off-chain: mint shown first in the token list (null = default order). */
+  baseAssetMint: string | null;
+  /** Off-chain: short pool description. */
+  description: string | null;
   tvlUsd: number;
   apy: number;
   volume24h: number;
@@ -183,6 +187,14 @@ export interface AdminPoolEntry {
     ticker: string;
     imageUrl: string | null;
   }>;
+}
+
+/** Off-chain, admin-editable pool settings. */
+export interface UpdatePoolSettingsBody {
+  /** Mint of the base asset (one of the pool tokens); "" clears it. */
+  baseAssetMint?: string;
+  /** Short description; "" clears it. */
+  description?: string;
 }
 
 export interface AdminPoolsResponse {
@@ -564,6 +576,21 @@ export class CubeBackendClient {
     return this.put<RenamePoolResponse>(
       `/api/pools/admin/${encodeURIComponent(poolAddress)}/name`,
       { name },
+    );
+  }
+
+  /**
+   * Update off-chain pool settings (base asset, description). Only fields
+   * present are changed; empty string clears a field. Base asset must be
+   * one of the pool tokens. Pool admin only; requires authentication.
+   */
+  updatePoolSettings<T>(
+    poolAddress: string,
+    settings: UpdatePoolSettingsBody,
+  ): Promise<SdkResult<T>> {
+    return this.put<T>(
+      `/api/pools/admin/${encodeURIComponent(poolAddress)}/settings`,
+      settings,
     );
   }
 
