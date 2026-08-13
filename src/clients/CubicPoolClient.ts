@@ -23,6 +23,7 @@ import {
   buildAddLiquidityTx,
   buildRemoveLiquidityTx,
   buildSingleTokenDepositTx,
+  buildSingleTokenDepositTxs,
   buildSwapTx,
 } from "./tx-builders";
 import {
@@ -145,6 +146,8 @@ export class CubicPoolClient {
         concentration,
         isActive: raw.isActive[i],
         maxSelloffPct: raw.maxSelloffPct[i],
+        variableFeeSlopeMidPct: raw.variableFeeSlopeMidPct[i],
+        variableFeeKinkPct: raw.variableFeeKinkPct[i],
       });
     }
 
@@ -164,6 +167,8 @@ export class CubicPoolClient {
       createdAt: raw.createdAt.toNumber(),
       lookupTable: raw.lookupTable,
       bannedExtensions: raw.bannedExtensions,
+      rangeManagerMaxLeverageBps: raw.rangeManagerMaxLeverageBps,
+      rangeManagerMinLeverageBps: raw.rangeManagerMinLeverageBps,
       syncedAt: Date.now(),
     };
     this.cache = info;
@@ -483,6 +488,28 @@ export class CubicPoolClient {
       return ok(buildSingleTokenDepositTx(this.config, poolRes.data, params));
     } catch (e) {
       return err("tx_build_failed", "Failed to build single-token deposit tx", e);
+    }
+  }
+
+  /**
+   * Single-token deposit split into `{ setup, deposit }` transactions.
+   *
+   * Required for pools beyond a handful of tokens: the ATA creates and the
+   * zap compete for the same 64-frame instruction-trace budget, and at
+   * N=10 the zap alone uses 52 of them. Send `setup` (idempotent, safe to
+   * repeat), wait for confirmation, then send `deposit` compiled against
+   * the pool's ALT via `compileBuiltTx`.
+   */
+  buildSingleTokenDepositTxs(
+    params: SingleTokenDepositParams
+  ): SdkResult<{ setup: BuiltTx | null; deposit: BuiltTx }> {
+    const poolRes = this.requireCache();
+    if (!poolRes.ok) return poolRes;
+    if (params.amountIn.lten(0)) return err("invalid_input", "amountIn must be > 0");
+    try {
+      return ok(buildSingleTokenDepositTxs(this.config, poolRes.data, params));
+    } catch (e) {
+      return err("tx_build_failed", "Failed to build single-token deposit txs", e);
     }
   }
 
