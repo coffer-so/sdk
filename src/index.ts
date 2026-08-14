@@ -85,7 +85,8 @@ export {
   projectSelloffWindow,
   calcSurgeFeePct,
   calcSurgeFeeAmount,
-  SURGE_FEE_CONVEXITY,
+  calcSegmentedSurgeFeeAmount,
+  SURGE_FEE_SEGMENTS,
 } from "./math/maxSelloff";
 export { RpcClient } from "./clients/RpcClient";
 export { CubeBackendClient } from "./clients/CubeBackendClient";
@@ -102,16 +103,25 @@ export {
   buildRemoveLiquidityTx,
   buildSingleTokenDepositIx,
   buildSingleTokenDepositTx,
+  buildSingleTokenDepositTxs,
+  buildSingleTokenDepositAtaIxs,
   buildInitializeConfigIx,
+  buildPoolInitializeConfigIx,
   buildInitializeCubicPoolIx,
   buildDeployPoolTx,
   buildInitializePoolAltIx,
   buildInitializePoolAltTx,
+  buildSetRangeManagerIx,
+  buildSetRangeManagerConfigIx,
+  buildRangeManagerUpdateIx,
   deriveAltAddress,
+  STLD_MAX_TOKENS,
+  STLD_DEPOSIT_CU_LIMIT,
 } from "./clients/tx-builders";
 export { buildVersionedTx, compileBuiltTx } from "./clients/versioned";
 export type { InitializePoolAltParams } from "./clients/tx-builders";
-export { decodePoolAccount, POOL_DISCRIMINATOR_LEN } from "./parsers/poolAccount";
+export { decodePoolAccount, POOL_DISCRIMINATOR_LEN, POOL_LEN, POOL_V4_LEN } from "./parsers/poolAccount";
+export { toSdkError, describeProgramError } from "./utils/errors";
 export { decodeMintAccount } from "./parsers/mintAccount";
 export { parseCubicPoolEvents } from "./parsers/events";
 export { BorshReader } from "./parsers/borsh";
@@ -148,8 +158,16 @@ export type {
   PoolEnabledUpdatedEvent,
   SwapsEnabledUpdatedEvent,
   SingleTokenDepositEvent,
+  PoolStateLogEvent,
+  MaxSelloffWindowAdvancedEvent,
+  BannedExtensionsUpdatedEvent,
   UnknownEvent,
+  TokenChange,
+  RangeManagerUpdateParams,
+  SetRangeManagerParams,
+  SetRangeManagerConfigParams,
 } from "./types";
+export type { CubeProgram } from "./utils/errors";
 export type {
   AllocationResult,
 } from "./math/singleToken";

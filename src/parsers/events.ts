@@ -74,6 +74,16 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
   const r = new BorshReader(buf);
   switch (name) {
     case "Swap": {
+      // ⚠ FIELD ORDER IS NOT WHAT IT LOOKS LIKE. Verified field-by-field
+      // against `Swap` in src/idl/cubic_pool.json:
+      //   pool, user, token_in, token_out, amount_in, amount_out,
+      //   fee_amount, protocol_fee_amount, timestamp, surge_fee_amount,
+      //   transfer_fee_in, transfer_fee_out
+      // `surge_fee_amount` sits AFTER `timestamp`, not before it — it was
+      // appended to the struct when it was introduced and never moved up.
+      // Reading it in declaration-intuitive order (surge, then timestamp)
+      // silently returns the unix timestamp as the surge fee and vice
+      // versa, with no length error to catch it.
       const pool = r.pubkey();
       const user = r.pubkey();
       const tokenIn = r.pubkey();
@@ -82,11 +92,28 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       const amountOut = r.u64();
       const feeAmount = r.u64();
       const protocolFeeAmount = r.u64();
-      // v5 inserted `surge_fee_amount` before `timestamp`. v4 logs (still
-      // decoded during historical backfill) have only the timestamp left.
-      const surgeFeeAmount = r.remaining() >= 16 ? r.u64() : new BN(0);
       const timestamp = r.i64().toNumber();
-      return { kind: "Swap", pool, user, tokenIn, tokenOut, amountIn, amountOut, feeAmount, protocolFeeAmount, surgeFeeAmount, timestamp };
+      const surgeFeeAmount = r.u64();
+      // Appended in v5.1. Guarded so a log emitted by an older deployment
+      // (which stops after surge_fee_amount) decodes as 0 instead of
+      // throwing. Nothing before this point is version-dependent.
+      const transferFeeIn = r.remaining() >= 8 ? r.u64() : new BN(0);
+      const transferFeeOut = r.remaining() >= 8 ? r.u64() : new BN(0);
+      return {
+        kind: "Swap",
+        pool,
+        user,
+        tokenIn,
+        tokenOut,
+        amountIn,
+        amountOut,
+        feeAmount,
+        protocolFeeAmount,
+        surgeFeeAmount,
+        timestamp,
+        transferFeeIn,
+        transferFeeOut,
+      };
     }
     case "LiquidityAdded": {
       const pool = r.pubkey();
@@ -117,9 +144,9 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       const tokenCount = r.u8();
       const bptMint = r.pubkey();
       const timestamp = r.i64().toNumber();
-      // v5 appended the effective banned-extensions bitmap (wire
-      // append-only) — absent on pre-v5 historical logs.
-      const bannedExtensions = r.remaining() >= 8 ? r.u64() : null;
+      // Appended: the effective banned-extensions bitmap the pool's tokens
+      // were vetted against at creation. Guarded for older logs.
+      const bannedExtensions = r.remaining() >= 8 ? r.u64() : new BN(0);
       return { kind: "PoolInitialized", pool, config, tokenCount, bptMint, timestamp, bannedExtensions };
     }
     case "PoolEnabledUpdated": {
@@ -139,36 +166,29 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       return { kind: "SwapsEnabledUpdated", pool, authority, oldValue, newValue, timestamp };
     }
     case "SingleTokenDeposit": {
+      // Verified against `SingleTokenDeposit` in
+      // src/idl/single_token_liquidity.json:
+      //   helper, pool, user, token_in_index, amount_in, allocations,
+      //   deposited_amounts, bpt_received, dust_refunded, timestamp
+      //
+      // Two fixes vs. the previous decoder:
+      //  1. There is NO `slippage_hundredths_bps: u32` field. The per-call
+      //     slippage argument was removed from `deposit_single_token` (the
+      //     single `minimum_bpt_amount` guard replaced it) and the event
+      //     field went with it. Reading a phantom u32 here shifted every
+      //     later field by 4 bytes.
+      //  2. `dust_refunded` is `Vec<u64>` (index-aligned with the pool's
+      //     tokens), not a scalar `u64`.
       const helper = r.pubkey();
       const pool = r.pubkey();
       const user = r.pubkey();
       const tokenInIndex = r.u8();
       const amountIn = r.u64();
-      // stld v5 removed `slippage_hundredths_bps` (u32) between `amount_in`
-      // and `allocations`. Disambiguate by test-parsing the tail as the v5
-      // layout and requiring it to consume the buffer exactly with sane vec
-      // lengths; otherwise fall back to the v4 layout.
-      const mark = r.pos();
-      const parseTail = (withSlippage: boolean) => {
-        r.seek(mark);
-        const slippage = withSlippage ? r.u32() : null;
-        const allocations = r.vecU64();
-        const depositedAmounts = r.vecU64();
-        if (allocations.length > 16 || depositedAmounts.length > 16) {
-          throw new Error("implausible token vec length");
-        }
-        const bptReceived = r.u64();
-        const dustRefunded = r.u64();
-        const timestamp = r.i64().toNumber();
-        if (r.remaining() !== 0) throw new Error("layout mismatch");
-        return { slippage, allocations, depositedAmounts, bptReceived, dustRefunded, timestamp };
-      };
-      let tail: ReturnType<typeof parseTail>;
-      try {
-        tail = parseTail(false); // v5 layout
-      } catch {
-        tail = parseTail(true); // pre-v5 historical layout
-      }
+      const allocations = r.vecU64();
+      const depositedAmounts = r.vecU64();
+      const bptReceived = r.u64();
+      const dustRefunded = r.vecU64();
+      const timestamp = r.i64().toNumber();
       return {
         kind: "SingleTokenDeposit",
         helper,
@@ -176,57 +196,27 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
         user,
         tokenInIndex,
         amountIn,
-        slippageHundredthsBps: tail.slippage,
-        allocations: tail.allocations,
-        depositedAmounts: tail.depositedAmounts,
-        bptReceived: tail.bptReceived,
-        dustRefunded: tail.dustRefunded,
-        timestamp: tail.timestamp,
+        allocations,
+        depositedAmounts,
+        bptReceived,
+        dustRefunded,
+        timestamp,
       };
     }
     case "PoolStateLog": {
-      // Layout is IDENTICAL in v4 and v5 — the full 13-field snapshot.
       const pool = r.pubkey();
-      const tokenCount = r.u8();
-      const tokenMints = r.vecPubkey();
-      const normalizedWeights = r.vecU64();
       const virtualBalances = r.vecU64();
       const actualBalances = r.vecU64();
-      const bptTotalSupply = r.u64();
-      const swapFeeRate = r.u32();
-      const protocolFeeRate = r.u16();
       const protocolFeesOwed = r.vecU64();
-      const poolEnabled = r.bool();
-      const swapsEnabled = r.bool();
       const timestamp = r.i64().toNumber();
-      return {
-        kind: "PoolStateLog",
-        pool,
-        tokenCount,
-        tokenMints,
-        normalizedWeights,
-        virtualBalances,
-        actualBalances,
-        bptTotalSupply,
-        swapFeeRate,
-        protocolFeeRate,
-        protocolFeesOwed,
-        poolEnabled,
-        swapsEnabled,
-        timestamp,
-      };
+      return { kind: "PoolStateLog", pool, virtualBalances, actualBalances, protocolFeesOwed, timestamp };
     }
     case "MaxSelloffWindowAdvanced": {
       const pool = r.pubkey();
       const tokenIndex = r.u8();
       const effectiveSelloff = r.u64();
-      // v5 carries pct + resolved cap + vb snapshot (3×u64) between
-      // `effective_selloff` and `previous_selloff`; v4 carried only the
-      // absolute cap. Branch on payload size: v4 = 81 bytes, v5 = 97.
-      const isV5 = buf.length >= 97;
-      const maxSelloffPct = isV5 ? r.u64() : null;
       const maxSelloffCap = r.u64();
-      const vbSnapshot = isV5 ? r.u64() : null;
+      const vbSnapshot = r.u64();
       const previousSelloff = r.u64();
       const currentSelloff = r.u64();
       const windowStartTimestamp = r.i64().toNumber();
@@ -236,7 +226,6 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
         pool,
         tokenIndex,
         effectiveSelloff,
-        maxSelloffPct,
         maxSelloffCap,
         vbSnapshot,
         previousSelloff,
@@ -245,11 +234,31 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
         timestamp,
       };
     }
+    case "BannedExtensionsUpdated": {
+      const config = r.pubkey();
+      const authority = r.pubkey();
+      const oldValue = r.u64();
+      const newValue = r.u64();
+      const timestamp = r.i64().toNumber();
+      // Appended in v5.1 alongside `set_banned_extensions`' new
+      // `hard_banned_extensions` argument. Guarded for older logs.
+      const oldHardValue = r.remaining() >= 8 ? r.u64() : new BN(0);
+      const newHardValue = r.remaining() >= 8 ? r.u64() : new BN(0);
+      return {
+        kind: "BannedExtensionsUpdated",
+        config,
+        authority,
+        oldValue,
+        newValue,
+        timestamp,
+        oldHardValue,
+        newHardValue,
+      };
+    }
     // Events we don't yet surface as typed — decode as Unknown so the
     // caller gets the discriminator name and can act on it.
     case "SwapFeeRateUpdated":
     case "ProtocolFeeRateUpdated":
-    case "BannedExtensionsUpdated":
     case "DebugLiquidityWithdrawn":
     case "PoolInfo":
       return { kind: "Unknown", name, data: { raw: buf.toString("base64") } };
