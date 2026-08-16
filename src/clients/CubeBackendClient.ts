@@ -157,6 +157,38 @@ export interface LeaderboardStatsResponse {
   totalXp: number;
 }
 
+// ── Campaign types ──
+
+export interface CampaignStatusResponse {
+  /** Active campaign slug the backend is currently running. */
+  campaign: string;
+  participating: boolean;
+  /** ISO time of the ORIGINAL join; null when not participating. */
+  joinedAt: string | null;
+}
+
+export interface CampaignTopEntry {
+  /** Continuous across pages. */
+  place: number;
+  address: string;
+  /** XP earned from swaps inside the window (LP XP not counted). */
+  swapXp: number;
+  swapVolumeUsd: number;
+  joinedAt: string;
+}
+
+export interface CampaignTopResponse {
+  campaign: string;
+  from: string;
+  /** null ⇒ rolling window: `from` .. now at request time. */
+  to: string | null;
+  /** Participants with swap XP > 0 in the window. */
+  total: number;
+  page: number;
+  limit: number;
+  data: CampaignTopEntry[];
+}
+
 // ── Platform stats ──
 
 export interface PlatformStatsResponse {
@@ -530,6 +562,41 @@ export class CubeBackendClient {
   /** Get overall leaderboard stats: total users and total XP. */
   getLeaderboardStats(): Promise<SdkResult<LeaderboardStatsResponse>> {
     return this.get<LeaderboardStatsResponse>("/api/leaderboard/stats");
+  }
+
+  /**
+   * Join the active swap-XP campaign. Requires SIWS auth (`setTokens`);
+   * the wallet comes from the JWT. IDEMPOTENT — repeat calls are no-ops
+   * returning the same status with the original join time.
+   */
+  joinCampaign(): Promise<SdkResult<CampaignStatusResponse>> {
+    return this.post<CampaignStatusResponse>("/api/campaign/join", {});
+  }
+
+  /** Participation status of the authenticated wallet (requires SIWS auth). */
+  getCampaignStatus(): Promise<SdkResult<CampaignStatusResponse>> {
+    return this.get<CampaignStatusResponse>("/api/campaign/me");
+  }
+
+  /**
+   * Campaign standings: participants only, ranked by swap XP inside
+   * [from, to). Omit `to` for a ROLLING window (`from` .. now at request
+   * time) — the standard way to show live standings of an ongoing
+   * campaign. Public endpoint, paginated like the leaderboard.
+   */
+  getCampaignTop(
+    from: string,
+    to?: string,
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<SdkResult<CampaignTopResponse>> {
+    const qs = new URLSearchParams({
+      from,
+      page: String(page),
+      limit: String(limit),
+    });
+    if (to) qs.set("to", to);
+    return this.get<CampaignTopResponse>(`/api/campaign/top?${qs.toString()}`);
   }
 
   getTokenPrices(mints: string[]): Promise<SdkResult<PriceMap>> {
