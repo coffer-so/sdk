@@ -167,6 +167,46 @@ export interface CampaignStatusResponse {
   joinedAt: string | null;
 }
 
+export interface CampaignPrizeTier {
+  /** Inclusive place range this prize applies to. */
+  fromPlace: number;
+  toPlace: number;
+  usd: number;
+}
+
+export interface CampaignInfoResponse {
+  campaign: string;
+  startsAt: string;
+  endsAt: string;
+  /** Server-computed — drive the countdown from this, not client clocks. */
+  msUntilEnd: number;
+  ended: boolean;
+  prizePoolUsd: number;
+  /** Fixed for the whole campaign; paid out manually after the end. */
+  prizes: CampaignPrizeTier[];
+  rates: {
+    /** Same swap-XP rate as the leaderboard; LP XP is NOT accrued here. */
+    swapXpPerUsdLpFee: number;
+  };
+}
+
+export interface CampaignRankResponse {
+  campaign: string;
+  from: string;
+  /** Effective window end after server-side clamping to the campaign. */
+  to: string;
+  participating: boolean;
+  /**
+   * Place under the same ordering as the public top table; null when not
+   * participating or no swap XP earned inside the window.
+   */
+  place: number | null;
+  swapXp: number;
+  swapVolumeUsd: number;
+  /** Size of the ranked table — for "you are N of M" UI. */
+  totalRanked: number;
+}
+
 export interface CampaignTopEntry {
   /** Continuous across pages. */
   place: number;
@@ -180,8 +220,8 @@ export interface CampaignTopEntry {
 export interface CampaignTopResponse {
   campaign: string;
   from: string;
-  /** null ⇒ rolling window: `from` .. now at request time. */
-  to: string | null;
+  /** Effective window end after server-side clamping to the campaign. */
+  to: string;
   /** Participants with swap XP > 0 in the window. */
   total: number;
   page: number;
@@ -578,23 +618,47 @@ export class CubeBackendClient {
     return this.get<CampaignStatusResponse>("/api/campaign/me");
   }
 
+  /** Active campaign card: window, server-side countdown, prizes. Public. */
+  getCampaignInfo(): Promise<SdkResult<CampaignInfoResponse>> {
+    return this.get<CampaignInfoResponse>("/api/campaign/info");
+  }
+
+  /**
+   * The authenticated wallet's own place in the campaign standings
+   * (requires SIWS auth). Same window semantics and ordering as
+   * getCampaignTop, so the place always matches the public table.
+   */
+  getCampaignRank(
+    from?: string,
+    to?: string,
+  ): Promise<SdkResult<CampaignRankResponse>> {
+    const qs = new URLSearchParams();
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    return this.get<CampaignRankResponse>(
+      `/api/campaign/me/rank?${qs.toString()}`,
+    );
+  }
+
   /**
    * Campaign standings: participants only, ranked by swap XP inside
-   * [from, to). Omit `to` for a ROLLING window (`from` .. now at request
-   * time) — the standard way to show live standings of an ongoing
-   * campaign. Public endpoint, paginated like the leaderboard.
+   * [from, to). Both dates are optional and CLAMPED into the campaign
+   * window server-side (defaults: the whole campaign) — omit both for
+   * the live standings of the running campaign; they freeze by
+   * themselves once it ends. Public endpoint, paginated like the
+   * leaderboard.
    */
   getCampaignTop(
-    from: string,
+    from?: string,
     to?: string,
     page: number = 1,
     limit: number = 20,
   ): Promise<SdkResult<CampaignTopResponse>> {
     const qs = new URLSearchParams({
-      from,
       page: String(page),
       limit: String(limit),
     });
+    if (from) qs.set("from", from);
     if (to) qs.set("to", to);
     return this.get<CampaignTopResponse>(`/api/campaign/top?${qs.toString()}`);
   }
