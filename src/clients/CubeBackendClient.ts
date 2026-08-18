@@ -423,6 +423,18 @@ export interface NonceResponse {
   message: string;
 }
 
+/**
+ * Challenge for the transaction-based sign-in fallback (wallets whose
+ * signMessage path is broken — Ledger through mobile apps first of all).
+ */
+export interface TxChallengeResponse {
+  nonce: string;
+  /** Base64-encoded UNSIGNED transaction to pass to wallet.signTransaction. */
+  transaction: string;
+  /** Human-readable memo embedded in the transaction (agreements + nonce). */
+  memo: string;
+}
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
@@ -841,6 +853,32 @@ export class CubeBackendClient {
     return this.post<AuthTokens>("/api/auth/verify", {
       message,
       signature,
+    });
+  }
+
+  /**
+   * Request a sign-in challenge transaction (fallback for wallets whose
+   * signMessage is broken: Ledger via mobile apps, etc.). The returned
+   * transaction is a 0-lamport self-transfer plus a memo with the
+   * agreements statement and a single-use nonce; it is verified offline
+   * by the backend and never broadcast on-chain.
+   */
+  getTxChallenge(wallet: string): Promise<SdkResult<TxChallengeResponse>> {
+    return this.get<TxChallengeResponse>(
+      `/api/auth/tx-challenge?wallet=${encodeURIComponent(wallet)}`,
+    );
+  }
+
+  /**
+   * Submit the signed challenge transaction (base64, from
+   * wallet.signTransaction + serialize) to receive the same access +
+   * refresh token pair as verifySignature().
+   */
+  verifyTransaction(
+    signedTransactionBase64: string,
+  ): Promise<SdkResult<AuthTokens>> {
+    return this.post<AuthTokens>("/api/auth/verify-tx", {
+      transaction: signedTransactionBase64,
     });
   }
 
