@@ -530,6 +530,44 @@ export interface PortfolioHoldingsResponse {
   data: PortfolioHoldingItem[];
 }
 
+export type PortfolioPositionsSortField =
+  | "value"
+  | "fees"
+  | "il"
+  | "pnl"
+  | "apy";
+
+export interface PortfolioPositionItem {
+  pool: {
+    address: string;
+    name: string;
+    feePercent: number | null;
+    bptMint: string | null;
+    tokens: ActivityTokenInfo[];
+  };
+  /** Position value from the 30s-fresh wallet BPT balance. */
+  valueUsd: number;
+  /** Lifetime LP fees earned in this pool. */
+  feesEarned: number;
+  /** Live unrealized IL (≤ 0); the realized part is `ilRealized`. */
+  il: number;
+  ilRealized: number;
+  /** feesEarned + il + ilRealized. */
+  netPnl: number;
+  /** Personal compounded APY on time-weighted capital, %. */
+  apy: number;
+}
+
+export interface PortfolioPositionsResponse {
+  /** Number of ACTIVE positions (the "N active positions" header). */
+  total: number;
+  page: number;
+  limit: number;
+  /** Σ value of ALL active positions (the header total), not the page. */
+  totalValueUsd: number;
+  data: PortfolioPositionItem[];
+}
+
 // ── Auth types ──
 
 export interface NonceResponse {
@@ -1020,6 +1058,30 @@ export class CubeBackendClient {
     });
     return this.get<PortfolioHoldingsResponse>(
       `/api/portfolio/v2/holdings?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * Position Pools: the user's ACTIVE LP positions with per-pool money
+   * metrics — value (from the fresh wallet BPT balance), fees earned,
+   * unrealized + realized IL, net PnL and personal compounded APY.
+   * A freshly received (transferred) position appears immediately with
+   * its value and zeroed metrics until the background snapshot builds.
+   */
+  getPortfolioPositions(options?: {
+    page?: number;
+    limit?: number;
+    sort?: PortfolioPositionsSortField;
+    order?: SortOrder;
+  }): Promise<SdkResult<PortfolioPositionsResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      sort: options?.sort ?? "value",
+      order: options?.order ?? "desc",
+    });
+    return this.get<PortfolioPositionsResponse>(
+      `/api/portfolio/v2/positions?${qs.toString()}`,
     );
   }
 

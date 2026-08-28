@@ -158,6 +158,42 @@ for (const p of pools) {
 `order` default `"desc"`. Asset count for the header = `total`. Dust
 below $0.01 is filtered out server-side.
 
+### 4. Position Pools (`getPortfolioPositions`)
+
+The user's ACTIVE LP positions with per-pool metrics. The expandable row
+content (Impermanent Loss / Fees Earned / Net PnL cards) uses the same
+fields — no extra request needed.
+
+```ts
+const res = await client.getPortfolioPositions({ limit: 20 });
+if (res.ok) {
+  const { total, totalValueUsd, data } = res.data;
+
+  // Header: "2 active positions" + "$593.70"
+  console.log(`${total} active positions, $${totalValueUsd}`);
+
+  for (const p of data) {
+    console.log(`${p.pool.name} (${p.pool.feePercent}% fee)`);
+    console.log(`  value $${p.valueUsd}, fees +$${p.feesEarned}`);
+    console.log(`  IL $${p.il}, realized $${p.ilRealized}`);
+    console.log(`  Net PnL $${p.netPnl}, APY ${p.apy}%`);
+  }
+}
+```
+
+**Notes:**
+- Only ACTIVE positions are listed (wallet BPT > 0). Past/closed
+  positions live in the v1 `getPortfolioPools()`.
+- `totalValueUsd` covers ALL active positions regardless of pagination —
+  safe for the header.
+- A freshly received (transferred-in) position appears within ~30 s with
+  its real `valueUsd` and zeroed metrics; fees/IL/APY fill in
+  automatically once the backend builds its snapshot (seconds later).
+- `netPnl = feesEarned + il + ilRealized`; `il` is ≤ 0 by definition.
+
+**Sorting:** `sort: "value" | "fees" | "il" | "pnl" | "apy"` (default
+`"value"`), `order` default `"desc"`.
+
 ## Data Freshness
 
 | Data | Freshness |
@@ -166,6 +202,7 @@ below $0.01 is filtered out server-side.
 | Price series behind networth/pnl | Shared across users, cached 10 min |
 | Activity feed | Cached 30 s per wallet |
 | Token holdings | Cached 30 s per wallet (wallet balances 30 s, pool state ≤5 min) |
+| Position pools | Cached 30 s per wallet (values from wallet BPT, IL live-priced) |
 | New indexed events (swap/liquidity/zap) | Appear seconds after the transaction (webhook) |
 | LP token transfers | Fetched from wallet history on demand |
 
@@ -184,6 +221,11 @@ sort? = "time", order? = "desc" }`. Requires auth.
 Token holdings with LP positions decomposed; `options = { page? = 1,
 limit? = 20, sort? = "value", order? = "desc" }`. Requires auth.
 **Returns:** `SdkResult<PortfolioHoldingsResponse>`
+
+### `client.getPortfolioPositions(options?)`
+Active LP positions with per-pool metrics; `options = { page? = 1,
+limit? = 20, sort? = "value", order? = "desc" }`. Requires auth.
+**Returns:** `SdkResult<PortfolioPositionsResponse>`
 
 ## Error Handling
 
