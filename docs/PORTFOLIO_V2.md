@@ -85,6 +85,11 @@ if (res.ok) {
 **Filters (`type`):** `"all"` (default), `"liquidity"` (added + removed),
 `"zap"`, `"swap"`, `"transfer"` (sent + received), `"deployed"`.
 
+**Sorting:** `sort: "time" | "value"` (default `"time"`) +
+`order: "desc" | "asc"` (default `"desc"`) — for the column sort arrows.
+On `"value"` sort, rows without a USD value (`deployed`) always go last,
+whatever the order.
+
 **Rendering by `item.type`:**
 
 | Type | Row example from the design | What to use |
@@ -100,6 +105,59 @@ event type: LP fees auto-reinvest continuously on every swap (no claim
 transaction exists on-chain) — fee earnings live in the `il` chart tab and
 the per-pool table instead.
 
+### 3. Token Holdings (`getPortfolioHoldings`)
+
+Every token the user holds. LP positions are shown DECOMPOSED into their
+underlying tokens — the per-pool share of pool balances the user would
+receive on withdrawal — not as LP tokens (those are never listed).
+
+```ts
+// Widget — 4 rows, most valuable first (default sort)
+const res = await client.getPortfolioHoldings({ limit: 4 });
+
+// Full table with column sorting
+const byBalance = await client.getPortfolioHoldings({
+  page: 1,
+  limit: 10,
+  sort: "balance",
+  order: "asc",
+});
+
+if (res.ok) {
+  console.log(`${res.data.total} assets`);
+  for (const h of res.data.data) {
+    console.log(`${h.token.symbol} (${h.token.name}): $${h.priceUsd}`);
+    console.log(`  balance ${h.balance} = $${h.valueUsd}`);
+  }
+}
+```
+
+**Rendering the SOURCE column** from `sources`:
+
+```ts
+const { wallet, pools } = holding.sources;
+
+if (pools.length === 0) {
+  // "Wallet" badge
+} else if (wallet.pct === 0) {
+  // "LP in pools" badge
+} else {
+  // Progress bar segments: [wallet.pct, ...pools.map(p => p.pct)]
+  // Label under the bar = the LARGEST pct of the breakdown (designer's
+  // note), e.g. "70% LP" when pools sum to 70%
+}
+
+// Source Breakdown tooltip rows:
+console.log(`Wallet ${wallet.pct}%`);
+for (const p of pools) {
+  console.log(`${p.poolName} ${p.pct}%`); // link via p.poolAddress
+}
+```
+
+**Sorting:** `sort: "value" | "price" | "balance"` (default `"value"`),
+`order` default `"desc"`. Asset count for the header = `total`. Dust
+below $0.01 is filtered out server-side.
+
 ## Data Freshness
 
 | Data | Freshness |
@@ -107,6 +165,7 @@ the per-pool table instead.
 | Chart response | Cached 90 s per (wallet, metric, range) |
 | Price series behind networth/pnl | Shared across users, cached 10 min |
 | Activity feed | Cached 30 s per wallet |
+| Token holdings | Cached 30 s per wallet (wallet balances 30 s, pool state ≤5 min) |
 | New indexed events (swap/liquidity/zap) | Appear seconds after the transaction (webhook) |
 | LP token transfers | Fetched from wallet history on demand |
 
@@ -117,9 +176,14 @@ Series for the chart card tabs. Requires auth.
 **Returns:** `SdkResult<PortfolioChartResponse>`
 
 ### `client.getPortfolioActivity(options?)`
-Activity feed; `options = { page? = 1, limit? = 20, type? = "all" }`.
-Requires auth.
+Activity feed; `options = { page? = 1, limit? = 20, type? = "all",
+sort? = "time", order? = "desc" }`. Requires auth.
 **Returns:** `SdkResult<PortfolioActivityResponse>`
+
+### `client.getPortfolioHoldings(options?)`
+Token holdings with LP positions decomposed; `options = { page? = 1,
+limit? = 20, sort? = "value", order? = "desc" }`. Requires auth.
+**Returns:** `SdkResult<PortfolioHoldingsResponse>`
 
 ## Error Handling
 

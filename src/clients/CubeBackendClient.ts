@@ -495,6 +495,41 @@ export interface PortfolioActivityResponse {
   data: PortfolioActivityItem[];
 }
 
+export type SortOrder = "desc" | "asc";
+export type PortfolioActivitySortField = "time" | "value";
+export type PortfolioHoldingsSortField = "value" | "price" | "balance";
+
+export interface PortfolioHoldingItem {
+  token: {
+    mint: string;
+    symbol: string | null;
+    /** Full token name (e.g. "USD Coin"); null when metadata has none. */
+    name: string | null;
+    logo: string | null;
+  };
+  priceUsd: number;
+  /** Total amount: wallet + decomposed LP positions. */
+  balance: number;
+  valueUsd: number;
+  /** Source breakdown for the tooltip; pct is of the token's balance. */
+  sources: {
+    wallet: { amount: number; pct: number };
+    pools: Array<{
+      poolAddress: string;
+      poolName: string;
+      amount: number;
+      pct: number;
+    }>;
+  };
+}
+
+export interface PortfolioHoldingsResponse {
+  total: number;
+  page: number;
+  limit: number;
+  data: PortfolioHoldingItem[];
+}
+
 // ── Auth types ──
 
 export interface NonceResponse {
@@ -947,14 +982,44 @@ export class CubeBackendClient {
     page?: number;
     limit?: number;
     type?: PortfolioActivityFilter;
+    /** Sort column; unpriced rows (deployed) always go last on "value". */
+    sort?: PortfolioActivitySortField;
+    order?: SortOrder;
   }): Promise<SdkResult<PortfolioActivityResponse>> {
     const qs = new URLSearchParams({
       page: String(options?.page ?? 1),
       limit: String(options?.limit ?? 20),
       type: options?.type ?? "all",
+      sort: options?.sort ?? "time",
+      order: options?.order ?? "desc",
     });
     return this.get<PortfolioActivityResponse>(
       `/api/portfolio/v2/activity?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * Token Holdings: every token the user holds, with LP positions
+   * DECOMPOSED into their underlying tokens (per-pool share of actual
+   * balances — what the user would receive on withdrawal). LP tokens
+   * themselves are never listed. Each row carries a source breakdown
+   * (wallet + per-pool amounts/percentages) for the Source tooltip.
+   * The widget is `{ limit: 4 }`; sortable by value/price/balance.
+   */
+  getPortfolioHoldings(options?: {
+    page?: number;
+    limit?: number;
+    sort?: PortfolioHoldingsSortField;
+    order?: SortOrder;
+  }): Promise<SdkResult<PortfolioHoldingsResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      sort: options?.sort ?? "value",
+      order: options?.order ?? "desc",
+    });
+    return this.get<PortfolioHoldingsResponse>(
+      `/api/portfolio/v2/holdings?${qs.toString()}`,
     );
   }
 
