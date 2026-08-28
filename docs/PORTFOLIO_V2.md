@@ -72,6 +72,11 @@ history coverage hit its cap or the history API was unavailable, so
 amounts are frozen at the oldest known values; for `il` — LP events inside
 the range). Optionally show a subtle "approximate" hint.
 
+**`change.pct: null`** means the percentage is undefined — the range
+started from a zero base (e.g. a wallet that was empty at range start,
+XP from zero) or from a near-zero signed pnl/il base where a percentage
+would be meaningless. Render it as "—"; `change.abs` is always present.
+
 ### 2. Activity Feed (`getPortfolioActivity`)
 
 Paginated feed of the user's actions in Cube pools, newest first.

@@ -428,8 +428,12 @@ export interface PortfolioChartResponse {
   granularitySec: number;
   /** Headline value: last point of the series (for XP — lifetime total). */
   current: number;
-  /** Change over the range (for XP: abs = XP earned in the range). */
-  change: PortfolioValueChange;
+  /**
+   * Change over the range (for XP: abs = XP earned in the range).
+   * `pct` is null when the base is zero/near-zero (growth from nothing,
+   * or a signed pnl/il base under $1) — render it as "—".
+   */
+  change: { abs: number; pct: number | null };
   /**
    * True when the series is partially estimated: wallet history coverage
    * hit its cap / the history API was unavailable (amounts frozen at the
