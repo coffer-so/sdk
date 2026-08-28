@@ -416,6 +416,85 @@ export interface PortfolioPoolHistoryResponse {
   series: PortfolioPoolHistoryPoint[];
 }
 
+// ── Portfolio v2 types (redesigned portfolio page) ──
+
+export type PortfolioChartMetric = "networth" | "pnl" | "il" | "xp";
+export type PortfolioChartRange = "24h" | "1w" | "1m" | "1y" | "all";
+
+export interface PortfolioChartResponse {
+  metric: PortfolioChartMetric;
+  range: PortfolioChartRange;
+  /** Distance between series points (nominal for monthly XP buckets). */
+  granularitySec: number;
+  /** Headline value: last point of the series (for XP — lifetime total). */
+  current: number;
+  /** Change over the range (for XP: abs = XP earned in the range). */
+  change: PortfolioValueChange;
+  /**
+   * True when the series is partially estimated: wallet history coverage
+   * hit its cap / the history API was unavailable (amounts frozen at the
+   * horizon), or LP events inside the range (il metric).
+   */
+  approximate: boolean;
+  /** [unixSeconds, value] pairs, ascending. */
+  series: Array<[number, number]>;
+}
+
+export type PortfolioActivityType =
+  | "swap"
+  | "added"
+  | "removed"
+  | "zap"
+  | "sent"
+  | "received"
+  | "deployed";
+
+export type PortfolioActivityFilter =
+  | "all"
+  | "liquidity"
+  | "zap"
+  | "swap"
+  | "transfer"
+  | "deployed";
+
+export interface ActivityTokenInfo {
+  mint: string;
+  symbol: string | null;
+  logo: string | null;
+}
+
+export interface PortfolioActivityItem {
+  type: PortfolioActivityType;
+  signature: string;
+  /** Unix seconds. */
+  time: number;
+  /**
+   * Signed USD: + for added/zap/received, − for removed/sent, unsigned for
+   * swap; null when unpriceable and for deployed rows.
+   */
+  valueUsd: number | null;
+  pool: {
+    address: string;
+    name: string;
+    feePercent: number | null;
+    bptMint: string | null;
+    tokens: ActivityTokenInfo[];
+    /** Pool weights in % (for the deployed row's "80/20 weights" subtitle). */
+    weights?: number[];
+  } | null;
+  /** Only on swap rows. */
+  swap?: { tokenIn: ActivityTokenInfo; tokenOut: ActivityTokenInfo };
+  /** Only on sent/received rows (wallet-to-wallet LP token transfers). */
+  transfer?: { counterparty: string | null };
+}
+
+export interface PortfolioActivityResponse {
+  total: number;
+  page: number;
+  limit: number;
+  data: PortfolioActivityItem[];
+}
+
 // ── Auth types ──
 
 export interface NonceResponse {
@@ -833,6 +912,49 @@ export class CubeBackendClient {
   ): Promise<SdkResult<PortfolioPoolHistoryResponse>> {
     return this.get<PortfolioPoolHistoryResponse>(
       `/api/portfolio/pools/${encodeURIComponent(poolAddress)}/history?range=${range}`,
+    );
+  }
+
+  // ── Portfolio v2 (redesigned portfolio page, auth required) ──
+
+  /**
+   * Chart series for the portfolio page chart card.
+   *
+   * Metrics: `networth` — whole portfolio value over time (wallet tokens +
+   * LP positions, reconstructed from on-chain wallet history × historical
+   * prices); `pnl` — LP positions value over time; `il` — fees earned vs
+   * impermanent loss (net LP result vs HODL, signed); `xp` — XP earned PER
+   * BUCKET (hour/day/month depending on range), not cumulative.
+   */
+  getPortfolioChart(
+    metric: PortfolioChartMetric,
+    range: PortfolioChartRange,
+  ): Promise<SdkResult<PortfolioChartResponse>> {
+    const qs = new URLSearchParams({ metric, range });
+    return this.get<PortfolioChartResponse>(
+      `/api/portfolio/v2/chart?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * On-chain activity feed: swaps, liquidity added/removed, zaps
+   * (single-token deposits), LP tokens sent/received (wallet transfers
+   * with counterparties) and pools deployed by the user. Newest first,
+   * page/limit pagination. The Recent Activity widget is `{ limit: 4 }`;
+   * filters: `liquidity` = added + removed, `transfer` = sent + received.
+   */
+  getPortfolioActivity(options?: {
+    page?: number;
+    limit?: number;
+    type?: PortfolioActivityFilter;
+  }): Promise<SdkResult<PortfolioActivityResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      type: options?.type ?? "all",
+    });
+    return this.get<PortfolioActivityResponse>(
+      `/api/portfolio/v2/activity?${qs.toString()}`,
     );
   }
 
