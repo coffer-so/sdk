@@ -42,9 +42,22 @@ for (const [t, v] of series) {
 | Metric | Meaning | Value at point t |
 |---|---|---|
 | `networth` | Whole portfolio: wallet tokens + LP positions | Σ amount(t) × price(t) over every token |
-| `pnl` | Value of the LP positions only | Σ BPT(t) × LP-token price(t) |
-| `il` | Fees earned vs impermanent loss (signed) | fees + IL + realized — same as v1 netPnl |
+| `pnl` | Profit/loss vs the DOLLARS invested | LP value(t) − entry-priced capital(t) |
+| `il` | Fees earned vs impermanent loss (vs HODL, signed) | fees + IL + realized — same as v1 netPnl |
 | `xp` | XP earned PER BUCKET (delta bars, not cumulative) | XP accrued inside that hour/day/month |
+
+**`pnl` vs `il` — different benchmarks, both useful:** `pnl` answers
+"how much did I make in dollars?" (includes the basket's market move),
+`il` answers "was LPing better than just holding the tokens?" (market
+move excluded).
+
+**`pnl` fixation semantics:** every EXIT is a profit-fixation moment —
+a withdrawal fixes `received USD − capital share`, a wallet transfer-out
+fixes `amount × LP price at that moment − capital share`. Fixed profit
+stays in the series (cumulative within the selected range), so the line
+is CONTINUOUS at exits — profit moves from unrealized to realized
+instead of vanishing. Deposits/zaps/received transfers move value and
+capital together — no fake jumps on top-ups either.
 
 **Ranges:** `"24h"`, `"1w"`, `"1m"`, `"1y"`, `"all"`. Point spacing comes
 back in `granularitySec` (24h → 5 min, 1w/1m → hourly, 1y/all → daily; XP

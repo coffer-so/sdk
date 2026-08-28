@@ -995,9 +995,14 @@ export class CubeBackendClient {
    *
    * Metrics: `networth` — whole portfolio value over time (wallet tokens +
    * LP positions, reconstructed from on-chain wallet history × historical
-   * prices); `pnl` — LP positions value over time; `il` — fees earned vs
-   * impermanent loss (net LP result vs HODL, signed); `xp` — XP earned PER
-   * BUCKET (hour/day/month depending on range), not cumulative.
+   * prices); `pnl` — CUMULATIVE profit/loss vs invested dollars:
+   * unrealized (LP value minus entry-priced capital) + profit FIXED at
+   * every exit (withdrawal = received USD − capital share, transfer-out =
+   * amount × LP price at that moment − capital share) — continuous at
+   * both top-ups and exits;
+   * `il` — fees earned vs impermanent loss (net LP result vs HODL,
+   * signed); `xp` — XP earned PER BUCKET (hour/day/month depending on
+   * range), not cumulative.
    */
   getPortfolioChart(
     metric: PortfolioChartMetric,
