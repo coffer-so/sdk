@@ -19,32 +19,40 @@ pace. All v2 endpoints require authentication.
 
 ### 1. Chart Card (`getPortfolioChart`)
 
-One method feeds all four tabs; call it on tab/period switch.
+One method feeds all four tabs; call it on tab/period switch. Most tabs
+return one line in `series`; the **IL tab returns two lines** in `lines`
+and no `series` — handle both shapes.
 
 ```ts
 const res = await client.getPortfolioChart("networth", "1w");
 if (!res.ok) return;
 
-const { current, change, series, granularitySec, approximate } = res.data;
+const { current, change, series, lines, granularitySec, approximate } = res.data;
 
-// Headline
+// Headline (same for every metric)
 console.log(`NET WORTH $${current}`);
-console.log(`${change.abs >= 0 ? "▲" : "▼"} $${Math.abs(change.abs)} ${change.pct}% past week`);
+console.log(`${change.abs >= 0 ? "▲" : "▼"} $${Math.abs(change.abs)} ${change.pct ?? "—"}% past week`);
 
-// Chart: series is [unixSeconds, value][] ascending
-for (const [t, v] of series) {
+// Single-line metrics (networth / pnl / xp): draw `series`
+for (const [t, v] of series ?? []) {
   console.log(`${new Date(t * 1000).toISOString()}: $${v}`);
+}
+
+// IL metric: draw the two lines from `lines`
+if (lines) {
+  drawLine(lines.profit, "green"); // cumulative fees, ≥ 0
+  drawLine(lines.il, "red");       // impermanent loss, ≤ 0
 }
 ```
 
 **Metrics:**
 
-| Metric | Meaning | Value at point t |
-|---|---|---|
-| `networth` | Whole portfolio: wallet tokens + LP positions | Σ amount(t) × price(t) over every token |
-| `pnl` | Profit/loss vs the DOLLARS invested | LP value(t) − entry-priced capital(t) |
-| `il` | Fees earned vs impermanent loss (vs HODL, signed) | fees + IL + realized — same as v1 netPnl |
-| `xp` | XP earned PER BUCKET (delta bars, not cumulative) | XP accrued inside that hour/day/month |
+| Metric | Shape | Meaning | Value at point t |
+|---|---|---|---|
+| `networth` | `series` | Whole portfolio: wallet tokens + LP positions | Σ amount(t) × price(t) over every token |
+| `pnl` | `series` | Profit/loss vs the DOLLARS invested | LP value(t) − entry-priced capital(t) + fixations |
+| `il` | `lines` | Fees earned vs impermanent loss (vs HODL) | two lines — see below |
+| `xp` | `series` | Total XP as of each point (cumulative) | lifetime XP up to t, never decreasing |
 
 **`pnl` vs `il` — different benchmarks, both useful:** `pnl` answers
 "how much did I make in dollars?" (includes the basket's market move),
@@ -57,25 +65,38 @@ fixes `amount × LP price at that moment − capital share`. Fixed profit
 stays in the series (cumulative within the selected range), so the line
 is CONTINUOUS at exits — profit moves from unrealized to realized
 instead of vanishing. Deposits/zaps/received transfers move value and
-capital together — no fake jumps on top-ups either.
+capital together — no fake jumps on top-ups either. A position that was
+fully closed inside the range still shows its whole trajectory and the
+profit it locked in (not a flat zero).
+
+**`il` two lines:** `lines.profit` is cumulative LP fees earned (≥ 0,
+draw green), `lines.il` is impermanent loss incl. realized (≤ 0, draw
+red), both on the same grid. Reading the gap between them is the point —
+when green outweighs red, LPing beat holding. `current` and `change`
+report their NET sum (the bottom line vs HODL), so the headline stays a
+single number. There is no `series` for this metric.
+
+**`xp` is cumulative:** each point is the user's total XP as of that
+moment — a monotonic, never-decreasing line (draw as an area/line, not
+bars). `current` is the lifetime total (the last point), `change.abs` is
+the XP earned within the selected range.
 
 **Ranges:** `"24h"`, `"1w"`, `"1m"`, `"1y"`, `"all"`. Point spacing comes
-back in `granularitySec` (24h → 5 min, 1w/1m → hourly, 1y/all → daily; XP
-buckets: hour for 24h, day for 1w/1m, month for 1y/all).
+back in `granularitySec` (24h → 5 min, 1w/1m → hourly, 1y/all → daily).
+`"all"` is floored at one year, so it is never a shorter window than
+`"1y"` even for a user whose first activity was recent.
 
-**XP tab specifics:** each point is the XP earned in that bucket — render
-as bars. `current` is the LIFETIME XP total, `change.abs` is the XP earned
-within the selected range.
-
-**`approximate: true`** means part of the series is estimated (wallet
+**`approximate: true`** means part of the data is estimated (wallet
 history coverage hit its cap or the history API was unavailable, so
-amounts are frozen at the oldest known values; for `il` — LP events inside
-the range). Optionally show a subtle "approximate" hint.
+amounts are frozen at the oldest known values; for `pnl` — a position
+that predates the range and was fully closed inside it; for `il` — LP
+events inside the range). Optionally show a subtle "approximate" hint.
 
 **`change.pct: null`** means the percentage is undefined — the range
 started from a zero base (e.g. a wallet that was empty at range start,
-XP from zero) or from a near-zero signed pnl/il base where a percentage
-would be meaningless. Render it as "—"; `change.abs` is always present.
+XP from zero) or from a near-zero signed pnl/net-il base where a
+percentage would be meaningless. Render it as "—"; `change.abs` is
+always present.
 
 ### 2. Activity Feed (`getPortfolioActivity`)
 
@@ -208,6 +229,8 @@ if (res.ok) {
   its real `valueUsd` and zeroed metrics; fees/IL/APY fill in
   automatically once the backend builds its snapshot (seconds later).
 - `netPnl = feesEarned + il + ilRealized`; `il` is ≤ 0 by definition.
+- `apy` is the POOL-wide APY — the same number the pools page shows for
+  that pool (not a personal metric), so the two screens never disagree.
 
 **Sorting:** `sort: "value" | "fees" | "il" | "pnl" | "apy"` (default
 `"value"`), `order` default `"desc"`.

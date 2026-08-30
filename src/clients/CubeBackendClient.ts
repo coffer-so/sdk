@@ -397,6 +397,7 @@ export interface PortfolioPoolEntry {
   /** Result locked in on past withdrawals vs HODL ("Realized PnL" in UI) */
   ilRealized: number;
   netPnl: number;
+  /** POOL-wide APY, % — the same number as the pools page (legacy name). */
   apr: number;
 }
 
@@ -424,24 +425,49 @@ export type PortfolioChartRange = "24h" | "1w" | "1m" | "1y" | "all";
 export interface PortfolioChartResponse {
   metric: PortfolioChartMetric;
   range: PortfolioChartRange;
-  /** Distance between series points (nominal for monthly XP buckets). */
+  /** Distance between series/line points, seconds. */
   granularitySec: number;
-  /** Headline value: last point of the series (for XP — lifetime total). */
+  /**
+   * Headline value: the last point. For `xp` — the lifetime XP total.
+   * For `il` — the NET result (profit + IL, the bottom line vs HODL).
+   */
   current: number;
   /**
-   * Change over the range (for XP: abs = XP earned in the range).
-   * `pct` is null when the base is zero/near-zero (growth from nothing,
-   * or a signed pnl/il base under $1) — render it as "—".
+   * Change over the range (for XP: abs = XP earned in the range; for il:
+   * the net change). `pct` is null when the base is zero/near-zero
+   * (growth from nothing, or a signed pnl/net-il base under $1) — render
+   * it as "—".
    */
   change: { abs: number; pct: number | null };
   /**
-   * True when the series is partially estimated: wallet history coverage
+   * True when the data is partially estimated: wallet history coverage
    * hit its cap / the history API was unavailable (amounts frozen at the
-   * horizon), or LP events inside the range (il metric).
+   * horizon), or LP events inside the range (il / pnl metrics).
    */
   approximate: boolean;
-  /** [unixSeconds, value] pairs, ascending. */
-  series: Array<[number, number]>;
+  /**
+   * The single line, [unixSeconds, value] pairs ascending — for
+   * `networth`, `pnl` and `xp`. ABSENT for `il`, which returns two
+   * separate lines in `lines` instead.
+   *
+   * - networth: whole-portfolio USD value at each point.
+   * - pnl: cumulative profit/loss vs invested dollars (never-decreasing
+   *   is NOT guaranteed — it moves with the market and with fixations).
+   * - xp: the total XP as of each point — cumulative, never decreasing.
+   */
+  series?: Array<[number, number]>;
+  /**
+   * `il` metric ONLY: two lines to draw on the same chart, both
+   * [unixSeconds, value] ascending on a shared grid.
+   * - `profit`: cumulative LP fees earned (≥ 0, draw green).
+   * - `il`: impermanent loss incl. realized (≤ 0, draw red).
+   * Their sum is the net LP result vs HODL (that is what `current` and
+   * `change` report). There is no `series` field for this metric.
+   */
+  lines?: {
+    profit: Array<[number, number]>;
+    il: Array<[number, number]>;
+  };
 }
 
 export type PortfolioActivityType =
@@ -558,7 +584,7 @@ export interface PortfolioPositionItem {
   ilRealized: number;
   /** feesEarned + il + ilRealized. */
   netPnl: number;
-  /** Personal compounded APY on time-weighted capital, %. */
+  /** POOL-wide APY, % (24h-based) — the same number as the pools page. */
   apy: number;
 }
 
@@ -995,7 +1021,8 @@ export class CubeBackendClient {
   // ── Portfolio v2 (redesigned portfolio page, auth required) ──
 
   /**
-   * Chart series for the portfolio page chart card.
+   * Chart data for the portfolio page chart card. Most metrics fill
+   * `series` (one line); `il` fills `lines` (two lines) instead.
    *
    * Metrics: `networth` — whole portfolio value over time (wallet tokens +
    * LP positions, reconstructed from on-chain wallet history × historical
@@ -1004,9 +1031,13 @@ export class CubeBackendClient {
    * every exit (withdrawal = received USD − capital share, transfer-out =
    * amount × LP price at that moment − capital share) — continuous at
    * both top-ups and exits;
-   * `il` — fees earned vs impermanent loss (net LP result vs HODL,
-   * signed); `xp` — XP earned PER BUCKET (hour/day/month depending on
-   * range), not cumulative.
+   * `il` — TWO lines in `lines`: `profit` (cumulative LP fees earned) and
+   * `il` (impermanent loss incl. realized, vs HODL); there is no `series`
+   * for this metric, and `current`/`change` report their net sum;
+   * `xp` — the total XP as of each point (cumulative, never decreasing).
+   *
+   * `all` range spans at least one year even for recent users, so it is
+   * never shorter than `1y`.
    */
   getPortfolioChart(
     metric: PortfolioChartMetric,
