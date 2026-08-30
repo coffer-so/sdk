@@ -38,10 +38,10 @@ for (const [t, v] of series ?? []) {
   console.log(`${new Date(t * 1000).toISOString()}: $${v}`);
 }
 
-// IL metric: draw the two lines from `lines`
+// IL metric: draw the two lines from `lines` (both are POSITIVE)
 if (lines) {
   drawLine(lines.profit, "green"); // cumulative fees, ≥ 0
-  drawLine(lines.il, "red");       // impermanent loss, ≤ 0
+  drawLine(lines.il, "red");       // impermanent loss magnitude, ≥ 0
 }
 ```
 
@@ -70,11 +70,13 @@ fully closed inside the range still shows its whole trajectory and the
 profit it locked in (not a flat zero).
 
 **`il` two lines:** `lines.profit` is cumulative LP fees earned (≥ 0,
-draw green), `lines.il` is impermanent loss incl. realized (≤ 0, draw
-red), both on the same grid. Reading the gap between them is the point —
+draw green), `lines.il` is the impermanent loss as a POSITIVE magnitude
+(≥ 0, draw red — the red colour already conveys "loss", so no minus
+sign), both on the same grid. Reading the gap between them is the point —
 when green outweighs red, LPing beat holding. `current` and `change`
-report their NET sum (the bottom line vs HODL), so the headline stays a
-single number. There is no `series` for this metric.
+report the NET (`profit − il`, the bottom line vs HODL), so the headline
+stays a single honest number that can be negative. There is no `series`
+for this metric.
 
 **`xp` is cumulative:** each point is the user's total XP as of that
 moment — a monotonic, never-decreasing line (draw as an area/line, not

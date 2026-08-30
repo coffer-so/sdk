@@ -458,11 +458,13 @@ export interface PortfolioChartResponse {
   series?: Array<[number, number]>;
   /**
    * `il` metric ONLY: two lines to draw on the same chart, both
-   * [unixSeconds, value] ascending on a shared grid.
+   * [unixSeconds, value] ascending on a shared grid, BOTH as POSITIVE
+   * magnitudes.
    * - `profit`: cumulative LP fees earned (≥ 0, draw green).
-   * - `il`: impermanent loss incl. realized (≤ 0, draw red).
-   * Their sum is the net LP result vs HODL (that is what `current` and
-   * `change` report). There is no `series` field for this metric.
+   * - `il`: impermanent loss as a positive number (≥ 0, draw red) — the
+   *   red line already means "loss", so it carries no minus sign.
+   * The net LP result vs HODL is `profit − il`, and that is what
+   * `current` and `change` report. There is no `series` for this metric.
    */
   lines?: {
     profit: Array<[number, number]>;
@@ -1031,9 +1033,10 @@ export class CubeBackendClient {
    * every exit (withdrawal = received USD − capital share, transfer-out =
    * amount × LP price at that moment − capital share) — continuous at
    * both top-ups and exits;
-   * `il` — TWO lines in `lines`: `profit` (cumulative LP fees earned) and
-   * `il` (impermanent loss incl. realized, vs HODL); there is no `series`
-   * for this metric, and `current`/`change` report their net sum;
+   * `il` — TWO lines in `lines`, both POSITIVE: `profit` (cumulative LP
+   * fees earned) and `il` (impermanent loss magnitude, vs HODL); there is
+   * no `series` for this metric, and `current`/`change` report the net
+   * (profit − il);
    * `xp` — the total XP as of each point (cumulative, never decreasing).
    *
    * `all` range spans at least one year even for recent users, so it is
