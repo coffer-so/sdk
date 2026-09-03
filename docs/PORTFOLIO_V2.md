@@ -84,7 +84,11 @@ bars). `current` is the lifetime total (the last point), `change.abs` is
 the XP earned within the selected range.
 
 **Ranges:** `"24h"`, `"1w"`, `"1m"`, `"1y"`, `"all"`. Point spacing comes
-back in `granularitySec` (24h → 5 min, 1w/1m → hourly, 1y/all → daily).
+back in `granularitySec`. Every range returns roughly the same number of
+points (~50–60): 24h → 30 min, 1w → 3 h, 1m → 12 h, 1y → 1 week; `all`
+picks an adaptive step (1 d … 30 d) that keeps the grid under ~64 points
+however long the user's history is. Always read `granularitySec` rather
+than assuming a step.
 `"all"` is floored at one year, so it is never a shorter window than
 `"1y"` even for a user whose first activity was recent.
 
@@ -96,9 +100,10 @@ events inside the range). Optionally show a subtle "approximate" hint.
 
 **`change.pct: null`** means the percentage is undefined — the range
 started from a zero base (e.g. a wallet that was empty at range start,
-XP from zero) or from a near-zero signed pnl/net-il base where a
-percentage would be meaningless. Render it as "—"; `change.abs` is
-always present.
+XP from zero), from a near-zero signed pnl/net-il base, or the value
+CROSSED ZERO over the range (e.g. net IL was −$560 early and +$1,193
+late — a "%" off a sign-flipping base is meaningless). Render it as "—";
+`change.abs` is always present.
 
 ### 2. Activity Feed (`getPortfolioActivity`)
 
