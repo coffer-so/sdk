@@ -600,6 +600,45 @@ export interface PortfolioPositionsResponse {
   data: PortfolioPositionItem[];
 }
 
+// ── Token pair-chart types (pool creation range picker) ──
+
+export type PairChartRange = "1d" | "1w" | "1m" | "1y" | "all";
+
+/**
+ * Price of token `a` expressed in units of token `b` over time — the
+ * one-line chart behind the range picker on the pool creation page.
+ */
+export interface TokenPairChartResponse {
+  /** Numerator mint — the token being priced. */
+  a: string;
+  /** Denominator mint — the token `a` is priced IN. */
+  b: string;
+  range: PairChartRange;
+  /** Spacing between series points, seconds. */
+  granularitySec: number;
+  current: {
+    /**
+     * How many units of `b` one unit of `a` is worth right now — the
+     * big "1,284.52 SOL/USDT" headline number.
+     */
+    ratio: number;
+    /** Current USD price of `a` — the grey "$345.44" next to it. */
+    aUsd: number;
+    /** Current USD price of `b`. */
+    bUsd: number;
+  };
+  /**
+   * Change of the pair price over the range. `pct` is null when the
+   * range started from an unknown (zero) price — render "—".
+   */
+  change: { abs: number; pct: number | null };
+  /**
+   * [unixSeconds, priceAinB] ascending — ONE line. Values are rounded
+   * to 6 significant digits (pairs like BONK/SOL live around 1e-9).
+   */
+  series: Array<[number, number]>;
+}
+
 // ── Auth types ──
 
 export interface NonceResponse {
@@ -1125,6 +1164,32 @@ export class CubeBackendClient {
     });
     return this.get<PortfolioPositionsResponse>(
       `/api/portfolio/v2/positions?${qs.toString()}`,
+    );
+  }
+
+  // ── Token pair-chart (pool creation range picker, public) ──
+
+  /**
+   * Price of token `a` expressed in token `b` over time — one line for
+   * the range-picker chart on the pool creation page. Works for ANY two
+   * Solana mints; no auth required.
+   *
+   * Cheap to call in bursts: the backend caches price history PER TOKEN,
+   * so charting every token of a pool against one base costs at most one
+   * upstream fetch per unique mint — flipping the base token reuses all
+   * of them. Rate-limited per IP (90/min) on top of the global limiter.
+   *
+   * `"all"` is capped at one year — the historical price horizon for
+   * arbitrary mints.
+   */
+  getTokenPairChart(
+    a: string,
+    b: string,
+    range: PairChartRange,
+  ): Promise<SdkResult<TokenPairChartResponse>> {
+    const qs = new URLSearchParams({ a, b, range });
+    return this.get<TokenPairChartResponse>(
+      `/api/tokens/pair-chart?${qs.toString()}`,
     );
   }
 
