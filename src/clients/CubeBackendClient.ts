@@ -52,12 +52,20 @@ export interface SwapRouteEntry {
   poolAddress: string;
   poolName: string;
   amountIn: string;
+  /** Raw expected output for this leg — NET of the v5 sell-off surge fee
+   *  (what the user actually receives). */
   expectedOut: string;
   /** Raw minimum output for this leg after slippage — sign this into the
    *  swap instruction. */
   minAmountOut: string;
   percentage: number;
   swapFee: number;
+  /** Estimated v5 sell-off surge fee for this leg (raw units of tokenOut).
+   *  "0" in the common case — rises as the input token's max-selloff
+   *  window fills. */
+  surgeFeeAmount: string;
+  /** Surge fee rate applied to this leg (%). 0 when the window is calm. */
+  surgeFeePct: number;
   tokenProgramIn: string;
   tokenProgramOut: string;
   tokenInIndex: number;
@@ -79,8 +87,17 @@ export interface SwapRouteResponse {
   effectivePrice: number;
   priceImpact: number;
   spotPrice: number;
+  /** Weighted average fee across routes (%), INCLUDING the v5 surge fee
+   *  when one is active. */
+  feePercent: number;
+  /** Total estimated v5 surge fee across legs (raw units of tokenOut).
+   *  "0" in the common case. */
+  totalSurgeFee: string;
   /** Estimated XP earned from this swap (based on LP fees generated) */
   estimatedXp: number;
+  /** True when a personalized XP boost (e.g. referred user +3%) was
+   *  applied to `estimatedXp` — requires the request to carry a JWT. */
+  xpBoostApplied: boolean;
 }
 
 // ── Leaderboard types ──
@@ -157,6 +174,78 @@ export interface LeaderboardStatsResponse {
   totalXp: number;
 }
 
+// ── Campaign types ──
+
+export interface CampaignStatusResponse {
+  /** Active campaign slug the backend is currently running. */
+  campaign: string;
+  participating: boolean;
+  /** ISO time of the ORIGINAL join; null when not participating. */
+  joinedAt: string | null;
+}
+
+export interface CampaignPrizeTier {
+  /** Inclusive place range this prize applies to. */
+  fromPlace: number;
+  toPlace: number;
+  usd: number;
+}
+
+export interface CampaignInfoResponse {
+  campaign: string;
+  startsAt: string;
+  endsAt: string;
+  /** Server-computed — drive the countdown from this, not client clocks. */
+  msUntilEnd: number;
+  ended: boolean;
+  prizePoolUsd: number;
+  /** Fixed for the whole campaign; paid out manually after the end. */
+  prizes: CampaignPrizeTier[];
+  rates: {
+    /** Same swap-XP rate as the leaderboard; LP XP is NOT accrued here. */
+    swapXpPerUsdLpFee: number;
+  };
+}
+
+export interface CampaignRankResponse {
+  campaign: string;
+  from: string;
+  /** Effective window end after server-side clamping to the campaign. */
+  to: string;
+  participating: boolean;
+  /**
+   * Place under the same ordering as the public top table; null when not
+   * participating or no swap XP earned inside the window.
+   */
+  place: number | null;
+  swapXp: number;
+  swapVolumeUsd: number;
+  /** Size of the ranked table — for "you are N of M" UI. */
+  totalRanked: number;
+}
+
+export interface CampaignTopEntry {
+  /** Continuous across pages. */
+  place: number;
+  address: string;
+  /** XP earned from swaps inside the window (LP XP not counted). */
+  swapXp: number;
+  swapVolumeUsd: number;
+  joinedAt: string;
+}
+
+export interface CampaignTopResponse {
+  campaign: string;
+  from: string;
+  /** Effective window end after server-side clamping to the campaign. */
+  to: string;
+  /** Participants with swap XP > 0 in the window. */
+  total: number;
+  page: number;
+  limit: number;
+  data: CampaignTopEntry[];
+}
+
 // ── Platform stats ──
 
 export interface PlatformStatsResponse {
@@ -172,6 +261,10 @@ export interface PlatformStatsResponse {
 export interface AdminPoolEntry {
   poolAddress: string;
   poolName: string;
+  /** Off-chain: mint shown first in the token list (null = default order). */
+  baseAssetMint: string | null;
+  /** Off-chain: short pool description. */
+  description: string | null;
   tvlUsd: number;
   apy: number;
   volume24h: number;
@@ -183,6 +276,14 @@ export interface AdminPoolEntry {
     ticker: string;
     imageUrl: string | null;
   }>;
+}
+
+/** Off-chain, admin-editable pool settings. */
+export interface UpdatePoolSettingsBody {
+  /** Mint of the base asset (one of the pool tokens); "" clears it. */
+  baseAssetMint?: string;
+  /** Short description; "" clears it. */
+  description?: string;
 }
 
 export interface AdminPoolsResponse {
@@ -313,6 +414,7 @@ export interface PortfolioPoolEntry {
   /** Result locked in on past withdrawals vs HODL ("Realized PnL" in UI) */
   ilRealized: number;
   netPnl: number;
+  /** POOL-wide APY, % — the same number as the pools page (legacy name). */
   apr: number;
 }
 
@@ -332,11 +434,245 @@ export interface PortfolioPoolHistoryResponse {
   series: PortfolioPoolHistoryPoint[];
 }
 
+// ── Portfolio v2 types (redesigned portfolio page) ──
+
+export type PortfolioChartMetric = "networth" | "pnl" | "il" | "xp";
+export type PortfolioChartRange = "24h" | "1w" | "1m" | "1y" | "all";
+
+export interface PortfolioChartResponse {
+  metric: PortfolioChartMetric;
+  range: PortfolioChartRange;
+  /** Distance between series/line points, seconds. */
+  granularitySec: number;
+  /**
+   * Headline value: the last point. For `xp` — the lifetime XP total.
+   * For `il` — the NET result (profit + IL, the bottom line vs HODL).
+   */
+  current: number;
+  /**
+   * Change over the range (for XP: abs = XP earned in the range; for il:
+   * the net change). `pct` is null when the base is zero/near-zero
+   * (growth from nothing, or a signed pnl/net-il base under $1) — render
+   * it as "—".
+   */
+  change: { abs: number; pct: number | null };
+  /**
+   * True when the data is partially estimated: wallet history coverage
+   * hit its cap / the history API was unavailable (amounts frozen at the
+   * horizon), or LP events inside the range (il / pnl metrics).
+   */
+  approximate: boolean;
+  /**
+   * The single line, [unixSeconds, value] pairs ascending — for
+   * `networth`, `pnl` and `xp`. ABSENT for `il`, which returns two
+   * separate lines in `lines` instead.
+   *
+   * - networth: whole-portfolio USD value at each point.
+   * - pnl: cumulative profit/loss vs invested dollars (never-decreasing
+   *   is NOT guaranteed — it moves with the market and with fixations).
+   * - xp: the total XP as of each point — cumulative, never decreasing.
+   */
+  series?: Array<[number, number]>;
+  /**
+   * `il` metric ONLY: two lines to draw on the same chart, both
+   * [unixSeconds, value] ascending on a shared grid, BOTH as POSITIVE
+   * magnitudes.
+   * - `profit`: cumulative LP fees earned (≥ 0, draw green).
+   * - `il`: impermanent loss as a positive number (≥ 0, draw red) — the
+   *   red line already means "loss", so it carries no minus sign.
+   * The net LP result vs HODL is `profit − il`, and that is what
+   * `current` and `change` report. There is no `series` for this metric.
+   */
+  lines?: {
+    profit: Array<[number, number]>;
+    il: Array<[number, number]>;
+  };
+}
+
+export type PortfolioActivityType =
+  | "swap"
+  | "added"
+  | "removed"
+  | "zap"
+  | "sent"
+  | "received"
+  | "deployed";
+
+export type PortfolioActivityFilter =
+  | "all"
+  | "liquidity"
+  | "zap"
+  | "swap"
+  | "transfer"
+  | "deployed";
+
+export interface ActivityTokenInfo {
+  mint: string;
+  symbol: string | null;
+  logo: string | null;
+}
+
+export interface PortfolioActivityItem {
+  type: PortfolioActivityType;
+  signature: string;
+  /** Unix seconds. */
+  time: number;
+  /**
+   * Signed USD: + for added/zap/received, − for removed/sent, unsigned for
+   * swap; null when unpriceable and for deployed rows.
+   */
+  valueUsd: number | null;
+  pool: {
+    address: string;
+    name: string;
+    feePercent: number | null;
+    bptMint: string | null;
+    tokens: ActivityTokenInfo[];
+    /** Pool weights in % (for the deployed row's "80/20 weights" subtitle). */
+    weights?: number[];
+  } | null;
+  /** Only on swap rows. */
+  swap?: { tokenIn: ActivityTokenInfo; tokenOut: ActivityTokenInfo };
+  /** Only on sent/received rows (wallet-to-wallet LP token transfers). */
+  transfer?: { counterparty: string | null };
+}
+
+export interface PortfolioActivityResponse {
+  total: number;
+  page: number;
+  limit: number;
+  data: PortfolioActivityItem[];
+}
+
+export type SortOrder = "desc" | "asc";
+export type PortfolioActivitySortField = "time" | "value";
+export type PortfolioHoldingsSortField = "value" | "price" | "balance";
+
+export interface PortfolioHoldingItem {
+  token: {
+    mint: string;
+    symbol: string | null;
+    /** Full token name (e.g. "USD Coin"); null when metadata has none. */
+    name: string | null;
+    logo: string | null;
+  };
+  priceUsd: number;
+  /** Total amount: wallet + decomposed LP positions. */
+  balance: number;
+  valueUsd: number;
+  /** Source breakdown for the tooltip; pct is of the token's balance. */
+  sources: {
+    wallet: { amount: number; pct: number };
+    pools: Array<{
+      poolAddress: string;
+      poolName: string;
+      amount: number;
+      pct: number;
+    }>;
+  };
+}
+
+export interface PortfolioHoldingsResponse {
+  total: number;
+  page: number;
+  limit: number;
+  data: PortfolioHoldingItem[];
+}
+
+export type PortfolioPositionsSortField =
+  | "value"
+  | "fees"
+  | "il"
+  | "pnl"
+  | "apy";
+
+export interface PortfolioPositionItem {
+  pool: {
+    address: string;
+    name: string;
+    feePercent: number | null;
+    bptMint: string | null;
+    tokens: ActivityTokenInfo[];
+  };
+  /** Position value from the 30s-fresh wallet BPT balance. */
+  valueUsd: number;
+  /** Lifetime LP fees earned in this pool. */
+  feesEarned: number;
+  /** Live unrealized IL (≤ 0); the realized part is `ilRealized`. */
+  il: number;
+  ilRealized: number;
+  /** feesEarned + il + ilRealized. */
+  netPnl: number;
+  /** POOL-wide APY, % (24h-based) — the same number as the pools page. */
+  apy: number;
+}
+
+export interface PortfolioPositionsResponse {
+  /** Number of ACTIVE positions (the "N active positions" header). */
+  total: number;
+  page: number;
+  limit: number;
+  /** Σ value of ALL active positions (the header total), not the page. */
+  totalValueUsd: number;
+  data: PortfolioPositionItem[];
+}
+
+// ── Token pair-chart types (pool creation range picker) ──
+
+export type PairChartRange = "1d" | "1w" | "1m" | "1y" | "all";
+
+/**
+ * Price of token `a` expressed in units of token `b` over time — the
+ * one-line chart behind the range picker on the pool creation page.
+ */
+export interface TokenPairChartResponse {
+  /** Numerator mint — the token being priced. */
+  a: string;
+  /** Denominator mint — the token `a` is priced IN. */
+  b: string;
+  range: PairChartRange;
+  /** Spacing between series points, seconds. */
+  granularitySec: number;
+  current: {
+    /**
+     * How many units of `b` one unit of `a` is worth right now — the
+     * big "1,284.52 SOL/USDT" headline number.
+     */
+    ratio: number;
+    /** Current USD price of `a` — the grey "$345.44" next to it. */
+    aUsd: number;
+    /** Current USD price of `b`. */
+    bUsd: number;
+  };
+  /**
+   * Change of the pair price over the range. `pct` is null when the
+   * range started from an unknown (zero) price — render "—".
+   */
+  change: { abs: number; pct: number | null };
+  /**
+   * [unixSeconds, priceAinB] ascending — ONE line. Values are rounded
+   * to 6 significant digits (pairs like BONK/SOL live around 1e-9).
+   */
+  series: Array<[number, number]>;
+}
+
 // ── Auth types ──
 
 export interface NonceResponse {
   nonce: string;
   message: string;
+}
+
+/**
+ * Challenge for the transaction-based sign-in fallback (wallets whose
+ * signMessage path is broken — Ledger through mobile apps first of all).
+ */
+export interface TxChallengeResponse {
+  nonce: string;
+  /** Base64-encoded UNSIGNED transaction to pass to wallet.signTransaction. */
+  transaction: string;
+  /** Human-readable memo embedded in the transaction (agreements + nonce). */
+  memo: string;
 }
 
 export interface AuthTokens {
@@ -452,6 +788,12 @@ export class CubeBackendClient {
     amountIn: string,
     decimalsIn: number = 9,
     slippageBps?: number,
+    /**
+     * Restrict the quote to this single pool: no split routing, all
+     * estimates (priceImpact against this pool's own spot, fees, XP) are
+     * computed as if swapping only through it.
+     */
+    pool?: string,
   ): Promise<SdkResult<SwapRouteResponse>> {
     const qs = new URLSearchParams({
       tokenIn,
@@ -461,6 +803,9 @@ export class CubeBackendClient {
     });
     if (slippageBps !== undefined) {
       qs.set('slippageBps', String(slippageBps));
+    }
+    if (pool !== undefined) {
+      qs.set('pool', pool);
     }
     return this.getDataField<SwapRouteResponse>(
       `/api/pools/swap-route?${qs.toString()}`,
@@ -511,6 +856,65 @@ export class CubeBackendClient {
     return this.get<LeaderboardStatsResponse>("/api/leaderboard/stats");
   }
 
+  /**
+   * Join the active swap-XP campaign. Requires SIWS auth (`setTokens`);
+   * the wallet comes from the JWT. IDEMPOTENT — repeat calls are no-ops
+   * returning the same status with the original join time.
+   */
+  joinCampaign(): Promise<SdkResult<CampaignStatusResponse>> {
+    return this.post<CampaignStatusResponse>("/api/campaign/join", {});
+  }
+
+  /** Participation status of the authenticated wallet (requires SIWS auth). */
+  getCampaignStatus(): Promise<SdkResult<CampaignStatusResponse>> {
+    return this.get<CampaignStatusResponse>("/api/campaign/me");
+  }
+
+  /** Active campaign card: window, server-side countdown, prizes. Public. */
+  getCampaignInfo(): Promise<SdkResult<CampaignInfoResponse>> {
+    return this.get<CampaignInfoResponse>("/api/campaign/info");
+  }
+
+  /**
+   * The authenticated wallet's own place in the campaign standings
+   * (requires SIWS auth). Same window semantics and ordering as
+   * getCampaignTop, so the place always matches the public table.
+   */
+  getCampaignRank(
+    from?: string,
+    to?: string,
+  ): Promise<SdkResult<CampaignRankResponse>> {
+    const qs = new URLSearchParams();
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    return this.get<CampaignRankResponse>(
+      `/api/campaign/me/rank?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * Campaign standings: participants only, ranked by swap XP inside
+   * [from, to). Both dates are optional and CLAMPED into the campaign
+   * window server-side (defaults: the whole campaign) — omit both for
+   * the live standings of the running campaign; they freeze by
+   * themselves once it ends. Public endpoint, paginated like the
+   * leaderboard.
+   */
+  getCampaignTop(
+    from?: string,
+    to?: string,
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<SdkResult<CampaignTopResponse>> {
+    const qs = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    return this.get<CampaignTopResponse>(`/api/campaign/top?${qs.toString()}`);
+  }
+
   getTokenPrices(mints: string[]): Promise<SdkResult<PriceMap>> {
     const qs = new URLSearchParams({ mints: mints.join(",") });
     return this.get<PriceMap>(`/api/prices?${qs.toString()}`);
@@ -555,6 +959,21 @@ export class CubeBackendClient {
     return this.put<RenamePoolResponse>(
       `/api/pools/admin/${encodeURIComponent(poolAddress)}/name`,
       { name },
+    );
+  }
+
+  /**
+   * Update off-chain pool settings (base asset, description). Only fields
+   * present are changed; empty string clears a field. Base asset must be
+   * one of the pool tokens. Pool admin only; requires authentication.
+   */
+  updatePoolSettings<T>(
+    poolAddress: string,
+    settings: UpdatePoolSettingsBody,
+  ): Promise<SdkResult<T>> {
+    return this.put<T>(
+      `/api/pools/admin/${encodeURIComponent(poolAddress)}/settings`,
+      settings,
     );
   }
 
@@ -657,6 +1076,140 @@ export class CubeBackendClient {
     );
   }
 
+  // ── Portfolio v2 (redesigned portfolio page, auth required) ──
+
+  /**
+   * Chart data for the portfolio page chart card. Most metrics fill
+   * `series` (one line); `il` fills `lines` (two lines) instead.
+   *
+   * Metrics: `networth` — whole portfolio value over time (wallet tokens +
+   * LP positions, reconstructed from on-chain wallet history × historical
+   * prices); `pnl` — CUMULATIVE profit/loss vs invested dollars:
+   * unrealized (LP value minus entry-priced capital) + profit FIXED at
+   * every exit (withdrawal = received USD − capital share, transfer-out =
+   * amount × LP price at that moment − capital share) — continuous at
+   * both top-ups and exits;
+   * `il` — TWO lines in `lines`, both POSITIVE: `profit` (cumulative LP
+   * fees earned) and `il` (impermanent loss magnitude, vs HODL); there is
+   * no `series` for this metric, and `current`/`change` report the net
+   * (profit − il);
+   * `xp` — the total XP as of each point (cumulative, never decreasing).
+   *
+   * `all` range spans at least one year even for recent users, so it is
+   * never shorter than `1y`.
+   */
+  getPortfolioChart(
+    metric: PortfolioChartMetric,
+    range: PortfolioChartRange,
+  ): Promise<SdkResult<PortfolioChartResponse>> {
+    const qs = new URLSearchParams({ metric, range });
+    return this.get<PortfolioChartResponse>(
+      `/api/portfolio/v2/chart?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * On-chain activity feed: swaps, liquidity added/removed, zaps
+   * (single-token deposits), LP tokens sent/received (wallet transfers
+   * with counterparties) and pools deployed by the user. Newest first,
+   * page/limit pagination. The Recent Activity widget is `{ limit: 4 }`;
+   * filters: `liquidity` = added + removed, `transfer` = sent + received.
+   */
+  getPortfolioActivity(options?: {
+    page?: number;
+    limit?: number;
+    type?: PortfolioActivityFilter;
+    /** Sort column; unpriced rows (deployed) always go last on "value". */
+    sort?: PortfolioActivitySortField;
+    order?: SortOrder;
+  }): Promise<SdkResult<PortfolioActivityResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      type: options?.type ?? "all",
+      sort: options?.sort ?? "time",
+      order: options?.order ?? "desc",
+    });
+    return this.get<PortfolioActivityResponse>(
+      `/api/portfolio/v2/activity?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * Token Holdings: every token the user holds, with LP positions
+   * DECOMPOSED into their underlying tokens (per-pool share of actual
+   * balances — what the user would receive on withdrawal). LP tokens
+   * themselves are never listed. Each row carries a source breakdown
+   * (wallet + per-pool amounts/percentages) for the Source tooltip.
+   * The widget is `{ limit: 4 }`; sortable by value/price/balance.
+   */
+  getPortfolioHoldings(options?: {
+    page?: number;
+    limit?: number;
+    sort?: PortfolioHoldingsSortField;
+    order?: SortOrder;
+  }): Promise<SdkResult<PortfolioHoldingsResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      sort: options?.sort ?? "value",
+      order: options?.order ?? "desc",
+    });
+    return this.get<PortfolioHoldingsResponse>(
+      `/api/portfolio/v2/holdings?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * Position Pools: the user's ACTIVE LP positions with per-pool money
+   * metrics — value (from the fresh wallet BPT balance), fees earned,
+   * unrealized + realized IL, net PnL and personal compounded APY.
+   * A freshly received (transferred) position appears immediately with
+   * its value and zeroed metrics until the background snapshot builds.
+   */
+  getPortfolioPositions(options?: {
+    page?: number;
+    limit?: number;
+    sort?: PortfolioPositionsSortField;
+    order?: SortOrder;
+  }): Promise<SdkResult<PortfolioPositionsResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      sort: options?.sort ?? "value",
+      order: options?.order ?? "desc",
+    });
+    return this.get<PortfolioPositionsResponse>(
+      `/api/portfolio/v2/positions?${qs.toString()}`,
+    );
+  }
+
+  // ── Token pair-chart (pool creation range picker, public) ──
+
+  /**
+   * Price of token `a` expressed in token `b` over time — one line for
+   * the range-picker chart on the pool creation page. Works for ANY two
+   * Solana mints; no auth required.
+   *
+   * Cheap to call in bursts: the backend caches price history PER TOKEN,
+   * so charting every token of a pool against one base costs at most one
+   * upstream fetch per unique mint — flipping the base token reuses all
+   * of them. Rate-limited per IP (90/min) on top of the global limiter.
+   *
+   * `"all"` is capped at one year — the historical price horizon for
+   * arbitrary mints.
+   */
+  getTokenPairChart(
+    a: string,
+    b: string,
+    range: PairChartRange,
+  ): Promise<SdkResult<TokenPairChartResponse>> {
+    const qs = new URLSearchParams({ a, b, range });
+    return this.get<TokenPairChartResponse>(
+      `/api/tokens/pair-chart?${qs.toString()}`,
+    );
+  }
+
   // ── Auth ──
 
   /** Request a SIWS nonce + pre-built message for the given wallet. */
@@ -674,6 +1227,32 @@ export class CubeBackendClient {
     return this.post<AuthTokens>("/api/auth/verify", {
       message,
       signature,
+    });
+  }
+
+  /**
+   * Request a sign-in challenge transaction (fallback for wallets whose
+   * signMessage is broken: Ledger via mobile apps, etc.). The returned
+   * transaction is a 0-lamport self-transfer plus a memo with the
+   * agreements statement and a single-use nonce; it is verified offline
+   * by the backend and never broadcast on-chain.
+   */
+  getTxChallenge(wallet: string): Promise<SdkResult<TxChallengeResponse>> {
+    return this.get<TxChallengeResponse>(
+      `/api/auth/tx-challenge?wallet=${encodeURIComponent(wallet)}`,
+    );
+  }
+
+  /**
+   * Submit the signed challenge transaction (base64, from
+   * wallet.signTransaction + serialize) to receive the same access +
+   * refresh token pair as verifySignature().
+   */
+  verifyTransaction(
+    signedTransactionBase64: string,
+  ): Promise<SdkResult<AuthTokens>> {
+    return this.post<AuthTokens>("/api/auth/verify-tx", {
+      transaction: signedTransactionBase64,
     });
   }
 
