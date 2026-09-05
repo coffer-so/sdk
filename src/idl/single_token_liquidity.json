@@ -15,14 +15,12 @@
         "`remaining_accounts` layout.",
         "",
         "# Parameters",
-        "* `amount_in`              — raw units of",
+        "* `amount_in`          — raw units of",
         "`pool.token_mints[token_in_index]`.",
-        "* `token_in_index`         — index in `pool.token_mints`.",
-        "* `slippage_hundredths_bps`— slippage bound applied to every",
-        "per-leg swap. Same scale as `cubic_pool.swap_fee_rate`",
-        "(1_000_000 = 100%). Must be in `[10, 1_000_000]`",
-        "= `[0.001%, 100%]`.",
-        "* `minimum_bpt_amount`     — final guard on BPT received by user.",
+        "* `token_in_index`     — index in `pool.token_mints`.",
+        "* `minimum_bpt_amount` — final slippage guard on BPT received by the",
+        "user (> 0). This single guard bounds the whole zap (internal swaps",
+        "+ surge fees + join); per-leg swaps use `min_out = 0`.",
         "",
         "# Used by",
         "SDK `SingleTokenClient`, frontend `useSingleTokenDeposit` hook."
@@ -83,10 +81,6 @@
           "type": "u8"
         },
         {
-          "name": "slippage_hundredths_bps",
-          "type": "u32"
-        },
-        {
           "name": "minimum_bpt_amount",
           "type": "u64"
         }
@@ -95,16 +89,22 @@
     {
       "name": "withdraw_sol",
       "docs": [
-        "Drain lamports from any stld-owned account down to (not below)",
-        "rent-exempt minimum.",
+        "Recover lamports stranded on a pool's helper PDA.",
+        "",
+        "There is no rent-exempt floor to respect here, and that is deliberate",
+        "rather than an oversight: the helper carries no data and is",
+        "System-owned, so a full drain simply reclaims the account, and its",
+        "address is re-derivable from `[HELPER_SEED, pool]` whenever it is",
+        "needed again. An earlier revision documented a rent-exempt guard that",
+        "the handler never applied — see `StldError::WouldBreakRentExempt`,",
+        "retained unraised for IDL numbering.",
         "",
         "# Authority",
         "Treasury PDA only — in practice via CPI from",
         "`protocol_admin::stld_withdraw_sol`.",
         "",
         "# Parameters",
-        "* `amount` — lamports; > 0 and ≤",
-        "`source.lamports() - rent_exempt_minimum`."
+        "* `amount` — lamports; `> 0` and `<= source.lamports()`."
       ],
       "discriminator": [
         145,
@@ -126,7 +126,28 @@
           ]
         },
         {
+          "name": "pool",
+          "docs": [
+            "The pool whose helper PDA is being drained. It is NOT merely a seed",
+            "source: it must belong to the config that authorised this call.",
+            "",
+            "Without that binding, `config` and `pool` are independent inputs, and",
+            "the admin of config A could drain the helper of a pool governed by",
+            "config B — the helper PDA signs on nothing but its seeds, and those",
+            "seeds are derived from whichever pool the caller passes. That is the",
+            "same defect the audit raised as L-07 against cubic-pool's own",
+            "`withdraw_sol`, which binds `pool.config == config.key()`; this",
+            "instruction was rewritten for L-08 without picking the binding up.",
+            "",
+            "It is latent only while one Treasury PDA governs every config. Rotation",
+            "is deliberately unpinned (L-09), so configs are expected to diverge."
+          ]
+        },
+        {
           "name": "source",
+          "docs": [
+            "and dataless by construction; it signs its own outgoing transfer."
+          ],
           "writable": true
         },
         {
@@ -136,6 +157,9 @@
         {
           "name": "authority",
           "signer": true
+        },
+        {
+          "name": "system_program"
         }
       ],
       "args": [
@@ -211,17 +235,17 @@
     {
       "code": 6001,
       "name": "ZeroFeeAmount",
-      "msg": "Swap amount is too small: fee rounds to zero"
+      "msg": "Deprecated: swap fees are enforced by cubic-pool, not here"
     },
     {
       "code": 6002,
       "name": "SlippageTooLow",
-      "msg": "Slippage below 0.001%"
+      "msg": "Deprecated: slippage is now the minimum_bpt_amount guard"
     },
     {
       "code": 6003,
       "name": "SlippageTooHigh",
-      "msg": "Slippage above 100%"
+      "msg": "Deprecated: slippage is now the minimum_bpt_amount guard"
     },
     {
       "code": 6004,
@@ -296,7 +320,7 @@
     {
       "code": 6018,
       "name": "ZeroExpectedOut",
-      "msg": "Expected swap output is zero"
+      "msg": "Deprecated: the zap measures real swap output instead of predicting it"
     },
     {
       "code": 6019,
@@ -306,7 +330,7 @@
     {
       "code": 6020,
       "name": "InvalidBptMint",
-      "msg": "Invalid BPT mint: must be [bpt_mint, pool] PDA in cubic-pool program"
+      "msg": "Deprecated: enforced by the bpt_mint seeds constraint"
     },
     {
       "code": 6021,
@@ -351,29 +375,262 @@
     {
       "code": 6029,
       "name": "WouldBreakRentExempt",
-      "msg": "Withdrawal would break rent exemption"
+      "msg": "Deprecated: the dataless helper PDA has no rent-exempt minimum"
+    },
+    {
+      "code": 6030,
+      "name": "TokenExtensionsUnsupported",
+      "msg": "Single-token deposit unsupported for pools with armed transfer-hook tokens"
+    },
+    {
+      "code": 6031,
+      "name": "InsufficientHelperSol",
+      "msg": "Helper PDA does not hold that many lamports"
+    },
+    {
+      "code": 6032,
+      "name": "PoolTooLargeForZap",
+      "msg": "Pool has too many tokens for a single-token deposit; use add_liquidity"
     }
   ],
   "types": [
     {
-      "name": "CubicPool",
+      "name": "AssetConfig",
       "docs": [
-        "`CubicPool` — per-pool state for a weighted AMM with virtual liquidity.",
+        "`CubicPool` v4 — per-pool state for a weighted AMM with virtual liquidity.",
         "",
-        "Each pool is a PDA derived from `[CUBIC_POOL_SEED, config_pubkey,",
-        "pool_id_le]`. One config can host many pools (different `pool_id`s).",
+        "Storage layout: **Array-of-Structs (AoS)**. Per-token data lives in",
+        "`tokens: [TokenSlot; MAX_TOKENS]`. Each `TokenSlot` carries TWO nested",
+        "sub-structs:",
+        "",
+        "- `config: AssetConfig`     — admin-controlled, rarely changes (mint,",
+        "token_program, weight, max_selloff, period).",
+        "- `dynamics: AssetDynamics` — auto-updated by user txs (balances,",
+        "protocol_fees_owed, sliding-window selloff state).",
+        "",
+        "This mirrors Solend / MarginFi / Kamino's `Reserve { config, ... }`",
+        "pattern. Reading per-token data is a single struct lookup; auditors",
+        "see at a glance which fields a user can mutate vs which need pool",
+        "admin authority.",
         "",
         "## Storage layout — DO NOT REORDER",
         "Backends (`onchainPoolFetcher.ts`, indexer) read fields by raw offset.",
-        "Adding fields is fine if appended **before** `reserved` and `reserved`",
-        "shrinks accordingly so total `LEN` stays the same.",
+        "Adding fields is OK if appended at the END (before the trailing",
+        "`reserved`) and `reserved` shrinks accordingly. Inserting in the",
+        "middle would require rewriting existing accounts.",
         "",
         "## Derived (not stored) state",
         "- `bpt_mint`        — derived as `[BPT_MINT_SEED, pool]` PDA.",
         "- `bpt_total_supply`— read from `bpt_mint.supply` at runtime.",
-        "- `token_vaults[i]` — derived as ATA(pool, mint, token_programs[i]).",
+        "- `token_vaults[i]` — derived as ATA(pool, mint, tokens[i].config.token_program).",
         "- `token_decimals`  — read from each mint account at runtime."
       ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "docs": [
+              "Token mint pubkey for this slot. `Pubkey::default()` past `token_count`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "docs": [
+              "SPL Token or Token-2022 program ID for this token's vault/transfers."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "normalized_weight",
+            "docs": [
+              "Normalised weight in basis points (sum across active slots == 10_000)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_selloff_pct",
+            "docs": [
+              "Max cumulative sell volume of this token per sliding window,",
+              "expressed as a **percentage of the token's `virtual_balance`**",
+              "captured at window start, in units of `PERCENT_SCALE` (10_000 =",
+              "100%, so 1000 = 10%; resolution 0.01%). `0` disables the check for",
+              "this token. Must be `<= PERCENT_SCALE`. Set by pool_admin only.",
+              "",
+              "The absolute cap for a window is `floor(max_selloff_pct *",
+              "vb_snapshot / PERCENT_SCALE)`, where `vb_snapshot` is",
+              "`AssetDynamics::selloff_vb_snapshot` (taken at window open). Using a",
+              "per-window snapshot — not the live `virtual_balance` — prevents an",
+              "in-window base-inflation bypass (see `math::max_selloff`)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "max_selloff_period_length",
+            "docs": [
+              "Length of the sliding window in seconds. Ignored when",
+              "`max_selloff_pct == 0`. Set by pool_admin only."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "variable_fee_threshold_pct",
+            "docs": [
+              "Variable sell-off **surge fee** curve (per token, `PERCENT_SCALE`",
+              "units; 10_000 = 100%). The fee rises as the token's max-selloff",
+              "window fills and is charged on `amount_out`, routed 100% to the",
+              "protocol bucket (`protocol_fees_owed`), never to LPs. See",
+              "`math::surge_fee`. The fee is active only when `max_selloff_pct > 0`",
+              "(it reads the window fill ratio) AND `fee_slope_high_pct > 0`.",
+              "",
+              "Window fill ratio at which the surge fee starts (below it the fee is",
+              "0). E.g. 8000 = surge begins at 80% window fill."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_slope_low_pct",
+            "docs": [
+              "Surge fee at the threshold (lower point of the curve)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_slope_high_pct",
+            "docs": [
+              "Surge fee at ~100% window fill (upper point of the curve). Must be",
+              "`>= fee_slope_low_pct` and `<= PERCENT_SCALE`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "is_active",
+            "docs": [
+              "Per-token kill switch for the **input** side of swaps. When `false`,",
+              "swaps whose INPUT token is this one revert (`TokenInactive`); the",
+              "token can still be bought (as swap output) and liquidity ops are",
+              "unaffected. Defaults to `true` (active). Flipped by `set_token_active`",
+              "(pool-admin or protocol-admin/supervisor). Used to stop accepting a",
+              "compromised token without pausing the whole pool."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "variable_fee_slope_mid_pct",
+            "docs": [
+              "Surge fee at the KINK — the middle of the three points that define the",
+              "curve. Between `variable_fee_threshold_pct` and this point the fee runs",
+              "linearly from `variable_fee_slope_low_pct` to here; beyond it, linearly",
+              "from here to `variable_fee_slope_high_pct` at full window fill.",
+              "",
+              "This is the \"target utilisation\" shape lending protocols use (Evaa,",
+              "Aave, Compound): gentle while the window fills normally, steep once it",
+              "is nearly exhausted. Must satisfy",
+              "`slope_low <= slope_mid <= slope_high` — a fee that fell as the window",
+              "filled would invert the brake."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_kink_pct",
+            "docs": [
+              "Window fill at which the curve kinks, in WHOLE PERCENT (0..=100), not",
+              "`PERCENT_SCALE` units — one byte is all that was left, and 1% is ample",
+              "resolution for a breakpoint.",
+              "",
+              "`0` means \"no kink\": the curve degenerates to a single straight line",
+              "from `slope_low` at the threshold to `slope_high` at full fill, which",
+              "is what every pool written by the previous layout decodes as.",
+              "",
+              "Must sit strictly between the threshold and full fill when set."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AssetDynamics",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "virtual_balance",
+            "docs": [
+              "Virtual balance (raw token units) used by the cubic invariant",
+              "math. Decoupled from `actual_balance` to enable concentrated",
+              "liquidity. Updated by swap / add_liquidity / remove_liquidity."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "actual_balance",
+            "docs": [
+              "The LP-owned portion of this token's vault, in raw units.",
+              "",
+              "It does NOT equal the vault's `amount`. The invariant is",
+              "`vault.amount == actual_balance + protocol_fees_owed`: protocol fees",
+              "sit in the same vault but are not LP capital, and `collect_protocol_fees`",
+              "pays them out without touching `actual_balance`. Sizing a withdrawal or",
+              "a deposit ratio against the raw vault balance would therefore hand LPs",
+              "the protocol's uncollected fees.",
+              "",
+              "Reads of the vault should either use this field or subtract",
+              "`protocol_fees_owed` explicitly; the two are only equal on a pool whose",
+              "fees have just been collected."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fees_owed",
+            "docs": [
+              "Accumulated protocol fees for this token (raw units), awaiting",
+              "`collect_protocol_fees`. Stored separately from `actual_balance`",
+              "so LP value isn't diluted by uncollected fees."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "previous_selloff",
+            "docs": [
+              "Sliding-window rate limiter: amount sold in the PREVIOUS window",
+              "(Cloudflare-style approximation, Solend RateLimiter pattern)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "current_selloff",
+            "docs": [
+              "Amount sold in the CURRENT window."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "window_start_timestamp",
+            "docs": [
+              "`Clock::unix_timestamp` when the current window started. Set to",
+              "`now()` at pool init."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "selloff_vb_snapshot",
+            "docs": [
+              "Snapshot of this token's `virtual_balance` taken when the current",
+              "max-selloff window opened. The window's absolute cap is",
+              "`floor(config.max_selloff_pct * selloff_vb_snapshot / PERCENT_SCALE)`.",
+              "Snapshotting (rather than reading live `virtual_balance`) keeps the",
+              "cap un-inflatable within a window — selling raises the live vb, but",
+              "not this snapshot. `0` ⇒ uninitialised (re-captured on next check)."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CubicPool",
       "type": {
         "kind": "struct",
         "fields": [
@@ -411,72 +668,6 @@
             "type": "u64"
           },
           {
-            "name": "token_mints",
-            "docs": [
-              "Mint pubkeys for each active token, fixed length array padded with",
-              "`Pubkey::default()` past `token_count`."
-            ],
-            "type": {
-              "array": [
-                "pubkey",
-                10
-              ]
-            }
-          },
-          {
-            "name": "token_programs",
-            "docs": [
-              "Per-token program ID (`spl_token::ID` or `spl_token_2022::ID`). A",
-              "single pool may mix legacy SPL tokens and Token-2022 mints."
-            ],
-            "type": {
-              "array": [
-                "pubkey",
-                10
-              ]
-            }
-          },
-          {
-            "name": "normalized_weights",
-            "docs": [
-              "Normalised weights in basis points (sum = `WEIGHT_SCALE` = 10_000).",
-              "`weights[i] / WEIGHT_SCALE` is the target value-share of token i."
-            ],
-            "type": {
-              "array": [
-                "u64",
-                10
-              ]
-            }
-          },
-          {
-            "name": "virtual_balances",
-            "docs": [
-              "Virtual balances (raw token units) used by the cubic invariant",
-              "math. Decoupled from actual vault holdings to enable concentrated",
-              "liquidity à la Cubic AMM. Updated by every swap / add / remove."
-            ],
-            "type": {
-              "array": [
-                "u64",
-                10
-              ]
-            }
-          },
-          {
-            "name": "actual_balances",
-            "docs": [
-              "Actual balances mirrored from the on-chain vaults. Always",
-              "== vault.amount for that token (CEI ordering keeps them in sync)."
-            ],
-            "type": {
-              "array": [
-                "u64",
-                10
-              ]
-            }
-          },
-          {
             "name": "swap_fee_rate",
             "docs": [
               "Swap fee in hundredths of a basis point (precision",
@@ -493,20 +684,6 @@
             "type": "u16"
           },
           {
-            "name": "protocol_fees_owed",
-            "docs": [
-              "Accumulated protocol fees per token (raw units), waiting on",
-              "`collect_protocol_fees`. Stored separately from `actual_balances`",
-              "so LP value isn't diluted by uncollected fees."
-            ],
-            "type": {
-              "array": [
-                "u64",
-                10
-              ]
-            }
-          },
-          {
             "name": "created_at",
             "docs": [
               "Pool creation `Clock::unix_timestamp`. Informational only."
@@ -517,8 +694,7 @@
             "name": "pool_enabled",
             "docs": [
               "Master kill switch — when `false`, swaps and add/remove liquidity",
-              "all revert. Only `protocol_admin` can flip this; required to be",
-              "`false` before `debug_withdraw_liquidity` is callable."
+              "all revert. Only `protocol_admin` can flip this."
             ],
             "type": "bool"
           },
@@ -533,32 +709,176 @@
           {
             "name": "pool_admin",
             "docs": [
-              "Per-pool admin. Initialised to the wallet that called",
-              "`initialize_cubic_pool`. Allowed to: rotate `swap_fee_rate`,",
-              "toggle `swaps_enabled`, transfer / disable itself via the",
-              "pending/accept/disable flow. Set to `Pubkey::default()` once the",
-              "admin role is renounced — after that, no pool-admin function is",
-              "callable on this pool, ever."
+              "Per-pool admin. Owns: rotate swap_fee_rate, toggle swaps_enabled,",
+              "set range_manager, set max_selloff, transfer/disable itself."
             ],
             "type": "pubkey"
           },
           {
             "name": "pending_pool_admin",
             "docs": [
-              "Pending successor for `pool_admin` during a 2-step transfer.",
-              "`Pubkey::default()` ⇒ no transfer in flight."
+              "Pending successor for `pool_admin` during a 2-step transfer."
             ],
             "type": "pubkey"
           },
           {
+            "name": "range_manager",
+            "docs": [
+              "Pubkey allowed to call `range_manager_update`. `Pubkey::default()`",
+              "⇒ no manager set."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "range_manager_enabled",
+            "docs": [
+              "`false` ⇒ all `range_manager_update` calls revert."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "range_manager_max_vb_change_pct",
+            "docs": [
+              "Max per-update change to a token's `virtual_balance`, as a",
+              "percentage of its current value, in `PERCENT_SCALE` units",
+              "(10_000 = 100%; 500 = 5%). Enforced per token in",
+              "`range_manager_update`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "range_manager_max_weight_change_pct",
+            "docs": [
+              "Max per-update change to a token's `normalized_weight`, same",
+              "`PERCENT_SCALE` units."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "range_manager_min_update_interval_secs",
+            "type": "u32"
+          },
+          {
+            "name": "range_manager_last_updated",
+            "type": "i64"
+          },
+          {
+            "name": "tokens",
+            "docs": [
+              "All per-token state. Slot `i` is for the i-th token. Slots past",
+              "`token_count` are zero-initialised and ignored."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "TokenSlot"
+                  }
+                },
+                10
+              ]
+            }
+          },
+          {
+            "name": "lookup_table",
+            "docs": [
+              "Per-pool Address Lookup Table address. Holds pool-scoped accounts",
+              "(pool PDA, BPT mint, vaults, mints, token programs) so client SDKs",
+              "can build VersionedTransactions for `add_liquidity` / `remove_liquidity`",
+              "without hitting the 1232-byte legacy-tx ceiling on multi-token pools.",
+              "",
+              "`Pubkey::default()` ⇒ ALT not yet initialised. SDK falls back to",
+              "legacy tx (will only work for small pools). Set by `initialize_pool_alt`,",
+              "frozen on-chain so depositors don't worry about authority abuse."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "banned_extensions",
+            "docs": [
+              "Token-2022 extension blocklist that was applied to THIS pool's tokens",
+              "at creation, in the same bit layout as",
+              "`CubicPoolConfig.banned_extensions` (bit `i` set ⇒ extension type `i`",
+              "is forbidden). Chosen by the pool **creator** at init: if they passed",
+              "an explicit override it is stored verbatim; otherwise the parent",
+              "config's default was copied here.",
+              "",
+              "Recorded for transparency so indexers / depositors can see exactly",
+              "which extension policy a pool's tokens were vetted against. It is a",
+              "snapshot only — the pool's token set is fixed at creation, so changing",
+              "this value later would not re-validate anything.",
+              "",
+              "NOTE (security): the creator chooses this bitmap freely ABOVE the",
+              "protocol floor — `constants::HARD_BANNED_EXTENSIONS`",
+              "(`PermanentDelegate`, `TransferHook`) is OR-ed in at creation and",
+              "cannot be cleared, so no pool can admit a mint that reaches vault",
+              "custody. Everything else is the creator's call, so LPs should still",
+              "read this field and decide whether they trust the remaining policy",
+              "before depositing. Pre-existing (pre-upgrade) pools read `0` here",
+              "until `migrate_to_v5` backfills them from the parent config."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "range_manager_max_leverage_bps",
+            "docs": [
+              "Absolute ceiling on `virtual_balance / actual_balance` that the range",
+              "manager may leave a token at, in basis points (10_000 = 1.0×). `0`",
+              "disables the band.",
+              "",
+              "The per-update percentage caps velocity, not distance: measured",
+              "against the live value each call, 5% steps compound to ~2.65× in 20",
+              "updates and ~131× in 100, so a manager — or a malfunctioning bot —",
+              "can walk the pool price arbitrarily far using only individually legal",
+              "moves. This band is the distance limit.",
+              "",
+              "Anchored to `actual_balance` rather than to a captured snapshot on",
+              "purpose: real reserves only move when capital actually enters or",
+              "leaves, so the baseline cannot go stale the way a stored snapshot",
+              "does. Tokens with `actual_balance == 0` (sidelined) are exempt —",
+              "there is no real capital to anchor against.",
+              "",
+              "Appended at the END (before `reserved`) per the layout rule above, so",
+              "every pre-existing field keeps its byte offset. Pre-upgrade pools",
+              "decode this as `0` (band disabled), which is the back-compatible",
+              "reading."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "range_manager_min_leverage_bps",
+            "docs": [
+              "Lower half of the range manager's absolute envelope: the SMALLEST",
+              "`virtual_balance / actual_balance` ratio it may leave a token at, in",
+              "`PERCENT_SCALE` units. `0` disables the floor.",
+              "",
+              "The ceiling alone was not an envelope. Output is priced off VIRTUAL",
+              "balances, so DEPRESSING a token's virtual balance makes the pool",
+              "believe it holds less than it does, and a sale into that token moves",
+              "the price far more than it should — the seller takes the other side's",
+              "real reserves at a fabricated rate. Fifty individually-legal 5% steps",
+              "took a 1M/1M pool's virtual balance down to ~77k in testing, after",
+              "which selling 100k returned ~565k instead of ~91k. Every step passed",
+              "the ceiling, because the ceiling only ever looks upward.",
+              "",
+              "Checked on the same terms as the ceiling: only over the slots a call",
+              "actually writes, and skipped for sidelined tokens (`actual_balance ==",
+              "0`), which have no capital to anchor a ratio against."
+            ],
+            "type": "u32"
+          },
+          {
             "name": "reserved",
             "docs": [
-              "Forward-compat padding (do not repurpose without a migration plan)."
+              "Forward-compat padding for pool-level fields. Shrank 24 → 20 when",
+              "`range_manager_max_leverage_bps` was carved out of it, then 20 → 16 for",
+              "`range_manager_min_leverage_bps`, keeping `LEN` at the",
+              "mainnet-compatible 1683."
             ],
             "type": {
               "array": [
                 "u8",
-                64
+                16
               ]
             }
           }
@@ -619,15 +939,43 @@
             "type": "u64"
           },
           {
+            "name": "hard_banned_extensions",
+            "docs": [
+              "Extension bits that **no pool creator may clear**, whatever",
+              "`banned_extensions_override` they pass to `initialize_cubic_pool`.",
+              "OR-ed into the effective bitmap at pool creation.",
+              "",
+              "`banned_extensions` above is only a *default* — a creator passing",
+              "`Some(0)` un-bans everything, which would let a mint with",
+              "`PermanentDelegate` (issuer can empty the vault) or an armed",
+              "`TransferHook` (issuer can make every exit revert) into pool custody,",
+              "with the loss landing on whoever supplied the other side.",
+              "",
+              "Seeded from `constants::HARD_BANNED_EXTENSIONS` at config creation",
+              "and movable only by `protocol_admin`. It is governance state rather",
+              "than a compile-time constant on purpose: several regulated",
+              "stablecoins (PYUSD, USDG, AUSD) ship `PermanentDelegate` for",
+              "compliance seizure, so listing them is a deliberate protocol",
+              "decision about trusting a named issuer — not something a pool",
+              "creator may self-authorise, and not something a hardcoded constant",
+              "should decide for every deployment.",
+              "",
+              "Pre-upgrade configs decode this as `0`; `initialize_config` seeds it",
+              "for new ones, and `set_banned_extensions` can set it explicitly."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "reserved",
             "docs": [
               "Forward-compatibility padding so future fields can be added without",
-              "migrating existing config accounts."
+              "migrating existing config accounts. Shrank 120 → 112 when",
+              "`hard_banned_extensions` was carved out of the tail."
             ],
             "type": {
               "array": [
                 "u8",
-                120
+                112
               ]
             }
           }
@@ -647,13 +995,14 @@
         "* `user`                     — depositor.",
         "* `token_in_index`           — index of the supplied token.",
         "* `amount_in`                — raw input.",
-        "* `slippage_hundredths_bps`  — slippage bound used for each leg.",
         "* `allocations`              — pre-CPI per-token slice plan.",
         "* `deposited_amounts`        — post-CPI helper balances actually fed",
         "to `add_liquidity` (after `cap_deposit_amounts_to_lp_ratio`).",
         "* `bpt_received`             — BPT minted to the user.",
-        "* `dust_refunded`            — total tokens (raw, summed across",
-        "tokens) returned from helper → user."
+        "* `dust_refunded`            — per-token refund helper → user, index",
+        "aligned with `allocations` / `deposited_amounts`. Previously a single",
+        "sum across every mint, which added raw amounts of different decimals",
+        "together and produced a number that meant nothing."
       ],
       "type": {
         "kind": "struct",
@@ -679,10 +1028,6 @@
             "type": "u64"
           },
           {
-            "name": "slippage_hundredths_bps",
-            "type": "u32"
-          },
-          {
             "name": "allocations",
             "type": {
               "vec": "u64"
@@ -700,7 +1045,14 @@
           },
           {
             "name": "dust_refunded",
-            "type": "u64"
+            "docs": [
+              "Index-aligned with `allocations` / `deposited_amounts`. Summing raw",
+              "amounts across mints of different decimals — the previous `u64` —",
+              "is not a meaningful quantity."
+            ],
+            "type": {
+              "vec": "u64"
+            }
           },
           {
             "name": "timestamp",
@@ -737,6 +1089,30 @@
           {
             "name": "timestamp",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenSlot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "AssetConfig"
+              }
+            }
+          },
+          {
+            "name": "dynamics",
+            "type": {
+              "defined": {
+                "name": "AssetDynamics"
+              }
+            }
           }
         ]
       }

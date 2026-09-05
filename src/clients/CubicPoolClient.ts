@@ -6,7 +6,7 @@ import { SdkResult, err, ok } from "../types/result";
 import { SwapQuote, SingleTokenDepositQuote } from "../types/tx";
 import { CubicPoolEvent } from "../types/events";
 import { RpcClient } from "./RpcClient";
-import { decodePoolAccount } from "../parsers/poolAccount";
+import { decodePoolAccount, RawPoolAccount } from "../parsers/poolAccount";
 import { decodeMintAccount } from "../parsers/mintAccount";
 import { parseCubicPoolEvents } from "../parsers/events";
 import { deriveAta, deriveBptMint, deriveHelperPda } from "../utils/pda";
@@ -20,9 +20,18 @@ import {
 import { applySlippage, applySwapFee, priceImpactHbps } from "../math/slippage";
 import { capDepositAmountsToLpRatio, computeAllocations } from "../math/singleToken";
 import {
+  calcSegmentedSurgeFeeAmount,
+  calcSurgeFeePct,
+  computeSelloffWindow,
+  projectSelloffWindow,
+  SelloffWindowStatus,
+} from "../math/maxSelloff";
+import { PERCENT_SCALE, SWAP_FEE_PRECISION } from "../config";
+import {
   buildAddLiquidityTx,
   buildRemoveLiquidityTx,
   buildSingleTokenDepositTx,
+  buildSingleTokenDepositTxs,
   buildSwapTx,
 } from "./tx-builders";
 import {
@@ -59,6 +68,8 @@ export class CubicPoolClient {
   readonly rpc: RpcClient;
 
   private cache: PoolInfo | undefined;
+  /** Raw decoded account from the last `sync()`; holds per-token window data. */
+  private rawAccount: RawPoolAccount | undefined;
 
   constructor(params: CubicPoolClientParams) {
     this.config = params.config;
@@ -143,6 +154,10 @@ export class CubicPoolClient {
           this.config.tokens?.[raw.tokenMints[i].toBase58()] ??
           resolveKnownToken(raw.tokenMints[i].toBase58()),
         concentration,
+        isActive: raw.isActive[i],
+        maxSelloffPct: raw.maxSelloffPct[i],
+        variableFeeSlopeMidPct: raw.variableFeeSlopeMidPct[i],
+        variableFeeKinkPct: raw.variableFeeKinkPct[i],
       });
     }
 
@@ -161,9 +176,13 @@ export class CubicPoolClient {
       swapsEnabled: raw.swapsEnabled,
       createdAt: raw.createdAt.toNumber(),
       lookupTable: raw.lookupTable,
+      bannedExtensions: raw.bannedExtensions,
+      rangeManagerMaxLeverageBps: raw.rangeManagerMaxLeverageBps,
+      rangeManagerMinLeverageBps: raw.rangeManagerMinLeverageBps,
       syncedAt: Date.now(),
     };
     this.cache = info;
+    this.rawAccount = raw;
     return ok(info);
   }
 
@@ -183,7 +202,8 @@ export class CubicPoolClient {
     tokenInIndex: number,
     tokenOutIndex: number,
     amountIn: BN,
-    slippageHundredthsBps?: number
+    slippageHundredthsBps?: number,
+    now?: number
   ): SdkResult<SwapQuote> {
     const pool = this.requireCache();
     if (!pool.ok) return pool;
@@ -201,12 +221,13 @@ export class CubicPoolClient {
     const outTok = tokens[tokenOutIndex];
     const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
 
+    // Input-side kill switch (mirrors swap.rs: checked first).
+    if (!inTok.isActive) {
+      return err("token_swaps_disabled", "Input token is deactivated for swaps");
+    }
+
     try {
       const amountBI = BigInt(amountIn.toString());
-      const amountAfterFee = applySwapFee(amountBI, swapFeeRate);
-      const feeAmount = amountBI - amountAfterFee;
-      const protocolFeeAmount =
-        (feeAmount * BigInt(protocolFeeRate)) / BigInt(10_000);
 
       // Mirror cubic-pool's swap.rs: raw virtual balances drive the math,
       // lp_actual_out caps the output amount. Using lp_virtual here would
@@ -216,6 +237,51 @@ export class CubicPoolClient {
       const actualOut = BigInt(outTok.actualBalance.toString());
       const pfoOut = BigInt(outTok.protocolFeesOwed.toString());
       const lpActualOut = actualOut > pfoOut ? actualOut - pfoOut : 0n;
+
+      // ── Max-selloff window (input side) ────────────────────────────────
+      // Projected with the trade's amount_in. On-chain the window advances
+      // by `amount_in_net` (post Token-2022 input transfer fee); the quote
+      // does not model transfer fees, so net == gross here. Enabled only
+      // when maxSelloffPct > 0; otherwise the legacy path is unchanged.
+      let windowFillPct = 0;
+      let selloffSpan: { cap: bigint; before: bigint; after: bigint } | undefined;
+      if (inTok.maxSelloffPct > 0) {
+        const raw = this.rawAccount;
+        if (!raw) {
+          return err("invalid_input", "Call `sync()` first to populate window state");
+        }
+        const i = tokenInIndex;
+        const proj = projectSelloffWindow({
+          maxSelloffPct: raw.maxSelloffPct[i],
+          periodLength: raw.maxSelloffPeriodLength[i],
+          previousSelloff: BigInt(raw.previousSelloff[i].toString()),
+          currentSelloff: BigInt(raw.currentSelloff[i].toString()),
+          windowStartTimestamp: BigInt(raw.windowStartTimestamp[i].toString()),
+          selloffVbSnapshot: BigInt(raw.selloffVbSnapshot[i].toString()),
+          virtualBalance: virtIn,
+          now: now ?? Math.floor(Date.now() / 1000),
+        });
+        const before = proj.usedWithoutTrade;
+        const after = before + amountBI;
+        if (after > proj.cap) {
+          return err(
+            "selloff_window_full",
+            "Token max-selloff threshold exceeded for current window"
+          );
+        }
+        selloffSpan = { cap: proj.cap, before, after };
+        if (proj.cap > 0n) {
+          const fillRaw = (after * BigInt(PERCENT_SCALE)) / proj.cap;
+          windowFillPct = Number(
+            fillRaw < BigInt(PERCENT_SCALE) ? fillRaw : BigInt(PERCENT_SCALE)
+          );
+        }
+      }
+
+      const amountAfterFee = applySwapFee(amountBI, swapFeeRate);
+      const feeAmount = amountBI - amountAfterFee;
+      const protocolFeeAmount =
+        (feeAmount * BigInt(protocolFeeRate)) / BigInt(10_000);
 
       const amountOut = calcOutGivenIn({
         virtualBalanceIn: virtIn,
@@ -234,22 +300,100 @@ export class CubicPoolClient {
         amountIn: amountAfterFee,
       });
 
-      const minAmountOut = applySlippage(amountOut, slip);
+      // Surge fee mirrors v5.1 swap.rs: only the output produced above the
+      // threshold is taxed, segment by segment along the crossed span
+      // (path-independent; one flat rate on the whole output would re-open
+      // the M-05 split dodge). surgePct is the span-average, for display.
+      let surgeFeeAmount = 0n;
+      let surgePct = 0;
+      if (selloffSpan) {
+        const raw = this.rawAccount!;
+        const i = tokenInIndex;
+        surgePct = calcSurgeFeePct(
+          selloffSpan.before,
+          selloffSpan.after,
+          selloffSpan.cap,
+          raw.variableFeeThresholdPct[i],
+          raw.variableFeeSlopeLowPct[i],
+          raw.variableFeeSlopeMidPct[i],
+          raw.variableFeeSlopeHighPct[i],
+          raw.variableFeeKinkPct[i]
+        );
+        surgeFeeAmount = calcSegmentedSurgeFeeAmount({
+          effectiveSelloffBefore: selloffSpan.before,
+          effectiveSelloffAfter: selloffSpan.after,
+          cap: selloffSpan.cap,
+          thresholdPct: raw.variableFeeThresholdPct[i],
+          slopeLowPct: raw.variableFeeSlopeLowPct[i],
+          slopeMidPct: raw.variableFeeSlopeMidPct[i],
+          slopeHighPct: raw.variableFeeSlopeHighPct[i],
+          kinkPct: raw.variableFeeKinkPct[i],
+          amountInAfterFee: amountAfterFee,
+          amountOut,
+          curveOut: (x) =>
+            calcOutGivenIn({
+              virtualBalanceIn: virtIn,
+              weightInBps: BigInt(inTok.weightBps),
+              virtualBalanceOut: virtOut,
+              weightOutBps: BigInt(outTok.weightBps),
+              amountIn: x,
+              actualBalanceOut: lpActualOut,
+            }),
+        });
+      }
+      const amountOutUser = amountOut - surgeFeeAmount;
+
+      const minAmountOut = applySlippage(amountOutUser, slip);
       const impact = priceImpactHbps(spotOut, amountOut);
+      const effectiveFeePct =
+        (swapFeeRate * PERCENT_SCALE) / SWAP_FEE_PRECISION + surgePct;
       return ok({
         tokenInIndex,
         tokenOutIndex,
         amountIn,
-        amountOut: new BN(amountOut.toString()),
+        amountOut: new BN(amountOutUser.toString()),
         spotOut: new BN(spotOut.toString()),
         priceImpactHbps: impact,
         feeAmount: new BN(feeAmount.toString()),
         protocolFeeAmount: new BN(protocolFeeAmount.toString()),
         minAmountOut: new BN(minAmountOut.toString()),
+        surgeFeeAmount: new BN(surgeFeeAmount.toString()),
+        effectiveFeePct,
+        windowFillPct,
       });
     } catch (e) {
       return err("math_overflow", "Swap quote math overflow", e);
     }
+  }
+
+  /**
+   * Read-only status of a token's max-selloff window at `now`
+   * (default: current unix seconds). Requires a prior `sync()`.
+   */
+  getSelloffWindowStatus(tokenIndex: number, now?: number): SdkResult<SelloffWindowStatus> {
+    const poolRes = this.requireCache();
+    if (!poolRes.ok) return poolRes;
+    const raw = this.rawAccount;
+    if (!raw) {
+      return err("invalid_input", "Call `sync()` first to populate window state");
+    }
+    const pool = poolRes.data;
+    if (tokenIndex < 0 || tokenIndex >= pool.tokens.length) {
+      return err("invalid_input", "Invalid tokenIndex");
+    }
+    const i = tokenIndex;
+    return ok(
+      computeSelloffWindow({
+        maxSelloffPct: raw.maxSelloffPct[i],
+        periodLength: raw.maxSelloffPeriodLength[i],
+        previousSelloff: raw.previousSelloff[i],
+        currentSelloff: raw.currentSelloff[i],
+        windowStartTimestamp: raw.windowStartTimestamp[i],
+        selloffVbSnapshot: raw.selloffVbSnapshot[i],
+        virtualBalance: pool.tokens[i].virtualBalance,
+        now: now ?? Math.floor(Date.now() / 1000),
+      })
+    );
   }
 
   /**
@@ -259,7 +403,8 @@ export class CubicPoolClient {
   quoteSingleTokenDeposit(
     tokenInIndex: number,
     amountIn: BN,
-    slippageHundredthsBps?: number
+    slippageHundredthsBps?: number,
+    now?: number
   ): SdkResult<SingleTokenDepositQuote> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
@@ -272,6 +417,53 @@ export class CubicPoolClient {
       return err("invalid_input", "Input token is sidelined (actualBalance=0); pick a live token");
     }
     const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
+
+    // ── Max-selloff window across internal legs ─────────────────────────
+    // Each swapped leg CPIs into the same swap handler, so every leg adds
+    // its allocation (gross amount_in of the INPUT token) to the SAME
+    // window SEQUENTIALLY. Within one tx the clock is constant: project
+    // once, then accumulate leg allocations. The input token's retained
+    // allocation is deposited directly (no swap) and never hits the window.
+    let selloffCtx:
+      | {
+          cap: bigint;
+          base: bigint;
+          thresholdPct: number;
+          slopeLowPct: number;
+          slopeMidPct: number;
+          slopeHighPct: number;
+          kinkPct: number;
+        }
+      | undefined;
+    if (inTok.maxSelloffPct > 0) {
+      if (!inTok.isActive) {
+        return err("token_swaps_disabled", "Input token is deactivated for swaps");
+      }
+      const raw = this.rawAccount;
+      if (!raw) {
+        return err("invalid_input", "Call `sync()` first to populate window state");
+      }
+      const proj = projectSelloffWindow({
+        maxSelloffPct: raw.maxSelloffPct[tokenInIndex],
+        periodLength: raw.maxSelloffPeriodLength[tokenInIndex],
+        previousSelloff: BigInt(raw.previousSelloff[tokenInIndex].toString()),
+        currentSelloff: BigInt(raw.currentSelloff[tokenInIndex].toString()),
+        windowStartTimestamp: BigInt(raw.windowStartTimestamp[tokenInIndex].toString()),
+        selloffVbSnapshot: BigInt(raw.selloffVbSnapshot[tokenInIndex].toString()),
+        virtualBalance: BigInt(inTok.virtualBalance.toString()),
+        now: now ?? Math.floor(Date.now() / 1000),
+      });
+      selloffCtx = {
+        cap: proj.cap,
+        base: proj.usedWithoutTrade,
+        thresholdPct: raw.variableFeeThresholdPct[tokenInIndex],
+        slopeLowPct: raw.variableFeeSlopeLowPct[tokenInIndex],
+        slopeMidPct: raw.variableFeeSlopeMidPct[tokenInIndex],
+        slopeHighPct: raw.variableFeeSlopeHighPct[tokenInIndex],
+        kinkPct: raw.variableFeeKinkPct[tokenInIndex],
+      };
+    }
+    let cumulativeSelloff = 0n;
 
     try {
       const actualBalances = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
@@ -333,8 +525,50 @@ export class CubicPoolClient {
           amountIn: amountAfterFee,
           actualBalanceOut: lpActualOut,
         });
-        const min = applySlippage(out > 0n ? out - 1n : 0n, slip);
-        expectedOuts.push(new BN(out.toString()));
+        // Per-leg max-selloff check + surge fee: on-chain each leg's
+        // check_and_advance sees `current` already incremented by the prior
+        // legs, so effective for leg k = base + sum(alloc_1..k). The surge
+        // fee is carved from this leg's gross amount_out (CEIL, clamp); the
+        // helper receives the NET out while the pool's trading reserves move
+        // by the GROSS out (surge re-credited to protocol_fees_owed).
+        let surgeFee = 0n;
+        if (selloffCtx) {
+          const before = selloffCtx.base + cumulativeSelloff;
+          const after = before + swapAmount;
+          if (after > selloffCtx.cap) {
+            return err(
+              "selloff_window_full",
+              "Token max-selloff threshold exceeded for current window"
+            );
+          }
+          // Each leg is its own on-chain swap: charged segment-by-segment
+          // over ITS span [before, after) of the shared window (v5.1).
+          surgeFee = calcSegmentedSurgeFeeAmount({
+            effectiveSelloffBefore: before,
+            effectiveSelloffAfter: after,
+            cap: selloffCtx.cap,
+            thresholdPct: selloffCtx.thresholdPct,
+            slopeLowPct: selloffCtx.slopeLowPct,
+            slopeMidPct: selloffCtx.slopeMidPct,
+            slopeHighPct: selloffCtx.slopeHighPct,
+            kinkPct: selloffCtx.kinkPct,
+            amountInAfterFee: amountAfterFee,
+            amountOut: out,
+            curveOut: (x) =>
+              calcOutGivenIn({
+                virtualBalanceIn: simVirtual[tokenInIndex],
+                weightInBps: BigInt(weightsBps[tokenInIndex]),
+                virtualBalanceOut: simVirtual[i],
+                weightOutBps: BigInt(weightsBps[i]),
+                amountIn: x,
+                actualBalanceOut: lpActualOut,
+              }),
+          });
+          cumulativeSelloff += swapAmount;
+        }
+        const netOut = out - surgeFee;
+        const min = applySlippage(netOut > 0n ? netOut - 1n : 0n, slip);
+        expectedOuts.push(new BN(netOut.toString()));
         minOuts.push(new BN(min.toString()));
 
         simActual[tokenInIndex] += swapAmount;
@@ -342,7 +576,8 @@ export class CubicPoolClient {
         simProtocolFees[tokenInIndex] += protocolFeeAmount;
         simActual[i] -= out;
         simVirtual[i] -= out;
-        depositAmounts[i] = out;
+        simProtocolFees[i] += surgeFee;
+        depositAmounts[i] = netOut;
       }
       depositAmounts[tokenInIndex] = remainingInput;
 
@@ -480,6 +715,28 @@ export class CubicPoolClient {
       return ok(buildSingleTokenDepositTx(this.config, poolRes.data, params));
     } catch (e) {
       return err("tx_build_failed", "Failed to build single-token deposit tx", e);
+    }
+  }
+
+  /**
+   * Single-token deposit split into `{ setup, deposit }` transactions.
+   *
+   * Required for pools beyond a handful of tokens: the ATA creates and the
+   * zap compete for the same 64-frame instruction-trace budget, and at
+   * N=10 the zap alone uses 52 of them. Send `setup` (idempotent, safe to
+   * repeat), wait for confirmation, then send `deposit` compiled against
+   * the pool's ALT via `compileBuiltTx`.
+   */
+  buildSingleTokenDepositTxs(
+    params: SingleTokenDepositParams
+  ): SdkResult<{ setup: BuiltTx | null; deposit: BuiltTx }> {
+    const poolRes = this.requireCache();
+    if (!poolRes.ok) return poolRes;
+    if (params.amountIn.lten(0)) return err("invalid_input", "amountIn must be > 0");
+    try {
+      return ok(buildSingleTokenDepositTxs(this.config, poolRes.data, params));
+    } catch (e) {
+      return err("tx_build_failed", "Failed to build single-token deposit txs", e);
     }
   }
 

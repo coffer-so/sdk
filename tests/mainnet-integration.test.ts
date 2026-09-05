@@ -2,9 +2,12 @@
  * Live mainnet integration tests for the SDK.
  *
  * These tests hit real Solana mainnet RPC and exercise the full sync /
- * derive / build flow against the first mainnet pool
- * (`27cJQ5gVFgTKt7YkeYVxPM14WQuhLMvUpqxSiaKwrzMM`). They guard against the
- * regressions discovered during the mainnet rollout:
+ * derive / build flow against a live v4 pool, CubeePool
+ * (`EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy`, 1683 bytes). The
+ * original fixture — the first mainnet pool `27cJ…rzMM` — is a v3 account
+ * (1154 bytes) that the v5 SDK intentionally no longer decodes, so it can
+ * only serve pre-v5 branches. They guard against the regressions
+ * discovered during the mainnet rollout:
  *
  *   1. **Stale dist** — `frontend/node_modules/@cube/sdk/dist/` had old
  *      program IDs (Fc3R…) baked in, so `deriveBptMint` returned a PDA
@@ -30,8 +33,8 @@ import { RpcClient } from "../src/clients/RpcClient";
 import { deriveBptMint } from "../src/utils/pda";
 import cubicPoolIdl from "../src/idl/cubic_pool.json";
 
-const POOL_ADDRESS = "27cJQ5gVFgTKt7YkeYVxPM14WQuhLMvUpqxSiaKwrzMM";
-const KNOWN_BPT_MINT = "GXsBGSnM1NML5MRgkZhpjpsPvYJQoN5CGPWtxY5F1LEs";
+const POOL_ADDRESS = "EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy";
+const KNOWN_BPT_MINT = "8XENvzVwvdHkYbhrvSaWuivs7pK1ZCwgGj5y3n1rij9B";
 const MAINNET_PROGRAM = "8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu";
 const RPC = "https://api.mainnet-beta.solana.com";
 
@@ -43,7 +46,7 @@ function isSystemTransfer(programId: PublicKey, data: Buffer): boolean {
 const skipMainnet = process.env.SKIP_MAINNET_TESTS === "1";
 const describeOnline = skipMainnet ? describe.skip : describe;
 
-describeOnline("mainnet integration: sdk against pool 27cJ…rzMM", () => {
+describeOnline("mainnet integration: sdk against pool EFfV…fyjy", () => {
   jest.setTimeout(30_000);
 
   const cfg = getConfig("mainnet", { rpcEndpoint: RPC });

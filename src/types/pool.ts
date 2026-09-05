@@ -23,6 +23,28 @@ export interface PoolTokenInfo {
   metadata?: TokenInfo;
   /** factBalance / virtBalance as a float, for display/math. */
   concentration: number;
+  /**
+   * Per-token input kill switch. When `false`, swaps with THIS token as
+   * input revert (`TokenInactive`); it can still be a swap output and
+   * liquidity ops are unaffected. Defaults to `true`.
+   */
+  isActive: boolean;
+  /**
+   * Max cumulative sell volume per window, as a percent of virtual balance
+   * (`PERCENT_SCALE` units; 10_000 = 100%). `0` ⇒ no cap.
+   */
+  maxSelloffPct: number;
+  /**
+   * Surge fee at the curve's KINK (`PERCENT_SCALE` units). New in v5.1 —
+   * `0` on pools written by the older program.
+   */
+  variableFeeSlopeMidPct?: number;
+  /**
+   * Window fill at which the surge curve kinks, in WHOLE PERCENT (0..=100),
+   * not `PERCENT_SCALE` units. `0` ⇒ no kink (single straight line, which is
+   * how every pre-v5.1 pool behaves). New in v5.1.
+   */
+  variableFeeKinkPct?: number;
 }
 
 /**
@@ -56,6 +78,23 @@ export interface PoolInfo {
    * v0-tx builders compress per-token accounts via this ALT.
    */
   lookupTable: PublicKey;
+  /**
+   * Effective Token-2022 banned-extensions bitmap this pool's tokens were
+   * vetted against at creation. `0` ⇒ nothing banned (permissive — rug risk;
+   * surface to users before they deposit).
+   */
+  bannedExtensions: BN;
+  /**
+   * Absolute UPPER bound on `virtual_balance / actual_balance` the range
+   * manager may leave a token at, in basis points (10_000 = 1.0×). `0` ⇒
+   * band disabled. New in v5.1 — `0` on pools written by the older program.
+   */
+  rangeManagerMaxLeverageBps?: number;
+  /**
+   * Absolute LOWER bound on the same ratio, same units. `0` ⇒ floor
+   * disabled. New in v5.1.
+   */
+  rangeManagerMinLeverageBps?: number;
   /** Unix timestamp (ms) when sync() ran. Useful for staleness checks. */
   syncedAt: number;
 }

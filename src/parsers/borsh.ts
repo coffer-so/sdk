@@ -14,6 +14,15 @@ export class BorshReader {
     return this.buf.length - this.offset;
   }
 
+  /** Current read position — pair with `seek` to re-parse an ambiguous tail. */
+  pos(): number {
+    return this.offset;
+  }
+
+  seek(offset: number): void {
+    this.offset = offset;
+  }
+
   skip(n: number): void {
     this.offset += n;
   }

@@ -33,6 +33,8 @@ function mockPool(tokenCount = 2): PoolInfo {
       protocolFeesOwed: new BN(0),
       vault: pk(),
       concentration: 1,
+      isActive: true,
+      maxSelloffPct: 0,
     };
   });
 
@@ -51,6 +53,7 @@ function mockPool(tokenCount = 2): PoolInfo {
     swapsEnabled: true,
     createdAt: 0,
     lookupTable: PublicKey.default,
+    bannedExtensions: new BN(0),
     syncedAt: Date.now(),
   };
 }

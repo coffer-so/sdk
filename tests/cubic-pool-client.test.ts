@@ -19,6 +19,8 @@ function mockPool(): PoolInfo {
     protocolFeesOwed: new BN(0),
     vault: pk(),
     concentration: 1,
+    isActive: true,
+    maxSelloffPct: 0,
   }));
 
   return {
@@ -35,6 +37,8 @@ function mockPool(): PoolInfo {
     poolEnabled: true,
     swapsEnabled: true,
     createdAt: 0,
+    lookupTable: pk(),
+    bannedExtensions: new BN(0),
     syncedAt: Date.now(),
   };
 }
