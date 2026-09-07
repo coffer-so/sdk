@@ -1,9 +1,11 @@
-import { PublicKey, Commitment } from "@solana/web3.js";
+import { simulatePoolSwap, quoteTimestamp, u64 } from "./quote-math";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { PublicKey, Commitment, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
 import BN from "bn.js";
 import { CubeConfig } from "../config";
 import { PoolInfo, PoolTokenInfo } from "../types/pool";
 import { SdkResult, err, ok } from "../types/result";
-import { SwapQuote, SingleTokenDepositQuote } from "../types/tx";
+import { AddLiquidityQuote, SwapQuote, SingleTokenDepositQuote } from "../types/tx";
 import { CubicPoolEvent } from "../types/events";
 import { RpcClient } from "./RpcClient";
 import { decodePoolAccount } from "../parsers/poolAccount";
@@ -11,18 +13,21 @@ import { decodeMintAccount } from "../parsers/mintAccount";
 import { parseCubicPoolEvents } from "../parsers/events";
 import { deriveAta, deriveBptMint, deriveHelperPda } from "../utils/pda";
 import { resolveKnownToken } from "../config/tokens";
+import { describeUnsupportedToken, unsupportedMintExtensions } from "../utils/extensions";
 import {
   calcBptOutGivenExactTokensIn,
-  calcOutGivenIn,
-  calcSpotOut,
   calcTokensOutGivenBptIn,
 } from "../math/cubicMath";
-import { applySlippage, applySwapFee, priceImpactHbps } from "../math/slippage";
+import { divDown, mulDown } from "../math/fixedPoint";
+import { calculateInvariant } from "../math/weightedMath";
+import { rescaleSelloffWindow } from "../math/maxSelloff";
+import { applySlippage, priceImpactHbps } from "../math/slippage";
 import { capDepositAmountsToLpRatio, computeAllocations } from "../math/singleToken";
 import {
   buildAddLiquidityTx,
   buildRemoveLiquidityTx,
   buildSingleTokenDepositTx,
+  buildSingleTokenDepositTxs,
   buildSwapTx,
 } from "./tx-builders";
 import {
@@ -91,6 +96,7 @@ export class CubicPoolClient {
     if (poolInfo.data === null) {
       return err("account_not_found", `Pool ${this.poolAddress.toBase58()} does not exist on-chain`);
     }
+    if (!poolInfo.data.owner.equals(this.config.programs.cubicPool)) return err("parse_failure", "Pool account has an unexpected owner");
     let raw;
     try {
       raw = decodePoolAccount(poolInfo.data.data);
@@ -101,9 +107,14 @@ export class CubicPoolClient {
     const mintAddrs = raw.tokenMints.slice(0, n);
     const [bptMint, _bptBump] = deriveBptMint(this.config.programs.cubicPool, this.poolAddress);
 
-    const mintInfos = await this.rpc.getMultipleAccountsInfo([bptMint, ...mintAddrs]);
+    const mintInfos = await this.rpc.getMultipleAccountsWithInfo([bptMint, ...mintAddrs, SYSVAR_CLOCK_PUBKEY]);
     if (!mintInfos.ok) return mintInfos;
-    const [bptMintData, ...tokenMintDatas] = mintInfos.data;
+    const [bptInfo, ...rest] = mintInfos.data;
+    const tokenMintInfos = rest.slice(0, n);
+    const clockInfo = rest[n];
+    const bptMintData = bptInfo?.data;
+    if (bptInfo && ![TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID].some(p => p.equals(bptInfo.owner))) return err("parse_failure", "Invalid BPT token program");
+    if (!clockInfo || clockInfo.data.length < 40) return err("parse_failure", "Solana Clock account missing");
     if (!bptMintData) {
       return err("account_not_found", "BPT mint account missing");
     }
@@ -115,7 +126,9 @@ export class CubicPoolClient {
     }
     const tokens: PoolTokenInfo[] = [];
     for (let i = 0; i < n; i++) {
-      const mintRaw = tokenMintDatas[i];
+      const mintInfo = tokenMintInfos[i];
+      const mintRaw = mintInfo?.data;
+      if (mintInfo && !mintInfo.owner.equals(raw.tokenPrograms[i])) return err("parse_failure", `Mint token program mismatch at index ${i}`);
       if (!mintRaw) {
         return err("account_not_found", `Mint account missing for token index ${i}`);
       }
@@ -128,7 +141,7 @@ export class CubicPoolClient {
       const actualBalance = raw.actualBalances[i];
       const virtualBalance = raw.virtualBalances[i];
       const concentration =
-        virtualBalance.isZero() ? 0 : actualBalance.mul(new BN(1_000_000)).div(virtualBalance).toNumber() / 1_000_000;
+        virtualBalance.isZero() ? 0 : Number(actualBalance.toString()) / Number(virtualBalance.toString());
       tokens.push({
         index: i,
         mint: raw.tokenMints[i],
@@ -143,6 +156,20 @@ export class CubicPoolClient {
           this.config.tokens?.[raw.tokenMints[i].toBase58()] ??
           resolveKnownToken(raw.tokenMints[i].toBase58()),
         concentration,
+        isActive: raw.isActive[i],
+        maxSelloffPct: raw.maxSelloffPct[i],
+        maxSelloffPeriodLength: raw.maxSelloffPeriodLength[i],
+        variableFeeThresholdPct: raw.variableFeeThresholdPct[i],
+        variableFeeSlopeLowPct: raw.variableFeeSlopeLowPct[i],
+        variableFeeSlopeHighPct: raw.variableFeeSlopeHighPct[i],
+        previousSelloff: raw.previousSelloff[i],
+        currentSelloff: raw.currentSelloff[i],
+        windowStartTimestamp: raw.windowStartTimestamp[i],
+        selloffVbSnapshot: raw.selloffVbSnapshot[i],
+        variableFeeSlopeMidPct: raw.variableFeeSlopeMidPct[i],
+        variableFeeKinkPct: raw.variableFeeKinkPct[i],
+        extensions: mintAcc.extensions,
+        unsupportedExtensions: unsupportedMintExtensions(mintAcc.extensions, raw.bannedExtensions),
       });
     }
 
@@ -153,7 +180,18 @@ export class CubicPoolClient {
       poolId: raw.poolId,
       tokenCount: n,
       tokens,
+      unsupportedTokenIndices: tokens.filter((t) => (t.unsupportedExtensions?.length ?? 0) > 0).map((t) => t.index),
       bptMint,
+      bptTokenProgram: bptInfo!.owner,
+      poolAdmin: raw.poolAdmin,
+      pendingPoolAdmin: raw.pendingPoolAdmin,
+      rangeManager: raw.rangeManager,
+      rangeManagerEnabled: raw.rangeManagerEnabled,
+      rangeManagerMaxVbChangePct: raw.rangeManagerMaxVbChangePct,
+      rangeManagerMaxWeightChangePct: raw.rangeManagerMaxWeightChangePct,
+      rangeManagerMinUpdateIntervalSecs: raw.rangeManagerMinUpdateIntervalSecs,
+      rangeManagerLastUpdated: raw.rangeManagerLastUpdated,
+      chainTimestamp: Number(clockInfo.data.readBigInt64LE(32)),
       bptTotalSupply: bptMintAcc.supply,
       swapFeeRate: raw.swapFeeRate,
       protocolFeeRate: raw.protocolFeeRate,
@@ -161,6 +199,9 @@ export class CubicPoolClient {
       swapsEnabled: raw.swapsEnabled,
       createdAt: raw.createdAt.toNumber(),
       lookupTable: raw.lookupTable,
+      bannedExtensions: raw.bannedExtensions,
+      rangeManagerMaxLeverageBps: raw.rangeManagerMaxLeverageBps,
+      rangeManagerMinLeverageBps: raw.rangeManagerMinLeverageBps,
       syncedAt: Date.now(),
     };
     this.cache = info;
@@ -183,213 +224,224 @@ export class CubicPoolClient {
     tokenInIndex: number,
     tokenOutIndex: number,
     amountIn: BN,
-    slippageHundredthsBps?: number
+    slippageHundredthsBps?: number,
+    nowSeconds?: number
   ): SdkResult<SwapQuote> {
     const pool = this.requireCache();
     if (!pool.ok) return pool;
-    const { tokens, swapFeeRate, protocolFeeRate } = pool.data;
-    if (
-      tokenInIndex < 0 ||
-      tokenInIndex >= tokens.length ||
-      tokenOutIndex < 0 ||
-      tokenOutIndex >= tokens.length ||
-      tokenInIndex === tokenOutIndex
-    ) {
-      return err("invalid_input", "Invalid tokenInIndex / tokenOutIndex");
-    }
-    const inTok = tokens[tokenInIndex];
-    const outTok = tokens[tokenOutIndex];
+    const unsupported = this.requireSupported([tokenInIndex, tokenOutIndex], "swap");
+    if (!unsupported.ok) return unsupported;
     const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
-
     try {
-      const amountBI = BigInt(amountIn.toString());
-      const amountAfterFee = applySwapFee(amountBI, swapFeeRate);
-      const feeAmount = amountBI - amountAfterFee;
-      const protocolFeeAmount =
-        (feeAmount * BigInt(protocolFeeRate)) / BigInt(10_000);
-
-      // Mirror cubic-pool's swap.rs: raw virtual balances drive the math,
-      // lp_actual_out caps the output amount. Using lp_virtual here would
-      // diverge from the on-chain quote on pools with pending protocol fees.
-      const virtIn = BigInt(inTok.virtualBalance.toString());
-      const virtOut = BigInt(outTok.virtualBalance.toString());
-      const actualOut = BigInt(outTok.actualBalance.toString());
-      const pfoOut = BigInt(outTok.protocolFeesOwed.toString());
-      const lpActualOut = actualOut > pfoOut ? actualOut - pfoOut : 0n;
-
-      const amountOut = calcOutGivenIn({
-        virtualBalanceIn: virtIn,
-        weightInBps: BigInt(inTok.weightBps),
-        virtualBalanceOut: virtOut,
-        weightOutBps: BigInt(outTok.weightBps),
-        amountIn: amountAfterFee,
-        actualBalanceOut: lpActualOut,
-      });
-
-      const spotOut = calcSpotOut({
-        virtualBalanceIn: virtIn,
-        weightInBps: BigInt(inTok.weightBps),
-        virtualBalanceOut: virtOut,
-        weightOutBps: BigInt(outTok.weightBps),
-        amountIn: amountAfterFee,
-      });
-
-      const minAmountOut = applySlippage(amountOut, slip);
-      const impact = priceImpactHbps(spotOut, amountOut);
-      return ok({
-        tokenInIndex,
-        tokenOutIndex,
-        amountIn,
-        amountOut: new BN(amountOut.toString()),
-        spotOut: new BN(spotOut.toString()),
-        priceImpactHbps: impact,
-        feeAmount: new BN(feeAmount.toString()),
-        protocolFeeAmount: new BN(protocolFeeAmount.toString()),
-        minAmountOut: new BN(minAmountOut.toString()),
+      const q = simulatePoolSwap(pool.data, tokenInIndex, tokenOutIndex, BigInt(amountIn.toString()), quoteTimestamp(pool.data, nowSeconds));
+      return ok({ tokenInIndex, tokenOutIndex, amountIn,
+        amountOut: new BN(q.amountOut.toString()), grossAmountOut: new BN(q.grossAmountOut.toString()),
+        surgeFeeAmount: new BN(q.surgeFeeAmount.toString()),
+        feeAmount: new BN(q.feeAmount.toString()), protocolFeeAmount: new BN(q.protocolFeeAmount.toString()),
+        spotOut: new BN(q.spotOut.toString()), priceImpactHbps: priceImpactHbps(q.spotOut, q.amountOut),
+        minAmountOut: new BN(applySlippage(q.amountOut, slip).toString()),
       });
     } catch (e) {
-      return err("math_overflow", "Swap quote math overflow", e);
+      return err("invalid_input", `Swap quote failed: ${e instanceof Error ? e.message : String(e)}`, e);
     }
   }
 
   /**
    * Quote a single-token deposit: split amountIn by W-based shares, quote
-   * each swap leg, estimate resulting BPT.
+   * each swap leg, then execute the helper cap and proportional-join math.
+   * `helperBalances` supplies existing helper ATA holdings (defaults to zero).
+   * Pass them when the helper contains donations or dust; all leftovers are refunded.
    */
   quoteSingleTokenDeposit(
     tokenInIndex: number,
     amountIn: BN,
-    slippageHundredthsBps?: number
+    slippageHundredthsBps?: number,
+    nowSeconds?: number,
+    helperBalances?: BN[]
   ): SdkResult<SingleTokenDepositQuote> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     const pool = poolRes.data;
-    if (tokenInIndex < 0 || tokenInIndex >= pool.tokens.length) {
+    if (!Number.isInteger(tokenInIndex) || tokenInIndex < 0 || tokenInIndex >= pool.tokens.length) {
       return err("invalid_input", "Invalid tokenInIndex");
     }
-    const inTok = pool.tokens[tokenInIndex];
-    if (inTok.actualBalance.isZero()) {
-      return err("invalid_input", "Input token is sidelined (actualBalance=0); pick a live token");
-    }
+    if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
+    if (!pool.swapsEnabled) return err("invalid_input", "SwapsDisabled");
+    if (pool.bptTotalSupply.isZero()) return err("invalid_input", "PoolNotSeeded");
+    if (pool.tokens[tokenInIndex].actualBalance.isZero()) return err("invalid_input", "Input token is sidelined");
+    const unsupported = this.requireSupported(pool.tokens.filter(t => !t.actualBalance.isZero()).map(t => t.index), "deposit_single_token");
+    if (!unsupported.ok) return unsupported;
     const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
-
     try {
-      const actualBalances = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
-      const virtualBalances = pool.tokens.map((t) => BigInt(t.virtualBalance.toString()));
-      const protocolFeesOwed = pool.tokens.map((t) => BigInt(t.protocolFeesOwed.toString()));
-      const weightsBps = pool.tokens.map((t) => t.weightBps);
-      const amountInBI = BigInt(amountIn.toString());
-      // Mirror the helper contract: weight by LP-accessible balances
-      // (actual - protocolFeesOwed). This avoids the heavy 2-token optimizer
-      // which used to live here but exceeded the program's BPF CU budget.
-      const lpAccessibleBalances = actualBalances.map((actual, i) =>
-        actual > protocolFeesOwed[i] ? actual - protocolFeesOwed[i] : 0n
-      );
-      const alloc = computeAllocations({
-        actualBalances: lpAccessibleBalances,
-        virtualBalances,
-        weightsBps,
-        amountIn: amountInBI,
-        tokenInIndex,
-      });
-
-      const expectedOuts: BN[] = [];
-      const minOuts: BN[] = [];
-      const sidelined: number[] = [];
-      const simActual = [...actualBalances];
-      const simVirtual = [...virtualBalances];
-      const simProtocolFees = [...protocolFeesOwed];
-      const depositAmounts = pool.tokens.map(() => 0n);
-      let remainingInput = amountInBI;
-      for (let i = 0; i < pool.tokens.length; i++) {
-        if (actualBalances[i] === 0n) {
-          sidelined.push(i);
-          expectedOuts.push(new BN(0));
-          minOuts.push(new BN(0));
-          continue;
-        }
-        if (i === tokenInIndex || alloc.allocations[i] === 0n) {
-          expectedOuts.push(new BN(0));
-          minOuts.push(new BN(0));
-          continue;
-        }
-        const swapAmount = alloc.allocations[i];
-        remainingInput -= swapAmount;
-        const amountAfterFee = applySwapFee(swapAmount, pool.swapFeeRate);
-        const feeAmount = swapAmount - amountAfterFee;
-        const protocolFeeAmount =
-          (feeAmount * BigInt(pool.protocolFeeRate)) / 10_000n;
-        // Match cubic-pool/swap.rs exactly: it uses RAW virtual balances and
-        // takes lp_actual_out only as the output cap. Earlier the SDK used
-        // LP-virtuals here (and the helper did too), causing slippage drift
-        // on pools with pending protocol fees.
-        const lpActualOut =
-          simActual[i] > simProtocolFees[i] ? simActual[i] - simProtocolFees[i] : 0n;
-        const out = calcOutGivenIn({
-          virtualBalanceIn: simVirtual[tokenInIndex],
-          weightInBps: BigInt(weightsBps[tokenInIndex]),
-          virtualBalanceOut: simVirtual[i],
-          weightOutBps: BigInt(weightsBps[i]),
-          amountIn: amountAfterFee,
-          actualBalanceOut: lpActualOut,
-        });
-        const min = applySlippage(out > 0n ? out - 1n : 0n, slip);
-        expectedOuts.push(new BN(out.toString()));
-        minOuts.push(new BN(min.toString()));
-
-        simActual[tokenInIndex] += swapAmount;
-        simVirtual[tokenInIndex] += amountAfterFee;
-        simProtocolFees[tokenInIndex] += protocolFeeAmount;
-        simActual[i] -= out;
-        simVirtual[i] -= out;
-        depositAmounts[i] = out;
+      const input = u64(BigInt(amountIn.toString()), "amountIn");
+      if (input === 0n) return err("invalid_input", "amountIn must be positive");
+      const now = quoteTimestamp(pool, nowSeconds);
+      const actualBalances = pool.tokens.map(t => BigInt(t.actualBalance.toString()));
+      const virtualBalances = pool.tokens.map(t => BigInt(t.virtualBalance.toString()));
+      const alloc = computeAllocations({ actualBalances, virtualBalances, weightsBps: pool.tokens.map(t => t.weightBps), amountIn: input, tokenInIndex });
+      if (alloc.allocations.some((a, i) => actualBalances[i] > 0n && a === 0n)) throw new Error("AmountTooSmall");
+      const simulated: PoolInfo = { ...pool, tokens: pool.tokens.map(t => ({ ...t })) };
+      if (helperBalances && helperBalances.length !== pool.tokenCount) throw new Error("Invalid helper balance vector length");
+      const helper = pool.tokens.map((_,i) => u64(BigInt(helperBalances?.[i].toString() ?? "0"), "helper balance"));
+      const helperSupport = this.requireSupported(helper.flatMap((a,i) => a > 0n ? [i] : []), "helper refund");
+      if (!helperSupport.ok) return helperSupport;
+      u64(helper[tokenInIndex] + input, "helper input balance");
+      const expectedOuts = pool.tokens.map(() => new BN(0));
+      const minOuts = pool.tokens.map(() => new BN(0));
+      let remainingInput = input;
+      for (let i = 0; i < pool.tokenCount; i++) {
+        if (i === tokenInIndex || alloc.allocations[i] === 0n) continue;
+        const q = simulatePoolSwap(simulated, tokenInIndex, i, alloc.allocations[i], now, true);
+        remainingInput -= alloc.allocations[i]; helper[i] = u64(helper[i] + q.amountOut, "helper output balance");
+        expectedOuts[i] = new BN(q.amountOut.toString());
+        minOuts[i] = new BN(applySlippage(q.amountOut, slip).toString());
       }
-      depositAmounts[tokenInIndex] = remainingInput;
-
-      const capped = capDepositAmountsToLpRatio({
-        helperBalances: depositAmounts,
-        actualBalances: simActual,
-        protocolFeesOwed: simProtocolFees,
-      });
-      const estBpt = calcBptOutGivenExactTokensIn(
-        capped.lpBalancesForAdd,
-        capped.depositAmounts,
-        BigInt(pool.bptTotalSupply.toString())
-      );
-
-      return ok({
-        tokenInIndex,
-        amountIn,
-        allocations: alloc.allocations.map((b) => new BN(b.toString())),
-        expectedOuts,
-        minOuts,
-        depositedAmounts: capped.depositAmounts.map((b) => new BN(b.toString())),
-        refundAmounts: capped.refundAmounts.map((b) => new BN(b.toString())),
+      helper[tokenInIndex] = u64(helper[tokenInIndex] + remainingInput, "helper input balance");
+      const postActual = simulated.tokens.map(t => BigInt(t.actualBalance.toString()));
+      const capped = capDepositAmountsToLpRatio({ helperBalances: helper, actualBalances: postActual });
+      // The helper's integer ratio cap is followed by cubic-pool's fixed-point proportional join.
+      if (capped.depositAmounts.some((v, i) => (v === 0n) !== (postActual[i] === 0n))) throw new Error("TokenLivenessMismatch");
+      let ratio: bigint | null = null;
+      for (let i = 0; i < pool.tokenCount; i++) if (postActual[i] > 0n) {
+        const r = divDown(capped.depositAmounts[i], postActual[i]); ratio = ratio === null || r < ratio ? r : ratio;
+      }
+      if (ratio === null) throw new Error("Pool has no live tokens");
+      const deposited = postActual.map(a => mulDown(a, ratio!));
+      const estBpt = calcBptOutGivenExactTokensIn(postActual, capped.depositAmounts, BigInt(pool.bptTotalSupply.toString()));
+      if (estBpt === 0n || deposited.some((d, i) => postActual[i] > 0n && d === 0n)) throw new Error("DepositTooSmall");
+      u64(estBpt + BigInt(pool.bptTotalSupply.toString()), "BPT supply");
+      for (let i = 0; i < pool.tokenCount; i++) {
+        u64(postActual[i] + deposited[i], "reserve balance");
+        const vb = BigInt(simulated.tokens[i].virtualBalance.toString()); u64(vb + mulDown(vb, ratio), "virtual balance");
+      }
+      this.validateDepositWindows(simulated, ratio);
+      return ok({ tokenInIndex, amountIn, allocations: alloc.allocations.map(a => new BN(a.toString())),
+        expectedOuts, minOuts, depositedAmounts: deposited.map(a => new BN(a.toString())),
+        refundAmounts: helper.map((a,i) => new BN((a - deposited[i]).toString())),
         estimatedBpt: new BN(estBpt.toString()),
-        sidelinedTokenIndices: sidelined,
+        sidelinedTokenIndices: pool.tokens.filter(t => t.actualBalance.isZero()).map(t => t.index),
       });
     } catch (e) {
-      return err("math_overflow", "Single-token deposit quote failed", e);
+      return err("invalid_input", `Single-token deposit quote failed: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /** Seed deposit: creator-only, exact amounts, BPT derived from virtual reserves. */
+  quoteSeedDeposit(user: PublicKey, tokenAmounts: BN[], slippageHundredthsBps?: number): SdkResult<AddLiquidityQuote> {
+    const state = this.requireCache();
+    if (!state.ok) return state;
+    const pool = state.data;
+    if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
+    if (!pool.bptTotalSupply.isZero()) return err("invalid_input", "Pool already seeded; use quoteAddLiquidity");
+    if (!pool.poolAdmin) return err("invalid_input", "Pool admin missing: sync the pool before quoting");
+    if (pool.poolAdmin.equals(PublicKey.default)) return err("invalid_input", "PoolAdminDisabled");
+    if (!pool.poolAdmin.equals(user)) return err("invalid_input", "SeedDepositNotPoolAdmin");
+    if (tokenAmounts.length !== pool.tokenCount || tokenAmounts.some(a => a.isNeg() || a.bitLength() > 64)) return err("invalid_input", "Expected one u64 amount per token");
+    if (tokenAmounts.every(a => a.isZero())) return err("invalid_input", "FirstDepositRequiresNonzero");
+    const supported = this.requireSupported(tokenAmounts.flatMap((a,i) => a.isZero() ? [] : [i]), "seed deposit");
+    if (!supported.ok) return supported;
+    try {
+      const virtual = pool.tokens.map(t => BigInt(t.virtualBalance.toString()));
+      const balances = virtual.every(v => v === 0n) ? tokenAmounts.map(a => BigInt(a.toString())) : virtual;
+      const bptOut = u64(calculateInvariant(balances, pool.tokens.map(t => t.weightBps), pool.tokens.map(t => t.decimals)), "BPT amount");
+      if (bptOut < 1000n) return err("invalid_input", "InitialLiquidityTooSmall");
+      return ok({ tokenAmounts, depositAmounts: tokenAmounts.map(a => a.clone()), refundAmounts: tokenAmounts.map(() => new BN(0)),
+        bptOut: new BN(bptOut.toString()), minimumBptAmount: new BN(applySlippage(bptOut, slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps).toString()),
+        limitingTokenIndex: -1 });
+    } catch (e) { return err("math_overflow", "Seed-deposit quote failed", e); }
+  }
+
+  /**
+   * Proportional-join quote. `tokenAmounts` is a CEILING (v5.1, audit
+   * M-4 / I-1): the program takes the largest strictly-proportional basket
+   * that fits inside it and leaves the rest in the wallet. This returns the
+   * basket it will actually pull, the BPT it will mint, and a
+   * slippage-derived `minimumBptAmount` to pass to `buildAddLiquidityTx`.
+   *
+   * Not applicable to the seed deposit (BPT supply == 0): the program
+   * mints invariant-based BPT there and takes the full amounts.
+   */
+  quoteAddLiquidity(tokenAmounts: BN[], slippageHundredthsBps?: number): SdkResult<AddLiquidityQuote> {
+    const poolRes = this.requireCache();
+    if (!poolRes.ok) return poolRes;
+    const pool = poolRes.data;
+    if (tokenAmounts.length !== pool.tokenCount) {
+      return err("invalid_input", "tokenAmounts length must equal pool.tokenCount");
+    }
+    if (pool.bptTotalSupply.isZero()) {
+      return err("invalid_input", "Pool has zero BPT supply; use quoteSeedDeposit");
+    }
+    if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
+    if (tokenAmounts.some((a) => a.isNeg() || a.bitLength() > 64)) {
+      return err("invalid_input", "tokenAmounts must be u64 values");
+    }
+    if (pool.tokens.some((t, i) => t.actualBalance.isZero() !== tokenAmounts[i].isZero())) {
+      return err("invalid_input", "TokenLivenessMismatch: live tokens need positive amounts; zero-balance tokens need zero amounts");
+    }
+    const unsupported = this.requireSupported(pool.tokens.filter(t => !t.actualBalance.isZero()).map(t => t.index), "add_liquidity");
+    if (!unsupported.ok) return unsupported;
+    const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
+    try {
+      // Same inputs as cubic-pool/add_liquidity.rs: raw stored actual
+      // balances, ratio = min over tokens with actual > 0.
+      const bals = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
+      const amounts = tokenAmounts.map((a) => BigInt(a.toString()));
+      const supply = BigInt(pool.bptTotalSupply.toString());
+      let ratioMin: bigint | null = null;
+      let limiting = -1;
+      for (let i = 0; i < bals.length; i++) {
+        if (bals[i] === 0n) continue;
+        const r = divDown(amounts[i], bals[i]);
+        if (ratioMin === null || r < ratioMin) {
+          ratioMin = r;
+          limiting = i;
+        }
+      }
+      if (ratioMin === null) return err("invalid_input", "Pool has no token with a non-zero balance");
+      const bptOut = calcBptOutGivenExactTokensIn(bals, amounts, supply);
+      if (bptOut === 0n || bptOut > ((1n << 64n) - 1n) || supply + bptOut > ((1n << 64n) - 1n)) return err("invalid_input", "DepositTooSmall or BPT supply overflow");
+      const deposit = bals.map((b) => (b === 0n ? 0n : mulDown(b, ratioMin as bigint)));
+      if (deposit.some((d, i) => bals[i] > 0n && d === 0n || bals[i] + d > ((1n << 64n) - 1n))) return err("invalid_input", "DepositTooSmall or reserve overflow");
+      if (pool.tokens.some(t => BigInt(t.virtualBalance.toString()) + mulDown(BigInt(t.virtualBalance.toString()), ratioMin!) > ((1n << 64n) - 1n))) return err("math_overflow", "Virtual balance overflow");
+      this.validateDepositWindows(pool, ratioMin);
+      const refund = amounts.map((a, i) => a - deposit[i]);
+      return ok({
+        tokenAmounts,
+        depositAmounts: deposit.map((d) => new BN(d.toString())),
+        refundAmounts: refund.map((r) => new BN(r.toString())),
+        bptOut: new BN(bptOut.toString()),
+        minimumBptAmount: new BN(applySlippage(bptOut, slip).toString()),
+        limitingTokenIndex: limiting,
+      });
+    } catch (e) {
+      return err("math_overflow", "Add-liquidity quote failed", e);
     }
   }
 
   /** Proportional-withdraw quote for a given BPT amount. */
-  quoteRemove(bptIn: BN): SdkResult<{ tokenOuts: BN[] }> {
+  quoteRemove(bptIn: BN): SdkResult<{ tokenOuts: BN[]; effectiveBptIn: BN }> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     const pool = poolRes.data;
     if (pool.bptTotalSupply.isZero()) {
       return err("invalid_input", "Pool has zero BPT supply");
     }
+    if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
     try {
       // Match cubic-pool/remove_liquidity.rs exactly: it computes
-      // token_amounts as `actual_balances[i] * bpt_amount / bpt_supply`
+      // token_amounts via divDown(bpt_amount, bpt_supply), then mulDown(actual, ratio)
       // against the raw stored actual (no protocol-fee subtraction). Use
       // the same input here so the SDK quote equals what the contract
       // actually transfers.
       const bals = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
-      const outs = calcTokensOutGivenBptIn(bals, BigInt(bptIn.toString()), BigInt(pool.bptTotalSupply.toString()));
-      return ok({ tokenOuts: outs.map((o) => new BN(o.toString())) });
+      const supply = BigInt(pool.bptTotalSupply.toString());
+      const requested = BigInt(bptIn.toString());
+      if (requested <= 0n || requested > supply || supply <= 1000n) return err("invalid_input", "InvalidBptAmount");
+      const effective = requested < supply - 1000n ? requested : supply - 1000n;
+      const outs = calcTokensOutGivenBptIn(bals, effective, supply);
+      const supported = this.requireSupported(outs.flatMap((amount,i) => amount > 0n ? [i] : []), "remove_liquidity");
+      if (!supported.ok) return supported;
+      return ok({ tokenOuts: outs.map((o) => new BN(o.toString())), effectiveBptIn: new BN(effective.toString()) });
     } catch (e) {
       return err("math_overflow", "Remove quote failed", e);
     }
@@ -406,6 +458,8 @@ export class CubicPoolClient {
   buildSwapTx(params: SwapParams): SdkResult<BuiltTx> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
+    const unsupported = this.requireSupported([params.tokenInIndex, params.tokenOutIndex], "swap");
+    if (!unsupported.ok) return unsupported;
     const slip = params.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
     let minOut: BN;
     if (params.minAmountOut) {
@@ -441,6 +495,8 @@ export class CubicPoolClient {
     if (params.tokenAmounts.length !== poolRes.data.tokenCount) {
       return err("invalid_input", "tokenAmounts length must equal pool.tokenCount");
     }
+    const unsupported = this.requireSupported(params.tokenAmounts.flatMap((a,i) => a.isZero() ? [] : [i]), "add_liquidity");
+    if (!unsupported.ok) return unsupported;
     try {
       return ok(buildAddLiquidityTx(this.config, poolRes.data, params));
     } catch (e) {
@@ -461,6 +517,8 @@ export class CubicPoolClient {
     if (params.minimumTokenAmounts.length !== poolRes.data.tokenCount) {
       return err("invalid_input", "minimumTokenAmounts length must equal pool.tokenCount");
     }
+    const quote = this.quoteRemove(params.bptAmount);
+    if (!quote.ok) return quote;
     try {
       return ok(buildRemoveLiquidityTx(this.config, poolRes.data, params));
     } catch (e) {
@@ -476,10 +534,36 @@ export class CubicPoolClient {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     if (params.amountIn.lten(0)) return err("invalid_input", "amountIn must be > 0");
+    const unsupported = this.requireSupported(poolRes.data.tokens.filter(t => !t.actualBalance.isZero() || t.index === params.tokenInIndex).map(t => t.index), "deposit_single_token");
+    if (!unsupported.ok) return unsupported;
     try {
       return ok(buildSingleTokenDepositTx(this.config, poolRes.data, params));
     } catch (e) {
       return err("tx_build_failed", "Failed to build single-token deposit tx", e);
+    }
+  }
+
+  /**
+   * Single-token deposit split into `{ setup, deposit }` transactions.
+   *
+   * Required for pools beyond a handful of tokens: the ATA creates and the
+   * zap compete for the same 64-frame instruction-trace budget, and at
+   * N=10 the zap alone uses 52 of them. Send `setup` (idempotent, safe to
+   * repeat), wait for confirmation, then send `deposit` compiled against
+   * the pool's ALT via `compileBuiltTx`.
+   */
+  buildSingleTokenDepositTxs(
+    params: SingleTokenDepositParams
+  ): SdkResult<{ setup: BuiltTx | null; deposit: BuiltTx }> {
+    const poolRes = this.requireCache();
+    if (!poolRes.ok) return poolRes;
+    if (params.amountIn.lten(0)) return err("invalid_input", "amountIn must be > 0");
+    const unsupported = this.requireSupported(poolRes.data.tokens.filter(t => !t.actualBalance.isZero() || t.index === params.tokenInIndex).map(t => t.index), "deposit_single_token");
+    if (!unsupported.ok) return unsupported;
+    try {
+      return ok(buildSingleTokenDepositTxs(this.config, poolRes.data, params));
+    } catch (e) {
+      return err("tx_build_failed", "Failed to build single-token deposit txs", e);
     }
   }
 
@@ -505,6 +589,33 @@ export class CubicPoolClient {
   }
 
   // ---------- Internals ----------
+
+  /**
+   * Refuse when any of `indices` (or every token, for `"all"`) has an
+   * unsupported Token-2022 extension. The program would revert inside the
+   * token program on transfer, so failing here saves the user a fee.
+   */
+  private requireSupported(indices: number[] | "all", op: string): SdkResult<void> {
+    const pool = this.cache;
+    if (!pool) return ok(undefined);
+    const idx = indices === "all" ? pool.tokens.map((t) => t.index) : indices;
+    const bad = idx.map((i) => pool.tokens[i]).filter((t) => t && (t.unsupportedExtensions?.length ?? 0) > 0);
+    if (bad.length === 0) return ok(undefined);
+    return err(
+      "unsupported_token_extension",
+      `${op} refused: ${bad.map(describeUnsupportedToken).join("; ")}. ` +
+        "The cubic-pool program cannot transfer such tokens; the transaction would revert on-chain."
+    );
+  }
+
+  private validateDepositWindows(pool: PoolInfo, ratio: bigint): void {
+    for (const token of pool.tokens) {
+      if (token.maxSelloffPct === 0) continue;
+      if ([token.previousSelloff, token.currentSelloff, token.selloffVbSnapshot, token.windowStartTimestamp].some(v => v === undefined)) throw new Error("Selloff state missing: sync the pool before quoting");
+      rescaleSelloffWindow({ previousSelloff: BigInt(token.previousSelloff!.toString()), currentSelloff: BigInt(token.currentSelloff!.toString()),
+        selloffVbSnapshot: BigInt(token.selloffVbSnapshot!.toString()), windowStartTimestamp: BigInt(token.windowStartTimestamp!.toString()) }, ratio, true, token.maxSelloffPct);
+    }
+  }
 
   private requireCache(): SdkResult<PoolInfo> {
     if (!this.cache) {

@@ -7,6 +7,15 @@
 Client library for the Cubic Pool AMM on Solana. Targeted at both frontend
 and backend consumers; no bundler-specific code.
 
+## Contract compatibility
+
+This release targets `contracts/audit-fixes-excluded-SF` at
+`96a2ee20244ff95fb9f14357bb55b17e1eb0e2c0`, deployed on mainnet on 2026-09-07.
+All three IDLs match that revision. Typed `buildContractInstruction` covers all
+59 instructions, `parseContractEvents` covers all 60 events, and
+`decodeContractAccount` decodes their declared accounts. See
+[the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for usage and limits.
+
 ## Install
 
 ```bash
@@ -40,7 +49,7 @@ import { getConfig, CubicPoolClient, CubeBackendClient } from "@cubee_ee/sdk";
 import { PublicKey } from "@solana/web3.js";
 
 const config = getConfig("mainnet", {
-  backendEndpoint: "https://api.cube.fi",
+  backendEndpoint: "https://api.coffer.so",
   // Optional: put your paid RPC first; SDK falls back to the defaults below.
   rpcEndpoints: [
     process.env.CUBE_RPC_URL!,
@@ -88,9 +97,9 @@ the next endpoint instead of waiting on the same RPC. Mainnet defaults are
 no-key public endpoints; production frontends should prepend their paid RPC via
 `getConfig("mainnet", { rpcEndpoints: [...] })`.
 
-Every public method returns `SdkResult<T>` — either `{ ok: true, data }`
-or `{ ok: false, error: { code, humanMessage, cause? } }`. The SDK never
-throws for I/O or parse errors.
+Client sync and quote methods return `SdkResult<T>`: `{ ok: true, data }` or
+`{ ok: false, error: { code, humanMessage, cause? } }`. Pure math, parsers and
+low-level instruction builders throw on invalid input.
 
 ## What lives in the SDK vs the frontend
 
@@ -99,7 +108,7 @@ throws for I/O or parse errors.
 - All math (quote, allocations, slippage, price impact)
 - All transaction building (swap, add/remove liquidity, single-token deposit, pool deploy)
 - Current Anchor IDLs for `cubic_pool`, `single_token_liquidity`, and
-  `protocol_fees_authority`
+  `protocol_admin`
 - Retry + fallback for RPC and backend calls
 - Event log decoding
 
@@ -113,15 +122,17 @@ legacy transaction wire ceiling on `add_liquidity` /
 (ALT) per pool** via `initialize_pool_alt`. After init the ALT is
 frozen and its address is recorded on `pool.lookup_table`.
 
-The SDK's `buildAddLiquidityTx` / `buildRemoveLiquidityTx` automatically
-wrap their instructions in a `VersionedTransaction` (v0) referencing
-the pool's frozen ALT when `pool.lookupTable` is set, transparently
-fitting 10-token operations under the wire ceiling.
+Builders return instructions. Call `compileBuiltTx` to fetch the pool's ALT and
+compile a v0 transaction. The wallet supplies signatures and the caller sends it.
 
 ```ts
-const { instructions, lookupTables } = client.buildRemoveLiquidityTx({...});
-// `lookupTables` is `[pool.lookupTable]` when set — feed it straight
-// into `TransactionMessage.compileToV0Message(payer, lookupTables)`.
+import { compileBuiltTx } from "@cubee_ee/sdk";
+
+const built = client.buildRemoveLiquidityTx({ user, bptAmount, minimumTokenAmounts });
+if (!built.ok) throw new Error(built.error.humanMessage);
+const compiled = await compileBuiltTx(connection, user, built.data, info);
+if (!compiled.ok) throw new Error(compiled.error.humanMessage);
+// Sign compiled.data.tx with the wallet, then send and confirm it.
 ```
 
 ### Provisioning an ALT for a new pool
@@ -165,15 +176,13 @@ the on-chain pool account. The transaction builders
 derivation and remaining-accounts assembly, so consumers do not need
 to special-case Token-2022 on the call site.
 
-Caveats:
-- The BPT mint is always created under classic SPL Token. Pass
-  `bptTokenProgram` only if you need a non-default program for the
-  BPT itself.
-- Mints with transfer fees, transfer hooks, or other Token-2022
-  extensions that mutate amounts on transfer are not supported by
-  the AMM contract — the post-transfer vault balance must equal the
-  amount the math computed, otherwise `add_liquidity` and `swap`
-  revert with `BalanceMismatch`.
+The BPT mint defaults to classic SPL Token; `bptTokenProgram` can select
+Token-2022. `sync()` records its actual owner and builders use that program.
+
+The deployed contracts do not support transfer-fee or transfer-hook accounting.
+SDK guards reject these and other incompatible mint extensions for transfers.
+`bannedMintExtensions()` separately reports the creation-policy bitmap; a bit in
+that bitmap does not by itself make an existing token non-transferable.
 
 ## Examples
 

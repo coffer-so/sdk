@@ -1,7 +1,6 @@
-import { ONE } from "./fixedPoint";
+import { ONE, assertU64, assertInteger, mulDivDown } from "./fixedPoint";
 import { calcOutGivenIn } from "./cubicMath";
-import { lpBalances } from "./slippage";
-import { PROTOCOL_FEE_PRECISION, SWAP_FEE_PRECISION } from "../config";
+import { lpBalances, calculateSwapFee, calculateProtocolFee } from "./slippage";
 
 export interface AllocationResult {
   /** Per-token integer amount allocations; sum = amountIn. */
@@ -16,7 +15,8 @@ export interface AllocationResult {
  * Port of stld `compute_allocations` from
  * `contracts/programs/single-token-liquidity/src/math.rs`.
  *
- * W_i = weight_i * factBalance_i / virtBalance_i (dimensionless concentration).
+ * W_i = weight_i * min(actual_i, virtual_i) / virtual_i.
+ * Division order matches the two integer divisions on-chain.
  * share_i = W_i / ΣW. amount_alloc[i] = amountIn * share_i.
  *
  * Integer truncation of per-token amounts routes the remainder to the
@@ -30,11 +30,12 @@ export function computeAllocations(params: {
   tokenInIndex: number;
 }): AllocationResult {
   const { actualBalances, virtualBalances, weightsBps, amountIn, tokenInIndex } = params;
+  assertU64(amountIn, "amountIn");
   const n = actualBalances.length;
   if (n !== virtualBalances.length || n !== weightsBps.length) {
     throw new Error("computeAllocations: length mismatch");
   }
-  if (tokenInIndex < 0 || tokenInIndex >= n) {
+  if (!Number.isInteger(tokenInIndex) || tokenInIndex < 0 || tokenInIndex >= n) {
     throw new Error("computeAllocations: tokenInIndex out of range");
   }
   const wScaled: bigint[] = [];
@@ -42,7 +43,11 @@ export function computeAllocations(params: {
     if (virtualBalances[i] <= 0n) {
       throw new Error(`computeAllocations: virtualBalance[${i}] must be positive`);
     }
-    const w = (BigInt(weightsBps[i]) * actualBalances[i] * ONE) / (virtualBalances[i] * 10_000n);
+    assertU64(actualBalances[i]); assertU64(virtualBalances[i]);
+    assertInteger(weightsBps[i], 0, 10000, "weight");
+    const effectiveActual = actualBalances[i] < virtualBalances[i] ? actualBalances[i] : virtualBalances[i];
+    const scaled = mulDivDown(effectiveActual, ONE, virtualBalances[i]);
+    const w = mulDivDown(scaled, BigInt(weightsBps[i]), 10_000n);
     wScaled.push(w);
   }
   const sumW = wScaled.reduce((a, b) => a + b, 0n);
@@ -58,7 +63,7 @@ export function computeAllocations(params: {
 }
 
 function swapFeeAmount(amount: bigint, swapFeeRate: number): bigint {
-  return (amount * BigInt(swapFeeRate)) / BigInt(SWAP_FEE_PRECISION);
+  return calculateSwapFee(amount, swapFeeRate);
 }
 
 function amountAfterSwapFee(amount: bigint, swapFeeRate: number): bigint {
@@ -70,7 +75,7 @@ function amountAfterSwapFee(amount: bigint, swapFeeRate: number): bigint {
 }
 
 function protocolFeeAmount(swapFee: bigint, protocolFeeRate: number): bigint {
-  return (swapFee * BigInt(protocolFeeRate)) / BigInt(PROTOCOL_FEE_PRECISION);
+  return calculateProtocolFee(swapFee, protocolFeeRate);
 }
 
 function scoreTwoTokenSwap(params: {
@@ -143,6 +148,7 @@ function scoreTwoTokenSwap(params: {
   return { score: ratioIn < ratioOut ? ratioIn : ratioOut, amountOut };
 }
 
+/** @deprecated Analytical base-fee-only optimizer. The deployed helper uses computeAllocations; this does not model selloff/surge. */
 export function computeTwoTokenOptimalAllocations(params: {
   actualBalances: [bigint, bigint];
   virtualBalances: [bigint, bigint];
@@ -197,31 +203,26 @@ export function computeTwoTokenOptimalAllocations(params: {
 /**
  * Mirror of stld `cap_deposit_amounts_to_lp_ratio`.
  *
- * `add_liquidity` mints BPT from the minimum ratio against LP-accessible
- * balances (`actual - protocolFeesOwed`). Any helper-held amount above that
- * common ratio would be donated, so the helper deposits the capped basket and
- * refunds the rest.
+ * Stored actual balances already exclude protocol fees. The helper deposits
+ * the common raw-actual ratio and refunds the remaining basket.
  */
 export function capDepositAmountsToLpRatio(params: {
   helperBalances: bigint[];
   actualBalances: bigint[];
-  protocolFeesOwed: bigint[];
+  /** Retained for compatibility; actual balances already exclude these fees. */
+  protocolFeesOwed?: bigint[];
 }): { depositAmounts: bigint[]; refundAmounts: bigint[]; lpBalancesForAdd: bigint[] } {
   const { helperBalances, actualBalances, protocolFeesOwed } = params;
   const n = helperBalances.length;
-  if (n !== actualBalances.length || n !== protocolFeesOwed.length) {
+  if (n !== actualBalances.length || (protocolFeesOwed && n !== protocolFeesOwed.length)) {
     throw new Error("capDepositAmountsToLpRatio: length mismatch");
   }
 
-  const lpBalancesForAdd = actualBalances.map((actual, i) =>
-    actual > protocolFeesOwed[i] ? actual - protocolFeesOwed[i] : 0n
-  );
+  helperBalances.forEach((b) => assertU64(b));
+  const lpBalancesForAdd = actualBalances.map((actual) => assertU64(actual));
   let ratioMin: bigint | null = null;
 
   for (let i = 0; i < n; i++) {
-    if (actualBalances[i] > 0n && lpBalancesForAdd[i] === 0n) {
-      throw new Error("capDepositAmountsToLpRatio: live token has no LP claim");
-    }
     if (lpBalancesForAdd[i] === 0n) continue;
     if (helperBalances[i] <= 0n) {
       throw new Error("capDepositAmountsToLpRatio: amount too small");

@@ -9,9 +9,14 @@ import {
   SingleTokenDepositQuote,
 } from "../types/tx";
 import { deriveHelperPda } from "../utils/pda";
-import { buildSingleTokenDepositTx } from "./tx-builders";
+import { buildSingleTokenDepositTx, buildSingleTokenDepositTxs } from "./tx-builders";
 import { RpcClient } from "./RpcClient";
 import { CubicPoolClient } from "./CubicPoolClient";
+import { describeUnsupportedToken } from "../utils/extensions";
+
+function unsupportedMessage(pool: PoolInfo, op: string): string {
+  return `${op} refused: ${(pool.unsupportedTokenIndices ?? []).filter(i => !pool.tokens[i].actualBalance.isZero()).map((i) => describeUnsupportedToken(pool.tokens[i])).join("; ")}. The cubic-pool program cannot transfer such tokens.`;
+}
 
 export interface SingleTokenDepositClientParams {
   config: CubeConfig;
@@ -76,24 +81,63 @@ export class SingleTokenDepositClient {
   quote(
     tokenInIndex: number,
     amountIn: BN,
-    slippageHundredthsBps?: number
+    slippageHundredthsBps?: number,
+    nowSeconds?: number,
+    helperBalances?: BN[]
   ): SdkResult<SingleTokenDepositQuote> {
-    return this.poolClient.quoteSingleTokenDeposit(tokenInIndex, amountIn, slippageHundredthsBps);
+    return this.poolClient.quoteSingleTokenDeposit(tokenInIndex, amountIn, slippageHundredthsBps, nowSeconds, helperBalances);
   }
 
-  /** Build a ready-to-sign transaction. Includes idempotent helper-ATA creates. */
+  /**
+   * Build a ready-to-sign transaction. Includes idempotent helper-ATA
+   * creates.
+   *
+   * ⚠ Single-transaction form. It only fits for small pools — the ATA
+   * creates cost 5 CPI frames each and the zap itself uses 52 of the
+   * 64-frame budget at N=10. Use {@link buildTxs} for anything larger.
+   */
   buildTx(params: SingleTokenDepositParams): SdkResult<BuiltTx> {
     const pool = this.poolClient.getCached();
     if (!pool) return err("invalid_input", "Call sync() first to populate pool state");
-    if (params.tokenInIndex < 0 || params.tokenInIndex >= pool.tokenCount) {
+    if (!Number.isInteger(params.tokenInIndex) || params.tokenInIndex < 0 || params.tokenInIndex >= pool.tokenCount) {
       return err("invalid_input", "Invalid tokenInIndex");
     }
     if (params.amountIn.lten(0)) return err("invalid_input", "amountIn must be > 0");
+    if ((pool.unsupportedTokenIndices ?? []).some(i => !pool.tokens[i].actualBalance.isZero())) {
+      return err("unsupported_token_extension", unsupportedMessage(pool, "deposit_single_token"));
+    }
     try {
       const tx = buildSingleTokenDepositTx(this.config, pool, params);
       return ok(tx);
     } catch (e) {
       return err("tx_build_failed", "Failed to build single-token deposit tx", e);
+    }
+  }
+
+  /**
+   * Build the deposit as two transactions: `setup` (idempotent ATA creates)
+   * then `deposit`. Required for large pools; safe for all of them.
+   *
+   * Send `setup` and let it confirm before sending `deposit` — an ALT
+   * cannot be referenced in the same slot it was extended, and the two
+   * legs must not share an instruction-trace budget.
+   */
+  buildTxs(
+    params: SingleTokenDepositParams
+  ): SdkResult<{ setup: BuiltTx | null; deposit: BuiltTx }> {
+    const pool = this.poolClient.getCached();
+    if (!pool) return err("invalid_input", "Call sync() first to populate pool state");
+    if (!Number.isInteger(params.tokenInIndex) || params.tokenInIndex < 0 || params.tokenInIndex >= pool.tokenCount) {
+      return err("invalid_input", "Invalid tokenInIndex");
+    }
+    if (params.amountIn.lten(0)) return err("invalid_input", "amountIn must be > 0");
+    if ((pool.unsupportedTokenIndices ?? []).some(i => !pool.tokens[i].actualBalance.isZero())) {
+      return err("unsupported_token_extension", unsupportedMessage(pool, "deposit_single_token"));
+    }
+    try {
+      return ok(buildSingleTokenDepositTxs(this.config, pool, params));
+    } catch (e) {
+      return err("tx_build_failed", "Failed to build single-token deposit txs", e);
     }
   }
 }

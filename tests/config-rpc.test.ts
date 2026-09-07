@@ -5,9 +5,9 @@ describe("RPC defaults in config", () => {
   test("mainnet config exposes a no-key fallback endpoint list", () => {
     const cfg = getConfig("mainnet");
 
-    expect(cfg.defaults.rpcEndpoint).toBe("https://api.mainnet-beta.solana.com");
+    expect(cfg.defaults.rpcEndpoint).toBe("https://solana.drpc.org");
     expect(cfg.defaults.rpcEndpoints).toEqual([
-      "https://api.mainnet-beta.solana.com",
+      "https://solana.drpc.org",
       "https://solana-rpc.publicnode.com",
       "https://solana.api.pocket.network",
     ]);
@@ -22,7 +22,7 @@ describe("RPC defaults in config", () => {
     expect(cfg.defaults.rpcEndpoint).toBe("https://paid.rpc.example");
     expect(cfg.defaults.rpcEndpoints).toEqual([
       "https://paid.rpc.example",
-      "https://api.mainnet-beta.solana.com",
+      "https://solana.drpc.org",
       "https://solana-rpc.publicnode.com",
       "https://solana.api.pocket.network",
     ]);

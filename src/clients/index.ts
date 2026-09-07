@@ -6,3 +6,4 @@ export * from "./versioned";
 export * from "./SingleTokenDepositClient";
 export * from "./PoolFactoryClient";
 export * from "./AdminClient";
+export * from "./contract-instructions";

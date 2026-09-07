@@ -10,7 +10,7 @@
  * ```ts
  * import { CubicPoolClient, CubeBackendClient, getConfig } from "@cubee_ee/sdk";
  *
- * const cfg = getConfig("mainnet", { backendEndpoint: "https://api.cube.fi" });
+ * const cfg = getConfig("mainnet", { backendEndpoint: "https://api.coffer.so" });
  * const pool = new CubicPoolClient({ config: cfg, poolAddress });
  * const info = await pool.sync();
  * if (info.ok) console.log(info.data.tokens.map(t => t.metadata?.symbol));
@@ -94,16 +94,25 @@ export {
   buildRemoveLiquidityTx,
   buildSingleTokenDepositIx,
   buildSingleTokenDepositTx,
+  buildSingleTokenDepositTxs,
+  buildSingleTokenDepositAtaIxs,
   buildInitializeConfigIx,
+  buildPoolInitializeConfigIx,
   buildInitializeCubicPoolIx,
   buildDeployPoolTx,
   buildInitializePoolAltIx,
   buildInitializePoolAltTx,
+  buildSetRangeManagerIx,
+  buildSetRangeManagerConfigIx,
+  buildRangeManagerUpdateIx,
   deriveAltAddress,
+  STLD_MAX_TOKENS,
+  STLD_DEPOSIT_CU_LIMIT,
 } from "./clients/tx-builders";
 export { buildVersionedTx, compileBuiltTx } from "./clients/versioned";
 export type { InitializePoolAltParams } from "./clients/tx-builders";
-export { decodePoolAccount, POOL_DISCRIMINATOR_LEN } from "./parsers/poolAccount";
+export { decodePoolAccount, POOL_DISCRIMINATOR_LEN, POOL_LEN, POOL_V4_LEN } from "./parsers/poolAccount";
+export { toSdkError, describeProgramError } from "./utils/errors";
 export { decodeMintAccount } from "./parsers/mintAccount";
 export { parseCubicPoolEvents } from "./parsers/events";
 export { BorshReader } from "./parsers/borsh";
@@ -140,8 +149,16 @@ export type {
   PoolEnabledUpdatedEvent,
   SwapsEnabledUpdatedEvent,
   SingleTokenDepositEvent,
+  PoolStateLogEvent,
+  MaxSelloffWindowAdvancedEvent,
+  BannedExtensionsUpdatedEvent,
   UnknownEvent,
+  TokenChange,
+  RangeManagerUpdateParams,
+  SetRangeManagerParams,
+  SetRangeManagerConfigParams,
 } from "./types";
+export type { CubeProgram } from "./utils/errors";
 export type {
   AllocationResult,
 } from "./math/singleToken";
@@ -196,3 +213,19 @@ export type {
   PoolFactoryClientParams,
   InitializeConfigParams,
 } from "./clients";
+
+export { buildContractInstruction } from "./clients/contract-instructions";
+export { decodeContractAccount, decodeContractEvent, parseContractEvents } from "./parsers/contracts";
+export type { ContractEvent } from "./parsers/contracts";
+export type { ContractInstructionArgs, ContractInstructionAccounts } from "./clients/contract-instructions";
+export type { ContractProgram, ContractInstructionMap, ContractAccountMap, ContractEventMap, ContractTypes } from "./types/contracts";
+export { buildSetSwapFeeRateIx, buildSetMaxSelloffIx, buildInitiatePoolAdminTransferIx, buildAcceptPoolAdminTransferIx, buildCancelPoolAdminTransferIx, buildDisablePoolAdminIx, buildGetPoolInfoIx } from "./clients/tx-builders";
+export type { SelloffParams, AddLiquidityQuote } from "./types/tx";
+export { calculateSwapFee, calculateProtocolFee } from "./math/slippage";
+export { checkAndAdvanceSelloff, rescaleSelloffWindow } from "./math/maxSelloff";
+export type { SelloffState, SelloffResult } from "./math/maxSelloff";
+export { calcSurgeFeePct, calcSurgeFeeAmount } from "./math/surgeFee";
+export type { SurgeCurve } from "./math/surgeFee";
+export { calculateInvariant } from "./math/weightedMath";
+
+export { MintExtension, MAX_KNOWN_MINT_EXTENSION, HARD_UNSUPPORTED_MINT_EXTENSIONS, DEFAULT_BANNED_EXTENSIONS, mintExtensionName, parseMintExtensions, unsupportedMintExtensions, bannedMintExtensions, describeUnsupportedToken, assertTokensSupported } from "./utils/extensions";

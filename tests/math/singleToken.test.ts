@@ -1,46 +1,7 @@
-import { calcBptOutGivenExactTokensIn, calcOutGivenIn } from "../../src/math/cubicMath";
-import { ONE } from "../../src/math/fixedPoint";
 import {
   capDepositAmountsToLpRatio,
   computeAllocations,
-  computeTwoTokenOptimalAllocations,
 } from "../../src/math/singleToken";
-import { lpBalances } from "../../src/math/slippage";
-
-function simulateSingleTokenPath(params: {
-  actualBalances: [bigint, bigint];
-  virtualBalances: [bigint, bigint];
-  protocolFeesOwed: [bigint, bigint];
-  amountIn: bigint;
-  swapToTokenOne: bigint;
-}): { bptOut: bigint; amountOut: bigint; depositAmounts: [bigint, bigint] } {
-  const { actualBalances, virtualBalances, protocolFeesOwed, amountIn, swapToTokenOne } = params;
-  const inLp = lpBalances(actualBalances[0], virtualBalances[0], protocolFeesOwed[0]);
-  const outLp = lpBalances(actualBalances[1], virtualBalances[1], protocolFeesOwed[1]);
-  const amountOut = calcOutGivenIn({
-    virtualBalanceIn: inLp.lpVirtual,
-    weightInBps: 5000n,
-    virtualBalanceOut: outLp.lpVirtual,
-    weightOutBps: 5000n,
-    amountIn: swapToTokenOne,
-    actualBalanceOut: outLp.lpActual,
-  });
-
-  const actualAfterSwap: [bigint, bigint] = [
-    actualBalances[0] + swapToTokenOne,
-    actualBalances[1] - amountOut,
-  ];
-  const lpBalancesAfterSwap: [bigint, bigint] = [
-    actualAfterSwap[0] - protocolFeesOwed[0],
-    actualAfterSwap[1] - protocolFeesOwed[1],
-  ];
-  const depositAmounts: [bigint, bigint] = [amountIn - swapToTokenOne, amountOut];
-  return {
-    bptOut: calcBptOutGivenExactTokensIn(lpBalancesAfterSwap, depositAmounts, 1000n),
-    amountOut,
-    depositAmounts,
-  };
-}
 
 describe("computeAllocations", () => {
   test("balanced pool splits 50/50", () => {
@@ -139,77 +100,6 @@ describe("computeAllocations", () => {
     ).toThrow(/out of range/);
   });
 
-  test("audit PoC: protocol-fee reserves can make current allocation lose most BPT", () => {
-    const actualBalances: [bigint, bigint] = [1000n, 1000n];
-    const virtualBalances: [bigint, bigint] = [1000n, 1000n];
-    const protocolFeesOwed: [bigint, bigint] = [990n, 100n];
-    const amountIn = 100n;
-
-    const current = computeAllocations({
-      actualBalances,
-      virtualBalances,
-      weightsBps: [5000, 5000],
-      amountIn,
-      tokenInIndex: 0,
-    }).allocations;
-    expect(current).toEqual([50n, 50n]);
-
-    let best = { swapToTokenOne: 0n, bptOut: 0n };
-    for (let swapToTokenOne = 0n; swapToTokenOne <= amountIn; swapToTokenOne++) {
-      const candidate = simulateSingleTokenPath({
-        actualBalances,
-        virtualBalances,
-        protocolFeesOwed,
-        amountIn,
-        swapToTokenOne,
-      });
-      if (candidate.bptOut > best.bptOut) {
-        best = { swapToTokenOne, bptOut: candidate.bptOut };
-      }
-    }
-
-    const currentPath = simulateSingleTokenPath({
-      actualBalances,
-      virtualBalances,
-      protocolFeesOwed,
-      amountIn,
-      swapToTokenOne: current[1],
-    });
-
-    expect(best.swapToTokenOne).toBe(23n);
-    expect(currentPath.bptOut).toBe(833n);
-    expect(best.bptOut).toBe(2296n);
-    expect((currentPath.bptOut * ONE) / best.bptOut).toBeLessThan(ONE / 2n);
-  });
-
-  test("audit fix: two-token optimizer chooses the BPT-maximizing protocol-fee route", () => {
-    const actualBalances: [bigint, bigint] = [1000n, 1000n];
-    const virtualBalances: [bigint, bigint] = [1000n, 1000n];
-    const protocolFeesOwed: [bigint, bigint] = [990n, 100n];
-    const amountIn = 100n;
-
-    const optimized = computeTwoTokenOptimalAllocations({
-      actualBalances,
-      virtualBalances,
-      protocolFeesOwed,
-      weightsBps: [5000, 5000],
-      amountIn,
-      tokenInIndex: 0,
-      swapFeeRate: 0,
-      protocolFeeRate: 0,
-    }).allocations;
-    const optimizedPath = simulateSingleTokenPath({
-      actualBalances,
-      virtualBalances,
-      protocolFeesOwed,
-      amountIn,
-      swapToTokenOne: optimized[1],
-    });
-
-    expect(optimized).toEqual([77n, 23n]);
-    expect(optimizedPath.bptOut).toBe(2296n);
-  });
-
   test("caps imbalanced helper balances to LP-accessible proportional ratio", () => {
     const capped = capDepositAmountsToLpRatio({
       helperBalances: [100n, 900n, 700n],
@@ -217,18 +107,15 @@ describe("computeAllocations", () => {
       protocolFeesOwed: [500n, 200n, 0n],
     });
 
-    expect(capped.lpBalancesForAdd).toEqual([500n, 1800n, 3000n]);
-    expect(capped.depositAmounts).toEqual([100n, 360n, 600n]);
-    expect(capped.refundAmounts).toEqual([0n, 540n, 100n]);
+    expect(capped.lpBalancesForAdd).toEqual([1000n, 2000n, 3000n]);
+    expect(capped.depositAmounts).toEqual([100n, 200n, 300n]);
+    expect(capped.refundAmounts).toEqual([0n, 700n, 400n]);
   });
 
-  test("rejects live slots whose full actual balance is protocol fees", () => {
-    expect(() =>
-      capDepositAmountsToLpRatio({
-        helperBalances: [1n, 1n],
-        actualBalances: [100n, 100n],
-        protocolFeesOwed: [100n, 0n],
-      })
-    ).toThrow(/no LP claim/);
+  test("pending fees cannot remove the LP-owned actual balance",()=>{
+    expect(capDepositAmountsToLpRatio({helperBalances:[1n,1n],actualBalances:[100n,100n],protocolFeesOwed:[100n,0n]}).depositAmounts).toEqual([1n,1n]);
+  });
+  test("virtual ceiling clamps allocation weights",()=>{
+    expect(computeAllocations({actualBalances:[1000000n,500000000n],virtualBalances:[1000000n,1000000n],weightsBps:[5000,5000],amountIn:1000000n,tokenInIndex:0}).allocations).toEqual([500000n,500000n]);
   });
 });

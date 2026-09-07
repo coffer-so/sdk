@@ -1,82 +1,61 @@
-/**
- * Fixed-point ln/exp/pow over 1e18 precision. Port of
- * `contracts/programs/cubic-pool/src/math/log_exp_math.rs` via bigint —
- * results match the Rust version modulo identical rounding.
- *
- * Intended for off-chain quoting; on-chain calls go through cubic-pool's
- * own implementation.
- */
-
-const ONE = 1_000_000_000_000_000_000n;
-const TWO = 2n * ONE;
-const LN2 = 693_147_180_559_945_309n; // ln(2) * 1e18
-
-/** Natural logarithm. Accepts x > 0 in 1e18 fp, returns signed i128 in 1e18 fp. */
-export function lnFp(x: bigint): bigint {
-  if (x <= 0n) throw new Error("logExp.ln: x must be positive");
-  if (x === ONE) return 0n;
-  if (x < ONE) {
-    const inv = (ONE * ONE + x - 1n) / x;
-    return -lnPos(inv);
-  }
-  return lnPos(x);
+/** Exact integer port of cubic-pool log_exp_math.rs (audit-fixes-excluded-SF). */
+import { ONE, assertI128, assertU128, mulDivDown } from "./fixedPoint";
+export const MAX_NATURAL_EXPONENT = 46000000000000000000n;
+export const MIN_NATURAL_EXPONENT = -41000000000000000000n;
+const X = [32000000000000000000n, 16000000000000000000n, 8000000000000000000n, 4000000000000000000n, 2000000000000000000n, 1000000000000000000n, 500000000000000000n, 250000000000000000n, 125000000000000000n, 62500000000000000n];
+const A = [78962960182680695161000000000000n, 8886110520507872636760000n, 2980957987041728274740n, 54598150033144239078n, 7389056098930650227n, 2718281828459045235n, 1648721270700128146n, 1284025416687741484n, 1133148453066826316n, 1064494458917859429n];
+function lnPositive(a: bigint): bigint {
+    let sum = 0n;
+    for (let i = 0; i < X.length; i++)
+        if (a >= A[i]) {
+            a = mulDivDown(a, ONE, A[i]);
+            sum += X[i];
+        }
+    const z = mulDivDown(a - ONE, ONE, assertU128(a + ONE));
+    const zSq = assertI128(z * z) / ONE;
+    let num = z, seriesSum = z;
+    for (let k = 1n; k < 6n; k++) {
+        num = assertI128(num * zSq) / ONE;
+        seriesSum = assertI128(seriesSum + num / (2n * k + 1n));
+    }
+    return assertI128(sum + assertI128(seriesSum * 2n));
 }
-
-function lnPos(x: bigint): bigint {
-  let val = x;
-  let acc = 0n;
-  while (val >= TWO) {
-    acc += LN2;
-    val /= 2n;
-  }
-  const y = val - ONE;
-  if (y === 0n) return acc;
-
-  // Taylor series: ln(1+y) = y - y^2/2 + y^3/3 - ...
-  let term = y;
-  let sum = y;
-  let sign = -1n;
-  for (let k = 2n; k <= 30n; k++) {
-    term = (term * y) / ONE;
-    const tk = term / k;
-    sum = sign < 0n ? sum - tk : sum + tk;
-    sign = -sign;
-    if (tk === 0n) break;
-  }
-  return acc + sum;
+export function lnFp(a: bigint): bigint {
+    assertU128(a);
+    if (a === 0n)
+        throw new Error("logExp.ln: divide by zero");
+    return a < ONE ? -lnPositive(mulDivDown(ONE, ONE, a)) : lnPositive(a);
 }
-
-/** e^x. Accepts signed i128 1e18 fp, returns u128 1e18 fp. */
 export function expFp(x: bigint): bigint {
-  if (x === 0n) return ONE;
-  if (x < 0n) {
-    const pos = expFp(-x);
-    return (ONE * ONE) / pos;
-  }
-  let ux = x;
-  let k = 0n;
-  while (ux >= LN2) {
-    ux -= LN2;
-    k += 1n;
-  }
-  // Taylor series: e^r = 1 + r + r^2/2! + ...
-  let sum = ONE;
-  let term = ONE;
-  for (let i = 1n; i <= 30n; i++) {
-    term = (term * ux) / ONE;
-    term = term / i;
-    sum += term;
-    if (term === 0n) break;
-  }
-  return sum << BigInt(k);
+    assertI128(x);
+    if (x < MIN_NATURAL_EXPONENT || x > MAX_NATURAL_EXPONENT)
+        throw new Error("logExp.exp: exponent out of range");
+    if (x < 0n)
+        return mulDivDown(ONE, ONE, expFp(-x));
+    let product = ONE;
+    for (let i = 0; i < X.length; i++)
+        if (x >= X[i]) {
+            x -= X[i];
+            product = mulDivDown(product, A[i], ONE);
+        }
+    let sum = assertU128(ONE + x), term = x;
+    for (let n = 2n; n <= 12n; n++) {
+        term = mulDivDown(term, x, ONE) / n;
+        sum = assertU128(sum + term);
+    }
+    return mulDivDown(product, sum, ONE);
 }
-
-/** Fixed-point pow: x^y where both are 1e18 fp. */
 export function powFp(base: bigint, exponent: bigint): bigint {
-  if (exponent === 0n) return ONE;
-  if (base === ONE) return ONE;
-  if (base === 0n) return 0n;
-  const l = lnFp(base);
-  const prod = (exponent * (l < 0n ? -l : l)) / ONE;
-  return l < 0n ? expFp(-prod) : expFp(prod);
+    assertU128(base);
+    assertU128(exponent);
+    if (exponent === 0n || base === ONE)
+        return ONE;
+    if (base === 0n)
+        return 0n;
+    const logarithm = lnFp(base);
+    // Rust casts u128 to i128 here. Valid pool weights are far below i128::MAX.
+    const y = BigInt.asIntN(128, exponent);
+    const whole = assertI128((logarithm / ONE) * y);
+    const fraction = assertI128((logarithm % ONE) * y) / ONE;
+    return expFp(assertI128(whole + fraction));
 }

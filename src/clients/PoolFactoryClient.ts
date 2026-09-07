@@ -6,7 +6,7 @@ import { BuiltTx, DeployPoolParams } from "../types/tx";
 import {
   buildDeployPoolTx,
   buildInitializeCubicPoolIx,
-  buildInitializeConfigIx,
+  buildPoolInitializeConfigIx,
 } from "./tx-builders";
 import { derivePoolPda } from "../utils/pda";
 
@@ -68,18 +68,26 @@ export class PoolFactoryClient {
   }
 
   /**
-   * Initialize a new CubicPoolConfig. The `config` signer must be freshly
-   * generated and paired with its keypair when signing the outer tx.
-   * Returns the tx + the config keypair the caller should sign with.
+   * Initialize a new `CubicPoolConfig`, through the protocol-admin wrapper.
+   *
+   * Routed via `protocol_admin::pool_initialize_config` rather than
+   * `cubic_pool::initialize_config` directly: post-audit the latter requires
+   * the Treasury PDA to SIGN (H-01), and a PDA signature can only come from
+   * the owning program's `invoke_signed`. Building the direct instruction
+   * yields a transaction no wallet can ever satisfy.
+   *
+   * `params.payer` must be the current `Treasury.admin` — it is the human
+   * signer the wrapper authenticates. The returned `configKeypair` is the
+   * second required signer (the config account is `init`, not a PDA).
    */
   buildInitializeConfigTx(params: InitializeConfigParams): SdkResult<
     BuiltTx & { configKeypair: Keypair }
   > {
     try {
       const configKeypair = Keypair.generate();
-      const ix = buildInitializeConfigIx(this.config, {
+      const ix = buildPoolInitializeConfigIx(this.config, {
         config: configKeypair.publicKey,
-        payer: params.payer,
+        admin: params.payer,
         defaultProtocolFeeRate: params.defaultProtocolFeeRate,
       });
       return ok({

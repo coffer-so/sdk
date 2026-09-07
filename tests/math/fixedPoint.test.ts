@@ -39,8 +39,8 @@ describe("fixedPoint", () => {
     expect(complement(ONE / 2n)).toBe(ONE / 2n);
   });
 
-  test("complement saturates at 0 for x > ONE", () => {
-    expect(complement(ONE + 1n)).toBe(0n);
+  test("complement rejects x > ONE, matching the Rust guard", () => {
+    expect(() => complement(ONE + 1n)).toThrow();
   });
 
   test("weightToFp 5000 bps = 0.5 × ONE", () => {

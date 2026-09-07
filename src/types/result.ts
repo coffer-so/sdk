@@ -29,6 +29,7 @@ export type SdkErrorCode =
   | "pool_disabled"
   | "swaps_disabled"
   | "unsupported_pool_state"
+  | "unsupported_token_extension"
   | "slippage_exceeded"
   | "simulation_failed"
   | "tx_build_failed"
