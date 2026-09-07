@@ -10,6 +10,11 @@ Cubee uses **Sign In With Solana (SIWS)** for wallet-based authentication. The f
 4. Use the access token for authenticated API calls
 5. SDK auto-refreshes when the access token expires
 
+Sign the exact backend message and encode the signature bytes as base64.
+`getTxChallenge`/`verifyTransaction` are SDK-declared alternatives without
+matching routes in checked backend `v5.1@a886497`; do not assume they are
+available for Ledger sign-in. See [backend scope](BACKEND_COMPATIBILITY.md).
+
 ## Prerequisites
 
 - `@cubee_ee/sdk` (already used for API calls)

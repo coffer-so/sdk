@@ -317,7 +317,7 @@ describe("CubicPool account layout (v5.1)", () => {
     }
 
     const buf = Buffer.concat([
-      Buffer.alloc(8), // discriminator
+      Buffer.from([137, 210, 42, 22, 209, 156, 43, 78]), // CubicPool discriminator
       Keypair.generate().publicKey.toBuffer(), // config
       Buffer.from([255]), // bump
       Buffer.from([1]), // token_count

@@ -67,14 +67,15 @@ export interface PoolTokenInfo {
 }
 
 /**
- * Fully parsed pool state. Returned by `CubicPoolClient.sync()`.
- * All raw on-chain numerics plus a few convenience derivations.
+ * Parsed operational pool state returned by `CubicPoolClient.sync()`.
+ * Padding and unused token slots are available through decodePoolAccount;
+ * decodeContractAccount preserves the complete exact ABI shape.
  */
 export interface PoolInfo {
   /**
    * Indices of tokens with a non-empty `unsupportedExtensions`. Empty for a
-   * healthy pool. Swaps between the remaining tokens still work; liquidity
-   * ops (which touch every token) do not.
+   * pool without runtime-incompatible mints. Swap/add/remove guards check
+   * affected transfer legs; the STLD instruction builder checks all mints.
    */
   unsupportedTokenIndices?: number[];
   /** Pool PDA address. */

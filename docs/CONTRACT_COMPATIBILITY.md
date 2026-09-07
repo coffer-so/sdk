@@ -31,6 +31,9 @@ const ix = buildContractInstruction(config, "protocolAdmin", "set_supervisor",
 signs through a protocol-admin CPI, so use that wrapper for protocol governance.
 The generic API does not supply authority signatures or waive contract checks.
 
+[State mapping](STATE_FIELDS.md) documents every pool/config/Treasury field, including
+the distinction between operational `PoolInfo` and the full raw ABI.
+
 `decodeContractAccount` decodes CubicPool, CubicPoolConfig and Treasury with exact
 IDL field names. Verify the RPC account owner before decoding.
 `parseContractEvents` returns `{ program, kind, data }` for every declared event,
@@ -41,7 +44,10 @@ emitting program before indexing logs. The existing camelCase event API remains.
 
 - `sync()` loads the full v5 pool state, mint extensions, BPT token-program owner
   and Solana Clock timestamp. Layout v3 (1154 bytes) is rejected explicitly;
-  the deployed v5 migration does not support that legacy layout.
+  the deployed v5 migration does not support that legacy layout. The manual
+  decoder validates the discriminator and canonical booleans, decodes signed
+  i64 timestamps correctly, and preserves reserved bytes. Account size alone
+  does not prove migration because v4 and v5 have equal length.
 - `quoteSwap` follows the contract's integer rounding, sell-off window rotation
   and four-segment surge fee. `feeAmount`/`protocolFeeAmount` are in the input
   token; `surgeFeeAmount` is in the output token. `amountOut` is net of surge.
@@ -58,7 +64,10 @@ emitting program before indexing logs. The existing camelCase event API remains.
 - `actualBalance` already excludes protocol fees; do not subtract
   `protocolFeesOwed` again. Compatible Token-2022 mints and Token-2022 BPT are
   supported. Transfer fees, hooks and other unsupported extensions are rejected
-  on affected transfer paths. The creation-policy bitmap is a separate diagnostic.
+  on affected transfer paths. STLD builders conservatively check every pool mint
+  because helper refunds can touch sidelined tokens, whereas the quote checks
+  live reserve legs and supplied nonzero helper balances. The creation-policy
+  bitmap is a separate diagnostic.
 
 Quotes use the synced state and Clock timestamp; swap and single-token quotes
 accept an explicit `nowSeconds` for an anticipated execution time. Other trades,
@@ -78,6 +87,7 @@ npm run lint
 npm run build
 SKIP_MAINNET_TESTS=1 npm test -- --runInBand
 node scripts/generate-contract-types.cjs --check
+node scripts/check-contract-abi.cjs --contracts-dir /path/to/contracts
 ```
 
 `tests/contract-abi.test.ts` independently encodes every instruction/event and
@@ -87,3 +97,10 @@ records the contract revision and source hashes. Regenerate them with
 `python3 tests/math/generate-rust-reference.py --help` for usage.
 Mainnet integration tests only read accounts and build unsigned instructions;
 set `SDK_MAINNET_RPC_URL` or `RPC_URL` and run them without `SKIP_MAINNET_TESTS`.
+
+The comparison command checks all bundled JSON against the explicitly selected
+checkout’s `target/idl` files, including arguments, accounts, privileges, types
+and events. It does not establish which binary a live RPC serves. `sync()`
+returns a parse failure rather than throwing or rounding when a timestamp or
+weight cannot fit its numeric convenience field; raw account decoders retain
+full integer precision.

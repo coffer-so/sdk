@@ -115,6 +115,11 @@ export class CubicPoolClient {
     const bptMintData = bptInfo?.data;
     if (bptInfo && ![TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID].some(p => p.equals(bptInfo.owner))) return err("parse_failure", "Invalid BPT token program");
     if (!clockInfo || clockInfo.data.length < 40) return err("parse_failure", "Solana Clock account missing");
+    const chainTimestamp = Number(clockInfo.data.readBigInt64LE(32));
+    const createdAt = Number(raw.createdAt.toString());
+    if (!Number.isSafeInteger(chainTimestamp) || !Number.isSafeInteger(createdAt)) {
+      return err("parse_failure", "Pool/Clock timestamp cannot be represented exactly by PoolInfo; use the raw account decoder for full i64 values");
+    }
     if (!bptMintData) {
       return err("account_not_found", "BPT mint account missing");
     }
@@ -140,6 +145,9 @@ export class CubicPoolClient {
       }
       const actualBalance = raw.actualBalances[i];
       const virtualBalance = raw.virtualBalances[i];
+      if (raw.normalizedWeights[i].gt(new BN(Number.MAX_SAFE_INTEGER))) {
+        return err("parse_failure", `Weight cannot be represented exactly at token index ${i}`);
+      }
       const concentration =
         virtualBalance.isZero() ? 0 : Number(actualBalance.toString()) / Number(virtualBalance.toString());
       tokens.push({
@@ -191,13 +199,13 @@ export class CubicPoolClient {
       rangeManagerMaxWeightChangePct: raw.rangeManagerMaxWeightChangePct,
       rangeManagerMinUpdateIntervalSecs: raw.rangeManagerMinUpdateIntervalSecs,
       rangeManagerLastUpdated: raw.rangeManagerLastUpdated,
-      chainTimestamp: Number(clockInfo.data.readBigInt64LE(32)),
+      chainTimestamp,
       bptTotalSupply: bptMintAcc.supply,
       swapFeeRate: raw.swapFeeRate,
       protocolFeeRate: raw.protocolFeeRate,
       poolEnabled: raw.poolEnabled,
       swapsEnabled: raw.swapsEnabled,
-      createdAt: raw.createdAt.toNumber(),
+      createdAt,
       lookupTable: raw.lookupTable,
       bannedExtensions: raw.bannedExtensions,
       rangeManagerMaxLeverageBps: raw.rangeManagerMaxLeverageBps,

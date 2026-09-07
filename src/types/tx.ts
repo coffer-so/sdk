@@ -118,8 +118,8 @@ export interface SingleTokenDepositParams {
   minimumBptAmount?: BN;
 }
 
-/** Quote assumes the helper starts with zero token balances; pre-existing
- * helper dust changes the on-chain basket. Re-sync immediately before signing. */
+/** Quote includes the helperBalances supplied to the quote call, or assumes
+ * zero balances when omitted. Re-read helper ATAs and pool state before signing. */
 export interface SingleTokenDepositQuote {
   tokenInIndex: number;
   amountIn: BN;
@@ -129,11 +129,11 @@ export interface SingleTokenDepositQuote {
   expectedOuts: BN[];
   /** Per-leg min_out derived from slippage. */
   minOuts: BN[];
-  /** Amounts the helper will pass to add_liquidity after proportional capping. */
+  /** Estimated actual pool credits after both helper and pool proportional cropping. */
   depositedAmounts: BN[];
   /** Helper-held excess returned to the user after add_liquidity. */
   refundAmounts: BN[];
-  /** Projected BPT to receive (ballpark, pre-CPI). */
+  /** Projected new BPT from the complete swap-and-join sequence at quoted state/time. */
   estimatedBpt: BN;
   /** Indices of tokens excluded from the deposit (actBal == 0). */
   sidelinedTokenIndices: number[];

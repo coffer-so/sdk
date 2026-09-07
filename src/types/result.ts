@@ -1,6 +1,7 @@
 /**
- * Every public SDK method returns a SdkResult<T>. Callers never need try/catch.
- * Use `if (res.ok) { ... } else { ... }` to branch.
+ * Result returned by high-level client reads, quotes and transaction builders.
+ * Raw builders, parsers, math functions and Anchor instruction methods may
+ * throw. Use `if (res.ok) { ... } else { ... }` for result-based methods.
  */
 export type SdkResult<T> =
   | { ok: true; data: T }

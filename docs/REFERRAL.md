@@ -4,10 +4,14 @@
 
 Cubee has a two-level referral system. Users share referral links, invitees bind themselves as referrals, and referrers earn bonus XP from their referrals' activity.
 
-- **L1 (direct referrer):** 10% of referral's XP
-- **L2 (referrer's referrer):** 5% of referral's XP
+- **L1 (direct referrer):** 12% of referral's XP
+- **L2 (referrer's referrer):** 6% of referral's XP
 
-Bonuses are calculated automatically every 3 hours during XP accrual.
+These rates are verified in local backend `v5.1@a886497`. Bonuses are processed
+every three hours during XP accrual. Referred users receive a 3% boost to their
+own XP. Referral bonuses use that boosted own-XP base, multiply by the level
+rate and any recipient 3% boost, then round down. See
+[backend version scope](BACKEND_COMPATIBILITY.md).
 
 ## Prerequisites
 
