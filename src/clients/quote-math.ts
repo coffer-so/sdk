@@ -64,7 +64,9 @@ export function simulatePoolSwap(pool: PoolInfo, tokenInIndex: number, tokenOutI
     }
   }
   const spotOut = calcSpotOut({ virtualBalanceIn, virtualBalanceOut, weightInBps, weightOutBps, amountIn: amountInAfterFee });
-  return { amountOut, grossAmountOut, feeAmount, protocolFeeAmount, surgeFeeAmount, spotOut };
+  // `window` is exposed for display math (post-trade fill %, span-average
+  // surge pct) — null when the input token has no sell-off cap configured.
+  return { amountOut, grossAmountOut, feeAmount, protocolFeeAmount, surgeFeeAmount, spotOut, window };
 }
 
 /** Clock from sync; callers may supply the transaction's expected Unix timestamp explicitly. */

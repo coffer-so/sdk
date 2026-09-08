@@ -8,7 +8,7 @@ import { SdkResult, err, ok } from "../types/result";
 import { AddLiquidityQuote, SwapQuote, SingleTokenDepositQuote } from "../types/tx";
 import { CubicPoolEvent } from "../types/events";
 import { RpcClient } from "./RpcClient";
-import { decodePoolAccount } from "../parsers/poolAccount";
+import { decodePoolAccount, RawPoolAccount } from "../parsers/poolAccount";
 import { decodeMintAccount } from "../parsers/mintAccount";
 import { parseCubicPoolEvents } from "../parsers/events";
 import { deriveAta, deriveBptMint, deriveHelperPda } from "../utils/pda";
@@ -23,6 +23,14 @@ import { calculateInvariant } from "../math/weightedMath";
 import { rescaleSelloffWindow } from "../math/maxSelloff";
 import { applySlippage, priceImpactHbps } from "../math/slippage";
 import { capDepositAmountsToLpRatio, computeAllocations } from "../math/singleToken";
+import {
+  calcSegmentedSurgeFeeAmount,
+  calcSurgeFeePct,
+  computeSelloffWindow,
+  projectSelloffWindow,
+  SelloffWindowStatus,
+} from "../math/maxSelloff";
+import { PERCENT_SCALE, SWAP_FEE_PRECISION } from "../config";
 import {
   buildAddLiquidityTx,
   buildRemoveLiquidityTx,
@@ -64,6 +72,8 @@ export class CubicPoolClient {
   readonly rpc: RpcClient;
 
   private cache: PoolInfo | undefined;
+  /** Raw decoded account from the last `sync()`; holds per-token window data. */
+  private rawAccount: RawPoolAccount | undefined;
 
   constructor(params: CubicPoolClientParams) {
     this.config = params.config;
@@ -213,6 +223,7 @@ export class CubicPoolClient {
       syncedAt: Date.now(),
     };
     this.cache = info;
+    this.rawAccount = raw;
     return ok(info);
   }
 
@@ -242,16 +253,90 @@ export class CubicPoolClient {
     const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
     try {
       const q = simulatePoolSwap(pool.data, tokenInIndex, tokenOutIndex, BigInt(amountIn.toString()), quoteTimestamp(pool.data, nowSeconds));
-      return ok({ tokenInIndex, tokenOutIndex, amountIn,
-        amountOut: new BN(q.amountOut.toString()), grossAmountOut: new BN(q.grossAmountOut.toString()),
+      // v5 display contract: post-trade window fill and static+surge fee
+      // pct (span-average) — the same fields the pre-merge v5 SDK returned.
+      const inTok = pool.data.tokens[tokenInIndex];
+      let windowFillPct = 0;
+      let surgePct = 0;
+      if (q.window && q.window.maxSelloffCap > 0n) {
+        const scale = BigInt(PERCENT_SCALE);
+        const fillRaw = (q.window.effectiveSelloff * scale) / q.window.maxSelloffCap;
+        windowFillPct = Number(fillRaw > scale ? scale : fillRaw);
+        surgePct = calcSurgeFeePct(
+          q.window.effectiveSelloffBefore,
+          q.window.effectiveSelloff,
+          q.window.maxSelloffCap,
+          inTok.variableFeeThresholdPct ?? 0,
+          inTok.variableFeeSlopeLowPct ?? 0,
+          inTok.variableFeeSlopeMidPct ?? 0,
+          inTok.variableFeeSlopeHighPct ?? 0,
+          inTok.variableFeeKinkPct ?? 0
+        );
+      }
+      const effectiveFeePct =
+        (pool.data.swapFeeRate * PERCENT_SCALE) / SWAP_FEE_PRECISION + surgePct;
+      return ok({
+        tokenInIndex,
+        tokenOutIndex,
+        amountIn,
+        amountOut: new BN(q.amountOut.toString()),
+        grossAmountOut: new BN(q.grossAmountOut.toString()),
         surgeFeeAmount: new BN(q.surgeFeeAmount.toString()),
-        feeAmount: new BN(q.feeAmount.toString()), protocolFeeAmount: new BN(q.protocolFeeAmount.toString()),
-        spotOut: new BN(q.spotOut.toString()), priceImpactHbps: priceImpactHbps(q.spotOut, q.amountOut),
+        feeAmount: new BN(q.feeAmount.toString()),
+        protocolFeeAmount: new BN(q.protocolFeeAmount.toString()),
+        spotOut: new BN(q.spotOut.toString()),
+        // Impact excludes fees and the surge charge (industry standard):
+        // measured against the GROSS curve output.
+        priceImpactHbps: priceImpactHbps(q.spotOut, q.grossAmountOut),
         minAmountOut: new BN(applySlippage(q.amountOut, slip).toString()),
+        effectiveFeePct,
+        windowFillPct,
       });
     } catch (e) {
-      return err("invalid_input", `Swap quote failed: ${e instanceof Error ? e.message : String(e)}`, e);
+      const msg = e instanceof Error ? e.message : String(e);
+      // Keep the specific v5 error codes existing consumers rely on.
+      const code =
+        msg === "MaxSelloffExceeded" ? "selloff_window_full"
+        : msg === "TokenInactive" ? "token_swaps_disabled"
+        : msg === "PoolDisabled" ? "pool_disabled"
+        : msg === "SwapsDisabled" ? "swaps_disabled"
+        : "invalid_input";
+      const human =
+        code === "selloff_window_full"
+          ? "Token max-selloff threshold exceeded for current window"
+          : `Swap quote failed: ${msg}`;
+      return err(code, human, e);
     }
+  }
+
+  /**
+   * Read-only status of a token's max-selloff window at `now`
+   * (default: current unix seconds). Requires a prior `sync()`.
+   */
+  getSelloffWindowStatus(tokenIndex: number, now?: number): SdkResult<SelloffWindowStatus> {
+    const poolRes = this.requireCache();
+    if (!poolRes.ok) return poolRes;
+    const raw = this.rawAccount;
+    if (!raw) {
+      return err("invalid_input", "Call `sync()` first to populate window state");
+    }
+    const pool = poolRes.data;
+    if (tokenIndex < 0 || tokenIndex >= pool.tokens.length) {
+      return err("invalid_input", "Invalid tokenIndex");
+    }
+    const i = tokenIndex;
+    return ok(
+      computeSelloffWindow({
+        maxSelloffPct: raw.maxSelloffPct[i],
+        periodLength: raw.maxSelloffPeriodLength[i],
+        previousSelloff: raw.previousSelloff[i],
+        currentSelloff: raw.currentSelloff[i],
+        windowStartTimestamp: raw.windowStartTimestamp[i],
+        selloffVbSnapshot: raw.selloffVbSnapshot[i],
+        virtualBalance: pool.tokens[i].virtualBalance,
+        now: now ?? Math.floor(Date.now() / 1000),
+      })
+    );
   }
 
   /**

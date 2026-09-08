@@ -52,12 +52,20 @@ export interface SwapRouteEntry {
   poolAddress: string;
   poolName: string;
   amountIn: string;
+  /** Raw expected output for this leg — NET of the v5 sell-off surge fee
+   *  (what the user actually receives). */
   expectedOut: string;
   /** Raw minimum output for this leg after slippage — sign this into the
    *  swap instruction. */
   minAmountOut: string;
   percentage: number;
   swapFee: number;
+  /** Estimated v5 sell-off surge fee for this leg (raw units of tokenOut).
+   *  "0" in the common case — rises as the input token's max-selloff
+   *  window fills. */
+  surgeFeeAmount: string;
+  /** Surge fee rate applied to this leg (%). 0 when the window is calm. */
+  surgeFeePct: number;
   tokenProgramIn: string;
   tokenProgramOut: string;
   tokenInIndex: number;
@@ -79,8 +87,17 @@ export interface SwapRouteResponse {
   effectivePrice: number;
   priceImpact: number;
   spotPrice: number;
+  /** Weighted average fee across routes (%), INCLUDING the v5 surge fee
+   *  when one is active. */
+  feePercent: number;
+  /** Total estimated v5 surge fee across legs (raw units of tokenOut).
+   *  "0" in the common case. */
+  totalSurgeFee: string;
   /** Estimated XP earned from this swap (based on LP fees generated) */
   estimatedXp: number;
+  /** True when a personalized XP boost (e.g. referred user +3%) was
+   *  applied to `estimatedXp` — requires the request to carry a JWT. */
+  xpBoostApplied: boolean;
 }
 
 // ── Leaderboard types ──

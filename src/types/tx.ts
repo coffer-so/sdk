@@ -17,10 +17,8 @@ export interface SwapQuote {
   tokenOutIndex: number;
   amountIn: BN;
   amountOut: BN;
-  /** Output before sell-off surge fee. */
+  /** Output before the sell-off surge fee (equals amountOut + surgeFeeAmount). */
   grossAmountOut?: BN;
-  /** Surge fee charged in the output token. */
-  surgeFeeAmount?: BN;
   /** Spot-based upper bound on amountOut; useful for price-impact UI. */
   spotOut: BN;
   /** Absolute price impact in hundredths of basis point. */
@@ -29,6 +27,12 @@ export interface SwapQuote {
   protocolFeeAmount: BN;
   /** Minimum amount_out to pass to the swap ix given the quoted slippage. */
   minAmountOut: BN;
+  /** Variable sell-off surge fee taken from the output. `0` when no surge. */
+  surgeFeeAmount: BN;
+  /** Static fee (in PERCENT_SCALE units) + surge pct, for UI display. */
+  effectiveFeePct: number;
+  /** Post-trade window fill in PERCENT_SCALE units. `0` when window disabled. */
+  windowFillPct: number;
 }
 
 export interface AddLiquidityParams {
