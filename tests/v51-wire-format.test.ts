@@ -51,7 +51,7 @@ const vecU64 = (vs: number[]) => Buffer.concat([u32(vs.length), ...vs.map((v) =>
 describe("Swap event field order (v5.1)", () => {
   // The trap: surge_fee_amount sits AFTER timestamp. A decoder using the
   // intuitive order returns the unix timestamp as the surge fee.
-  test("IDL declares timestamp before surge_fee_amount, then the transfer fees", () => {
+  test("IDL declares timestamp before surge_fee_amount (no-t22 build: no transfer fees)", () => {
     expect(idlFields(cubicPoolIdl as any, "Swap")).toEqual([
       "pool",
       "user",
@@ -63,8 +63,6 @@ describe("Swap event field order (v5.1)", () => {
       "protocol_fee_amount",
       "timestamp",
       "surge_fee_amount",
-      "transfer_fee_in",
-      "transfer_fee_out",
     ]);
   });
 
@@ -319,7 +317,7 @@ describe("CubicPool account layout (v5.1)", () => {
     }
 
     const buf = Buffer.concat([
-      Buffer.alloc(8), // discriminator
+      Buffer.from([137, 210, 42, 22, 209, 156, 43, 78]), // CubicPool discriminator
       Keypair.generate().publicKey.toBuffer(), // config
       Buffer.from([255]), // bump
       Buffer.from([1]), // token_count

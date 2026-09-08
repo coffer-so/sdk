@@ -24,34 +24,40 @@ export class BorshReader {
   }
 
   skip(n: number): void {
+    this.requireBytes(n);
     this.offset += n;
   }
 
   u8(): number {
+    this.requireBytes(1);
     const v = this.buf.readUInt8(this.offset);
     this.offset += 1;
     return v;
   }
 
   u16(): number {
+    this.requireBytes(2);
     const v = this.buf.readUInt16LE(this.offset);
     this.offset += 2;
     return v;
   }
 
   u32(): number {
+    this.requireBytes(4);
     const v = this.buf.readUInt32LE(this.offset);
     this.offset += 4;
     return v;
   }
 
   u64(): BN {
+    this.requireBytes(8);
     const slice = this.buf.slice(this.offset, this.offset + 8);
     this.offset += 8;
     return new BN(slice, "le");
   }
 
   i64(): BN {
+    this.requireBytes(8);
     const slice = this.buf.slice(this.offset, this.offset + 8);
     this.offset += 8;
     // i64 is two's complement little-endian — treat as signed.
@@ -64,10 +70,13 @@ export class BorshReader {
   }
 
   bool(): boolean {
-    return this.u8() !== 0;
+    const value = this.u8();
+    if (value > 1) throw new Error(`BorshReader: invalid bool ${value}`);
+    return value === 1;
   }
 
   pubkey(): PublicKey {
+    this.requireBytes(32);
     const slice = this.buf.slice(this.offset, this.offset + 32);
     this.offset += 32;
     return new PublicKey(slice);
@@ -75,6 +84,7 @@ export class BorshReader {
 
   vecU64(): BN[] {
     const len = this.u32();
+    this.requireBytes(len * 8);
     const out: BN[] = [];
     for (let i = 0; i < len; i++) out.push(this.u64());
     return out;
@@ -82,8 +92,15 @@ export class BorshReader {
 
   vecPubkey(): PublicKey[] {
     const len = this.u32();
+    this.requireBytes(len * 32);
     const out: PublicKey[] = [];
     for (let i = 0; i < len; i++) out.push(this.pubkey());
     return out;
+  }
+
+  private requireBytes(length: number): void {
+    if (!Number.isSafeInteger(length) || length < 0 || length > this.remaining()) {
+      throw new Error(`BorshReader: expected ${length} bytes at offset ${this.offset}, ${this.remaining()} remain`);
+    }
   }
 }

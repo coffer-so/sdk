@@ -380,7 +380,7 @@
     {
       "code": 6030,
       "name": "TokenExtensionsUnsupported",
-      "msg": "Single-token deposit unsupported for pools with armed transfer-hook tokens"
+      "msg": "Single-token deposit unsupported for pools with transfer-fee/hook tokens"
     },
     {
       "code": 6031,

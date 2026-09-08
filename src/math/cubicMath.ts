@@ -1,4 +1,4 @@
-import { complement, divDown, divUp, mulDown, ONE, weightToFp } from "./fixedPoint";
+import { complement, divDown, divUp, mulDown, ONE, weightToFp, assertU64, assertU128 } from "./fixedPoint";
 import { powFp } from "./logExp";
 
 /**
@@ -20,7 +20,8 @@ export function calcOutGivenIn(params: {
 }): bigint {
   const { virtualBalanceIn, weightInBps, virtualBalanceOut, weightOutBps, amountIn, actualBalanceOut } =
     params;
-  const denom = virtualBalanceIn + amountIn;
+  [virtualBalanceIn, weightInBps, virtualBalanceOut, weightOutBps, amountIn, actualBalanceOut].forEach((v) => assertU64(v));
+  const denom = assertU128(virtualBalanceIn + amountIn);
   const base = divUp(virtualBalanceIn, denom);
   const exp = divDown(weightToFp(weightInBps), weightToFp(weightOutBps));
   let power = powFp(base, exp);
@@ -32,7 +33,7 @@ export function calcOutGivenIn(params: {
   if (out > actualBalanceOut) {
     throw new Error("cubicMath: amount out exceeds actual balance");
   }
-  return out;
+  return assertU64(out);
 }
 
 /**
@@ -48,6 +49,7 @@ export function calcBptOutGivenExactTokensIn(
   if (actualBalances.length !== amountsIn.length) {
     throw new Error("cubicMath: balances/amounts length mismatch");
   }
+  assertU64(bptTotalSupply); actualBalances.forEach((v) => assertU64(v)); amountsIn.forEach((v) => assertU64(v));
   let ratioMin: bigint | null = null;
   for (let i = 0; i < actualBalances.length; i++) {
     if (actualBalances[i] === 0n) continue;
@@ -55,7 +57,7 @@ export function calcBptOutGivenExactTokensIn(
     ratioMin = ratioMin === null || ratio < ratioMin ? ratio : ratioMin;
   }
   if (ratioMin === null) throw new Error("cubicMath: no live tokens");
-  return (bptTotalSupply * ratioMin) / ONE;
+  return assertU64(assertU128(bptTotalSupply * ratioMin) / ONE);
 }
 
 /**
@@ -66,9 +68,10 @@ export function calcTokensOutGivenBptIn(
   bptAmount: bigint,
   bptTotalSupply: bigint
 ): bigint[] {
+  assertU64(bptAmount); assertU64(bptTotalSupply); actualBalances.forEach((v) => assertU64(v));
   if (bptTotalSupply === 0n) throw new Error("cubicMath: zero total supply");
   const ratio = divDown(bptAmount, bptTotalSupply);
-  return actualBalances.map((bal) => mulDown(bal, ratio));
+  return actualBalances.map((bal) => assertU64(mulDown(bal, ratio)));
 }
 
 /**

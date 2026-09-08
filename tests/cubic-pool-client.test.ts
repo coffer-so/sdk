@@ -21,6 +21,8 @@ function mockPool(): PoolInfo {
     concentration: 1,
     isActive: true,
     maxSelloffPct: 0,
+    extensions: [] as number[],
+    unsupportedExtensions: [] as number[],
   }));
 
   return {
@@ -30,6 +32,7 @@ function mockPool(): PoolInfo {
     poolId: new BN(1),
     tokenCount: 2,
     tokens,
+    unsupportedTokenIndices: [],
     bptMint: pk(),
     bptTotalSupply: new BN(1_000_000_000),
     swapFeeRate: 0,
@@ -76,5 +79,71 @@ describe("CubicPoolClient.buildSwapTx", () => {
     });
 
     expect(res.ok).toBe(true);
+  });
+});
+
+describe("CubicPoolClient.quoteAddLiquidity", () => {
+  function clientWith(pool: PoolInfo): CubicPoolClient {
+    const client = new CubicPoolClient({ config: getConfig("devnet"), poolAddress: pool.address });
+    (client as unknown as { cache: PoolInfo }).cache = pool;
+    return client;
+  }
+
+  test("proportional basket: bptOut = supply * min(amount_i / actual_i), crops the non-limiting leg", () => {
+    const pool = mockPool(); // 2 tokens, actual 1e9 each, supply 1e9
+    const client = clientWith(pool);
+    // token 1 offers 0.8% of its balance, token 0 offers 1% → token 1 limits.
+    const res = client.quoteAddLiquidity([new BN(10_000_000), new BN(8_000_000)], 10_000 /* 1 % */);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.limitingTokenIndex).toBe(1);
+    expect(res.data.bptOut.toString()).toBe("8000000");
+    expect(res.data.minimumBptAmount.toString()).toBe("7920000");
+    expect(res.data.depositAmounts.map(String)).toEqual(["8000000", "8000000"]);
+    expect(res.data.refundAmounts.map(String)).toEqual(["2000000", "0"]);
+    // deposit + refund == what was offered, per leg
+    res.data.tokenAmounts.forEach((a, i) => {
+      expect(res.data.depositAmounts[i].add(res.data.refundAmounts[i]).toString()).toBe(a.toString());
+    });
+  });
+
+  test("minimumBptAmount feeds buildAddLiquidityTx (which rejects a missing floor)", () => {
+    const pool = mockPool();
+    const client = clientWith(pool);
+    const q = client.quoteAddLiquidity([new BN(1_000_000), new BN(1_000_000)]);
+    expect(q.ok).toBe(true);
+    if (!q.ok) return;
+    const without = client.buildAddLiquidityTx({ user: pk(), tokenAmounts: q.data.tokenAmounts });
+    expect(without.ok).toBe(false);
+    const withFloor = client.buildAddLiquidityTx({
+      user: pk(),
+      tokenAmounts: q.data.tokenAmounts,
+      minimumBptAmount: q.data.minimumBptAmount,
+    });
+    expect(withFloor.ok).toBe(true);
+  });
+
+  test("ignores zero-balance legs when picking the limiting ratio", () => {
+    const pool = mockPool();
+    pool.tokens[0].actualBalance = new BN(0);
+    const client = clientWith(pool);
+    const res = client.quoteAddLiquidity([new BN(0), new BN(5_000_000)], 0);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.limitingTokenIndex).toBe(1);
+    expect(res.data.bptOut.toString()).toBe("5000000");
+    expect(res.data.depositAmounts.map(String)).toEqual(["0", "5000000"]);
+  });
+
+  test("rejects wrong vector length and unseeded pools", () => {
+    const pool = mockPool();
+    const client = clientWith(pool);
+    const bad = client.quoteAddLiquidity([new BN(1)]);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error.code).toBe("invalid_input");
+    pool.bptTotalSupply = new BN(0);
+    const seed = client.quoteAddLiquidity([new BN(1), new BN(1)]);
+    expect(seed.ok).toBe(false);
+    if (!seed.ok) expect(seed.error.humanMessage).toMatch(/seed/i);
   });
 });

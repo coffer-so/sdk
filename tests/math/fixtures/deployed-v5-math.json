@@ -1,0 +1,1435 @@
+{
+  "contractCommit": "96a2ee20244ff95fb9f14357bb55b17e1eb0e2c0",
+  "sourceHashes": {
+    "programs/cubic-pool/src/math/log_exp_math.rs": "e165bff5e254c49b78d15980dd7d53947d3e468b0d9b1ea802636c3880beb720",
+    "programs/cubic-pool/src/math/fixed_point.rs": "7b4635e03c89ba9460a694690f94817495f62cfc501d02148d2e53235891f29d",
+    "programs/cubic-pool/src/math/cubic_math.rs": "829f726e4a5a9529235c4d94ea1714d9cf158530735d6070e396affeb76f27b0",
+    "programs/cubic-pool/src/math/weighted_math.rs": "6281be567992136a080b1be1f36dde13456ac01144afab6330624d79fa414740",
+    "programs/cubic-pool/src/math/max_selloff.rs": "0f790a9c9b5b8c9400fe04ee63491a544b33a6901da13c1b5bdaa1fd7bbc926b",
+    "programs/cubic-pool/src/math/surge_fee.rs": "51fc4208565009820229437ac752e6003d45b64a5987ccf19000abcfb70a0318",
+    "programs/single-token-liquidity/src/math.rs": "5ae7d8214cd26791130c36ae3df5cc78e811984c09f7aed898ee95a235c5d1d6",
+    "programs/cubic-pool/src/instructions/user/swap.rs": "6c33f3652a4c8a62227aabbe20b9076c22fbbe15b8e01c35d3c5065dcf4a2bee"
+  },
+  "vectors": [
+    {
+      "kind": "ln",
+      "x": "1",
+      "expected": "-41446531673892822310"
+    },
+    {
+      "kind": "ln",
+      "x": "2",
+      "expected": "-40753384493332877000"
+    },
+    {
+      "kind": "ln",
+      "x": "1000",
+      "expected": "-34538776394910685254"
+    },
+    {
+      "kind": "ln",
+      "x": "999999999999999999",
+      "expected": "0"
+    },
+    {
+      "kind": "ln",
+      "x": "1000000000000000000",
+      "expected": "0"
+    },
+    {
+      "kind": "ln",
+      "x": "1990000000000000000",
+      "expected": "688134638736401024"
+    },
+    {
+      "kind": "ln",
+      "x": "2000000000000000000",
+      "expected": "693147180559945304"
+    },
+    {
+      "kind": "ln",
+      "x": "2718281828459045235",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "ln",
+      "x": "10000000000000000000",
+      "expected": "2302585092994045676"
+    },
+    {
+      "kind": "ln",
+      "x": "340282366920938463463374607431768211455",
+      "expected": "47276307437780177286"
+    },
+    {
+      "kind": "exp",
+      "x": "-42000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "exp",
+      "x": "-41000000000000000000",
+      "expected": "1"
+    },
+    {
+      "kind": "exp",
+      "x": "-40000000000000000000",
+      "expected": "4"
+    },
+    {
+      "kind": "exp",
+      "x": "-2000000000000000000",
+      "expected": "135335283236612691"
+    },
+    {
+      "kind": "exp",
+      "x": "-1000000000000000000",
+      "expected": "367879441171442321"
+    },
+    {
+      "kind": "exp",
+      "x": "0",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "exp",
+      "x": "1000000000000000000",
+      "expected": "2718281828459045235"
+    },
+    {
+      "kind": "exp",
+      "x": "2000000000000000000",
+      "expected": "7389056098930650227"
+    },
+    {
+      "kind": "exp",
+      "x": "40000000000000000000",
+      "expected": "235385266837019985407681781544372396"
+    },
+    {
+      "kind": "exp",
+      "x": "46000000000000000000",
+      "expected": "94961194206024488741892513389420707939"
+    },
+    {
+      "kind": "exp",
+      "x": "47000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "pow",
+      "base": "1",
+      "exponent": "0",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "1",
+      "exponent": "10101010101010101",
+      "expected": "657933224657567996"
+    },
+    {
+      "kind": "pow",
+      "base": "1",
+      "exponent": "500000000000000000",
+      "expected": "1000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "1",
+      "exponent": "1000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "pow",
+      "base": "1",
+      "exponent": "4000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "pow",
+      "base": "1",
+      "exponent": "99000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "pow",
+      "base": "10",
+      "exponent": "0",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "10",
+      "exponent": "10101010101010101",
+      "expected": "673415065775082143"
+    },
+    {
+      "kind": "pow",
+      "base": "10",
+      "exponent": "500000000000000000",
+      "expected": "3162277660"
+    },
+    {
+      "kind": "pow",
+      "base": "10",
+      "exponent": "1000000000000000000",
+      "expected": "10"
+    },
+    {
+      "kind": "pow",
+      "base": "10",
+      "exponent": "4000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "pow",
+      "base": "10",
+      "exponent": "99000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "pow",
+      "base": "999999999999999999",
+      "exponent": "0",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "999999999999999999",
+      "exponent": "10101010101010101",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "999999999999999999",
+      "exponent": "500000000000000000",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "999999999999999999",
+      "exponent": "1000000000000000000",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "999999999999999999",
+      "exponent": "4000000000000000000",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "999999999999999999",
+      "exponent": "99000000000000000000",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "501000000000000000",
+      "exponent": "0",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "501000000000000000",
+      "exponent": "10101010101010101",
+      "expected": "993043007870282321"
+    },
+    {
+      "kind": "pow",
+      "base": "501000000000000000",
+      "exponent": "500000000000000000",
+      "expected": "707813534767455550"
+    },
+    {
+      "kind": "pow",
+      "base": "501000000000000000",
+      "exponent": "1000000000000000000",
+      "expected": "501000000000000004"
+    },
+    {
+      "kind": "pow",
+      "base": "501000000000000000",
+      "exponent": "4000000000000000000",
+      "expected": "63001502001000001"
+    },
+    {
+      "kind": "pow",
+      "base": "501000000000000000",
+      "exponent": "99000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "pow",
+      "base": "1990000000000000000",
+      "exponent": "0",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "1990000000000000000",
+      "exponent": "10101010101010101",
+      "expected": "1006975068197350249"
+    },
+    {
+      "kind": "pow",
+      "base": "1990000000000000000",
+      "exponent": "500000000000000000",
+      "expected": "1410673597966588433"
+    },
+    {
+      "kind": "pow",
+      "base": "1990000000000000000",
+      "exponent": "1000000000000000000",
+      "expected": "1989999999999999986"
+    },
+    {
+      "kind": "pow",
+      "base": "1990000000000000000",
+      "exponent": "4000000000000000000",
+      "expected": "15682392009999999746"
+    },
+    {
+      "kind": "pow",
+      "base": "1990000000000000000",
+      "exponent": "99000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "pow",
+      "base": "1000000000000000000",
+      "exponent": "0",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "1000000000000000000",
+      "exponent": "10101010101010101",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "1000000000000000000",
+      "exponent": "500000000000000000",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "1000000000000000000",
+      "exponent": "1000000000000000000",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "1000000000000000000",
+      "exponent": "4000000000000000000",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "1000000000000000000",
+      "exponent": "99000000000000000000",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "10000000000000000000",
+      "exponent": "0",
+      "expected": "1000000000000000000"
+    },
+    {
+      "kind": "pow",
+      "base": "10000000000000000000",
+      "exponent": "10101010101010101",
+      "expected": "1023531021899026181"
+    },
+    {
+      "kind": "pow",
+      "base": "10000000000000000000",
+      "exponent": "500000000000000000",
+      "expected": "3162277660168379302"
+    },
+    {
+      "kind": "pow",
+      "base": "10000000000000000000",
+      "exponent": "1000000000000000000",
+      "expected": "9999999999999999886"
+    },
+    {
+      "kind": "pow",
+      "base": "10000000000000000000",
+      "exponent": "4000000000000000000",
+      "expected": "9999999999999999638357"
+    },
+    {
+      "kind": "pow",
+      "base": "10000000000000000000",
+      "exponent": "99000000000000000000",
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "swap",
+      "amount": "1",
+      "weight": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swap",
+      "amount": "1",
+      "weight": 5000,
+      "expected": "0"
+    },
+    {
+      "kind": "swap",
+      "amount": "1",
+      "weight": 8000,
+      "expected": "3"
+    },
+    {
+      "kind": "swap",
+      "amount": "1",
+      "weight": 9500,
+      "expected": "18"
+    },
+    {
+      "kind": "swap",
+      "amount": "1",
+      "weight": 9900,
+      "expected": "98"
+    },
+    {
+      "kind": "swap",
+      "amount": "3",
+      "weight": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swap",
+      "amount": "3",
+      "weight": 5000,
+      "expected": "2"
+    },
+    {
+      "kind": "swap",
+      "amount": "3",
+      "weight": 8000,
+      "expected": "11"
+    },
+    {
+      "kind": "swap",
+      "amount": "3",
+      "weight": 9500,
+      "expected": "56"
+    },
+    {
+      "kind": "swap",
+      "amount": "3",
+      "weight": 9900,
+      "expected": "296"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000",
+      "weight": 100,
+      "expected": "10"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000",
+      "weight": 5000,
+      "expected": "999"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000",
+      "weight": 8000,
+      "expected": "3999"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000",
+      "weight": 9500,
+      "expected": "18999"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000",
+      "weight": 9900,
+      "expected": "98995"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000",
+      "weight": 100,
+      "expected": "962265"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000",
+      "weight": 5000,
+      "expected": "90909090"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000",
+      "weight": 8000,
+      "expected": "316986544"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000",
+      "weight": 9500,
+      "expected": "836492009"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000",
+      "weight": 9900,
+      "expected": "999920177"
+    },
+    {
+      "kind": "swap",
+      "amount": "990000000",
+      "weight": 100,
+      "expected": "6926753"
+    },
+    {
+      "kind": "swap",
+      "amount": "990000000",
+      "weight": 5000,
+      "expected": "497487437"
+    },
+    {
+      "kind": "swap",
+      "amount": "990000000",
+      "weight": 8000,
+      "expected": "936234217"
+    },
+    {
+      "kind": "swap",
+      "amount": "990000000",
+      "weight": 9500,
+      "expected": "999997902"
+    },
+    {
+      "kind": "swap",
+      "amount": "990000000",
+      "weight": 9900,
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000000000",
+      "weight": 100,
+      "expected": "6977033"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000000000",
+      "weight": 5000,
+      "expected": "499999999"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000000000",
+      "weight": 8000,
+      "expected": "937499999"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000000000",
+      "weight": 9500,
+      "expected": "999998092"
+    },
+    {
+      "kind": "swap",
+      "amount": "1000000000",
+      "weight": 9900,
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000000",
+      "weight": 100,
+      "expected": "45547478"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000000",
+      "weight": 5000,
+      "expected": "990099009"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000000",
+      "weight": 8000,
+      "expected": "999999990"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000000",
+      "weight": 9500,
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "swap",
+      "amount": "100000000000",
+      "weight": 9900,
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "swap",
+      "amount": "18446744073709551615",
+      "weight": 100,
+      "expected": "212403384"
+    },
+    {
+      "kind": "swap",
+      "amount": "18446744073709551615",
+      "weight": 5000,
+      "expected": "999999999"
+    },
+    {
+      "kind": "swap",
+      "amount": "18446744073709551615",
+      "weight": 8000,
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "swap",
+      "amount": "18446744073709551615",
+      "weight": 9500,
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "swap",
+      "amount": "18446744073709551615",
+      "weight": 9900,
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "1000000",
+        "1000000"
+      ],
+      "amount": "1",
+      "expected": [
+        "1",
+        "0"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "1000000",
+        "1000000"
+      ],
+      "amount": "1000",
+      "expected": [
+        "500",
+        "500"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "1000000",
+        "1000000"
+      ],
+      "amount": "1000000",
+      "expected": [
+        "500000",
+        "500000"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "1000000",
+        "1000000"
+      ],
+      "amount": "18446744073709551615",
+      "expected": [
+        "9223372036854775808",
+        "9223372036854775807"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "1000000",
+        "500000000"
+      ],
+      "amount": "1",
+      "expected": [
+        "1",
+        "0"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "1000000",
+        "500000000"
+      ],
+      "amount": "1000",
+      "expected": [
+        "500",
+        "500"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "1000000",
+        "500000000"
+      ],
+      "amount": "1000000",
+      "expected": [
+        "500000",
+        "500000"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "1000000",
+        "500000000"
+      ],
+      "amount": "18446744073709551615",
+      "expected": [
+        "9223372036854775808",
+        "9223372036854775807"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "400000",
+        "800000"
+      ],
+      "amount": "1",
+      "expected": [
+        "1",
+        "0"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "400000",
+        "800000"
+      ],
+      "amount": "1000",
+      "expected": [
+        "334",
+        "666"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "400000",
+        "800000"
+      ],
+      "amount": "1000000",
+      "expected": [
+        "333334",
+        "666666"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "400000",
+        "800000"
+      ],
+      "amount": "18446744073709551615",
+      "expected": [
+        "6148914691236517205",
+        "12297829382473034410"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "68056473384187693",
+        "68056473384187693"
+      ],
+      "amount": "1",
+      "expected": [
+        "1",
+        "0"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "68056473384187693",
+        "68056473384187693"
+      ],
+      "amount": "1000",
+      "expected": [
+        "500",
+        "500"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "68056473384187693",
+        "68056473384187693"
+      ],
+      "amount": "1000000",
+      "expected": [
+        "500000",
+        "500000"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "68056473384187693",
+        "68056473384187693"
+      ],
+      "amount": "18446744073709551615",
+      "expected": [
+        "9223372036854775808",
+        "9223372036854775807"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "18446744073709551615",
+        "18446744073709551614"
+      ],
+      "amount": "1",
+      "expected": [
+        "1",
+        "0"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "18446744073709551615",
+        "18446744073709551614"
+      ],
+      "amount": "1000",
+      "expected": [
+        "500",
+        "500"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "18446744073709551615",
+        "18446744073709551614"
+      ],
+      "amount": "1000000",
+      "expected": [
+        "500000",
+        "500000"
+      ]
+    },
+    {
+      "kind": "allocation",
+      "actual": [
+        "18446744073709551615",
+        "18446744073709551614"
+      ],
+      "amount": "18446744073709551615",
+      "expected": [
+        "9223372036854775808",
+        "9223372036854775807"
+      ]
+    },
+    {
+      "kind": "surgePct",
+      "before": "0",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 0,
+      "low": 0,
+      "mid": 0,
+      "high": 3000,
+      "kink": 0,
+      "expected": "1500"
+    },
+    {
+      "kind": "surgePct",
+      "before": "0",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 8000,
+      "low": 10,
+      "mid": 100,
+      "high": 3000,
+      "kink": 95,
+      "expected": "429"
+    },
+    {
+      "kind": "surgePct",
+      "before": "0",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 5000,
+      "low": 100,
+      "mid": 700,
+      "high": 8000,
+      "kink": 80,
+      "expected": "1980"
+    },
+    {
+      "kind": "surgePct",
+      "before": "0",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 10000,
+      "low": 0,
+      "mid": 0,
+      "high": 10000,
+      "kink": 0,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "0",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 0,
+      "low": 100,
+      "mid": 1000,
+      "high": 3000,
+      "kink": 50,
+      "expected": "1275"
+    },
+    {
+      "kind": "surgePct",
+      "before": "8000",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 0,
+      "low": 0,
+      "mid": 0,
+      "high": 3000,
+      "kink": 0,
+      "expected": "2700"
+    },
+    {
+      "kind": "surgePct",
+      "before": "8000",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 8000,
+      "low": 10,
+      "mid": 100,
+      "high": 3000,
+      "kink": 95,
+      "expected": "429"
+    },
+    {
+      "kind": "surgePct",
+      "before": "8000",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 5000,
+      "low": 100,
+      "mid": 700,
+      "high": 8000,
+      "kink": 80,
+      "expected": "4350"
+    },
+    {
+      "kind": "surgePct",
+      "before": "8000",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 10000,
+      "low": 0,
+      "mid": 0,
+      "high": 10000,
+      "kink": 0,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "8000",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 0,
+      "low": 100,
+      "mid": 1000,
+      "high": 3000,
+      "kink": 50,
+      "expected": "2600"
+    },
+    {
+      "kind": "surgePct",
+      "before": "9999",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 0,
+      "low": 0,
+      "mid": 0,
+      "high": 3000,
+      "kink": 0,
+      "expected": "3000"
+    },
+    {
+      "kind": "surgePct",
+      "before": "9999",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 8000,
+      "low": 10,
+      "mid": 100,
+      "high": 3000,
+      "kink": 95,
+      "expected": "2998"
+    },
+    {
+      "kind": "surgePct",
+      "before": "9999",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 5000,
+      "low": 100,
+      "mid": 700,
+      "high": 8000,
+      "kink": 80,
+      "expected": "7999"
+    },
+    {
+      "kind": "surgePct",
+      "before": "9999",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 10000,
+      "low": 0,
+      "mid": 0,
+      "high": 10000,
+      "kink": 0,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "9999",
+      "after": "10000",
+      "cap": "10000",
+      "threshold": 0,
+      "low": 100,
+      "mid": 1000,
+      "high": 3000,
+      "kink": 50,
+      "expected": "3000"
+    },
+    {
+      "kind": "surgePct",
+      "before": "5000",
+      "after": "5000",
+      "cap": "10000",
+      "threshold": 0,
+      "low": 0,
+      "mid": 0,
+      "high": 3000,
+      "kink": 0,
+      "expected": "1500"
+    },
+    {
+      "kind": "surgePct",
+      "before": "5000",
+      "after": "5000",
+      "cap": "10000",
+      "threshold": 8000,
+      "low": 10,
+      "mid": 100,
+      "high": 3000,
+      "kink": 95,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "5000",
+      "after": "5000",
+      "cap": "10000",
+      "threshold": 5000,
+      "low": 100,
+      "mid": 700,
+      "high": 8000,
+      "kink": 80,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "5000",
+      "after": "5000",
+      "cap": "10000",
+      "threshold": 10000,
+      "low": 0,
+      "mid": 0,
+      "high": 10000,
+      "kink": 0,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "5000",
+      "after": "5000",
+      "cap": "10000",
+      "threshold": 0,
+      "low": 100,
+      "mid": 1000,
+      "high": 3000,
+      "kink": 50,
+      "expected": "1000"
+    },
+    {
+      "kind": "surgePct",
+      "before": "1",
+      "after": "2",
+      "cap": "3",
+      "threshold": 0,
+      "low": 0,
+      "mid": 0,
+      "high": 3000,
+      "kink": 0,
+      "expected": "1500"
+    },
+    {
+      "kind": "surgePct",
+      "before": "1",
+      "after": "2",
+      "cap": "3",
+      "threshold": 8000,
+      "low": 10,
+      "mid": 100,
+      "high": 3000,
+      "kink": 95,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "1",
+      "after": "2",
+      "cap": "3",
+      "threshold": 5000,
+      "low": 100,
+      "mid": 700,
+      "high": 8000,
+      "kink": 80,
+      "expected": "267"
+    },
+    {
+      "kind": "surgePct",
+      "before": "1",
+      "after": "2",
+      "cap": "3",
+      "threshold": 10000,
+      "low": 0,
+      "mid": 0,
+      "high": 10000,
+      "kink": 0,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "1",
+      "after": "2",
+      "cap": "3",
+      "threshold": 0,
+      "low": 100,
+      "mid": 1000,
+      "high": 3000,
+      "kink": 50,
+      "expected": "1092"
+    },
+    {
+      "kind": "surgePct",
+      "before": "12345678",
+      "after": "556677889",
+      "cap": "1000000000",
+      "threshold": 0,
+      "low": 0,
+      "mid": 0,
+      "high": 3000,
+      "kink": 0,
+      "expected": "854"
+    },
+    {
+      "kind": "surgePct",
+      "before": "12345678",
+      "after": "556677889",
+      "cap": "1000000000",
+      "threshold": 8000,
+      "low": 10,
+      "mid": 100,
+      "high": 3000,
+      "kink": 95,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "12345678",
+      "after": "556677889",
+      "cap": "1000000000",
+      "threshold": 5000,
+      "low": 100,
+      "mid": 700,
+      "high": 8000,
+      "kink": 80,
+      "expected": "157"
+    },
+    {
+      "kind": "surgePct",
+      "before": "12345678",
+      "after": "556677889",
+      "cap": "1000000000",
+      "threshold": 10000,
+      "low": 0,
+      "mid": 0,
+      "high": 10000,
+      "kink": 0,
+      "expected": "0"
+    },
+    {
+      "kind": "surgePct",
+      "before": "12345678",
+      "after": "556677889",
+      "cap": "1000000000",
+      "threshold": 0,
+      "low": 100,
+      "mid": 1000,
+      "high": 3000,
+      "kink": 50,
+      "expected": "619"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "0",
+      "weight": 100,
+      "expected": "257673"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "800000000",
+      "weight": 100,
+      "expected": "439650"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "0",
+      "weight": 5000,
+      "expected": "13182534"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "800000000",
+      "weight": 5000,
+      "expected": "38002807"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "0",
+      "weight": 8000,
+      "expected": "7151165"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "800000000",
+      "weight": 8000,
+      "expected": "101627019"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "0",
+      "weight": 9500,
+      "expected": "1679"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "800000000",
+      "weight": 9500,
+      "expected": "83071201"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "0",
+      "weight": 9900,
+      "expected": "error:MathOverflow"
+    },
+    {
+      "kind": "surgeAmount",
+      "before": "800000000",
+      "weight": 9900,
+      "expected": "26211520"
+    },
+    {
+      "kind": "selloff",
+      "now": "0",
+      "expected": [
+        "800",
+        "900",
+        "10000",
+        "10000",
+        "300",
+        "600",
+        "0"
+      ]
+    },
+    {
+      "kind": "selloff",
+      "now": "10",
+      "expected": [
+        "750",
+        "850",
+        "10000",
+        "10000",
+        "300",
+        "600",
+        "0"
+      ]
+    },
+    {
+      "kind": "selloff",
+      "now": "59",
+      "expected": [
+        "505",
+        "605",
+        "10000",
+        "10000",
+        "300",
+        "600",
+        "0"
+      ]
+    },
+    {
+      "kind": "selloff",
+      "now": "60",
+      "expected": [
+        "1000",
+        "1100",
+        "20000",
+        "20000",
+        "1000",
+        "100",
+        "60"
+      ]
+    },
+    {
+      "kind": "selloff",
+      "now": "70",
+      "expected": [
+        "833",
+        "933",
+        "20000",
+        "20000",
+        "1000",
+        "100",
+        "60"
+      ]
+    },
+    {
+      "kind": "selloff",
+      "now": "119",
+      "expected": [
+        "16",
+        "116",
+        "20000",
+        "20000",
+        "1000",
+        "100",
+        "60"
+      ]
+    },
+    {
+      "kind": "selloff",
+      "now": "120",
+      "expected": [
+        "0",
+        "100",
+        "20000",
+        "20000",
+        "0",
+        "100",
+        "120"
+      ]
+    },
+    {
+      "kind": "selloff",
+      "now": "500",
+      "expected": [
+        "0",
+        "100",
+        "20000",
+        "20000",
+        "0",
+        "100",
+        "500"
+      ]
+    },
+    {
+      "kind": "invariant",
+      "decimals": 0,
+      "expected": "1414213562373095"
+    },
+    {
+      "kind": "invariant",
+      "decimals": 6,
+      "expected": "1414213562"
+    },
+    {
+      "kind": "invariant",
+      "decimals": 9,
+      "expected": "1414213"
+    },
+    {
+      "kind": "invariant",
+      "decimals": 18,
+      "expected": "0"
+    },
+    {
+      "kind": "joinRounding",
+      "round": 0,
+      "supply": "2999999",
+      "expected": [
+        "333333333333333333",
+        "999999",
+        "0"
+      ]
+    },
+    {
+      "kind": "joinRounding",
+      "round": 1,
+      "supply": "3999998",
+      "expected": [
+        "333333333333333333",
+        "1333332",
+        "0"
+      ]
+    },
+    {
+      "kind": "joinRounding",
+      "round": 2,
+      "supply": "5333330",
+      "expected": [
+        "333333333333333333",
+        "1777776",
+        "0"
+      ]
+    },
+    {
+      "kind": "joinRoundingExit",
+      "supply": "7111106",
+      "acquired": "4111107",
+      "expected": [
+        "1",
+        "1"
+      ]
+    }
+  ]
+}

@@ -127,16 +127,20 @@ export interface RawPoolAccount {
    * value is a rug-risk — surface it before depositing.
    */
   bannedExtensions: BN;
+  /** The exact trailing ABI padding, preserved for complete state inspection. */
+  reserved: Buffer;
 }
 
 /** 8-byte anchor discriminator for CubicPool. */
 export const POOL_DISCRIMINATOR_LEN = 8;
+const POOL_DISCRIMINATOR = Buffer.from([137, 210, 42, 22, 209, 156, 43, 78]);
 const MAX_TOKENS = 10;
 /**
  * Total on-chain size of a v4/v5 CubicPool (includes the 8-byte
  * discriminator). v5.1 carved its new fields out of `reserved`, so the
  * size is deliberately identical to v4 — size alone cannot tell the two
- * apart, and it does not need to: the new fields read `0` on a v4 account.
+ * apart. Decoding interprets the current layout; it does not prove an older
+ * account has been migrated.
  */
 export const POOL_V4_LEN = 1683;
 /** Alias for {@link POOL_V4_LEN}; the layout is shared by v4 and v5. */
@@ -145,14 +149,14 @@ export const POOL_LEN = POOL_V4_LEN;
 const ASSET_CONFIG_LEN = 88;
 const ASSET_DYNAMICS_LEN = 56;
 const TOKEN_SLOT_LEN = ASSET_CONFIG_LEN + ASSET_DYNAMICS_LEN;
-/** Pre-v4 size — accounts at this size still need `migrate_to_v5`. */
+/** Pre-v4 size — legacy accounts are unsupported by the current v4-to-v5 migration. */
 export const POOL_V3_LEN = 1154;
 
 export function decodePoolAccount(data: Buffer): RawPoolAccount {
   if (data.length === POOL_V3_LEN) {
     throw new Error(
       `decodePoolAccount: account is at v3 size (${POOL_V3_LEN}). ` +
-        `Run migrate_to_v5 against it before calling this decoder.`,
+        `Legacy v3 accounts require a separate migration; migrate_to_v5 supports only 1683-byte v4 accounts.`,
     );
   }
   if (data.length !== POOL_V4_LEN) {
@@ -160,6 +164,9 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
       `decodePoolAccount: unexpected data length ${data.length} ` +
         `(expected ${POOL_V4_LEN} for v4).`,
     );
+  }
+  if (!data.subarray(0, POOL_DISCRIMINATOR_LEN).equals(POOL_DISCRIMINATOR)) {
+    throw new Error("decodePoolAccount: invalid CubicPool discriminator");
   }
 
   let off = POOL_DISCRIMINATOR_LEN;
@@ -170,6 +177,9 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
   off += 1;
   const tokenCount = data.readUInt8(off);
   off += 1;
+  if (tokenCount > MAX_TOKENS) {
+    throw new Error(`decodePoolAccount: token_count ${tokenCount} exceeds ${MAX_TOKENS}`);
+  }
   const poolId = readU64LE(data, off);
   off += 8;
   const swapFeeRate = data.readUInt32LE(off);
@@ -178,9 +188,9 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
   off += 2;
   const createdAt = readI64LE(data, off);
   off += 8;
-  const poolEnabled = data.readUInt8(off) !== 0;
+  const poolEnabled = readBool(data, off);
   off += 1;
-  const swapsEnabled = data.readUInt8(off) !== 0;
+  const swapsEnabled = readBool(data, off);
   off += 1;
   const poolAdmin = readPubkey(data, off);
   off += 32;
@@ -189,7 +199,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
 
   const rangeManager = readPubkey(data, off);
   off += 32;
-  const rangeManagerEnabled = data.readUInt8(off) !== 0;
+  const rangeManagerEnabled = readBool(data, off);
   off += 1;
   const rangeManagerMaxVbChangePct = data.readUInt16LE(off);
   off += 2;
@@ -240,7 +250,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
     off += 2;
     variableFeeSlopeHighPct.push(data.readUInt16LE(off));
     off += 2;
-    isActive.push(data.readUInt8(off) !== 0);
+    isActive.push(readBool(data, off));
     off += 1;
     // v5.1: the trailing `AssetConfig.reserved[3]` became these two fields.
     // Byte-for-byte replacement — the slot is still 88 bytes and every
@@ -290,13 +300,14 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
   const rangeManagerMinLeverageBps = data.readUInt32LE(off);
   off += 4;
 
-  // Trailing `reserved[16]` is ignored — but assert we landed exactly on it.
+  // Preserve the trailing ABI padding after checking its exact offset.
   if (off + 16 !== POOL_V4_LEN) {
     throw new Error(
       `decodePoolAccount: consumed ${off} bytes before reserved[16], ` +
         `expected ${POOL_V4_LEN - 16}. Layout drift — regenerate this decoder.`,
     );
   }
+  const reserved = Buffer.from(data.subarray(off, off + 16));
 
   return {
     config,
@@ -338,6 +349,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
     selloffVbSnapshot,
     lookupTable,
     bannedExtensions,
+    reserved,
   };
 }
 
@@ -350,7 +362,11 @@ function readU64LE(data: Buffer, off: number): BN {
 }
 
 function readI64LE(data: Buffer, off: number): BN {
-  // i64 LE — for our timestamps (always ≥ 0 in practice) BN+LE matches.
-  // Returning BN keeps callers free to interpret signedness if needed.
-  return new BN(data.slice(off, off + 8), "le");
+  return new BN(data.subarray(off, off + 8), "le").fromTwos(64);
+}
+
+function readBool(data: Buffer, off: number): boolean {
+  const value = data.readUInt8(off);
+  if (value > 1) throw new Error(`decodePoolAccount: invalid Borsh bool ${value} at offset ${off}`);
+  return value === 1;
 }

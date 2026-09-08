@@ -9,10 +9,11 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
 } from "@solana/spl-token";
 import BN from "bn.js";
-import { CubeConfig } from "../config";
+import { CubeConfig, MINIMUM_INITIAL_BPT } from "../config";
 import { CUBIC_POOL_IDL, PROTOCOL_ADMIN_IDL, SINGLE_TOKEN_LIQUIDITY_IDL } from "../idl";
 import { PoolInfo } from "../types/pool";
 import {
@@ -25,9 +26,14 @@ import {
   SetRangeManagerParams,
   SingleTokenDepositParams,
   SwapParams,
+  SelloffParams,
   TokenChange,
 } from "../types/tx";
 import { deriveAta, deriveBptMint, deriveHelperPda } from "../utils/pda";
+import { buildContractInstruction } from "./contract-instructions";
+import { calcTokensOutGivenBptIn, calcBptOutGivenExactTokensIn } from "../math/cubicMath";
+import { divDown, mulDown } from "../math/fixedPoint";
+import { assertTokensSupported } from "../utils/extensions";
 
 /**
  * Low-level transaction builders. Emit raw `TransactionInstruction`s suitable
@@ -110,6 +116,14 @@ const STLD_DISC = {
   depositSingleToken: computeDiscriminator("deposit_single_token", "stld"),
 };
 
+function bptProgram(pool: PoolInfo): PublicKey {
+  const program = pool.bptTokenProgram ?? TOKEN_PROGRAM_ID;
+  if (!program.equals(TOKEN_PROGRAM_ID) && !program.equals(TOKEN_2022_PROGRAM_ID)) {
+    throw new Error("BPT mint must be owned by SPL Token or Token-2022");
+  }
+  return program;
+}
+
 function requirePositiveMinimumBpt(minimumBptAmount: BN | undefined, ixName: string): BN {
   if (!minimumBptAmount || minimumBptAmount.lte(new BN(0))) {
     throw new Error(`${ixName}: minimumBptAmount must be positive`);
@@ -154,6 +168,7 @@ export function buildSwapIx(
   pool: PoolInfo,
   params: SwapParams & { minAmountOut: BN }
 ): TransactionInstruction {
+  assertTokensSupported(pool, [params.tokenInIndex, params.tokenOutIndex], "swap");
   const inTok = pool.tokens[params.tokenInIndex];
   const outTok = pool.tokens[params.tokenOutIndex];
 
@@ -224,7 +239,8 @@ export function buildAddLiquidityIx(
   pool: PoolInfo,
   params: AddLiquidityParams
 ): TransactionInstruction {
-  const userBpt = deriveAta(params.user, pool.bptMint, TOKEN_PROGRAM_ID);
+  assertTokensSupported(pool, params.tokenAmounts.flatMap((amount, i) => amount.gt(new BN(0)) ? [i] : []), "add_liquidity");
+  const userBpt = deriveAta(params.user, pool.bptMint, bptProgram(pool));
   const minBpt = requirePositiveMinimumBpt(params.minimumBptAmount, "add_liquidity");
   if (params.tokenAmounts.length !== pool.tokenCount) {
     // The program rejects this with `InvalidArrayLength` (6064); catching it
@@ -233,6 +249,24 @@ export function buildAddLiquidityIx(
       `add_liquidity: tokenAmounts length (${params.tokenAmounts.length}) ` +
         `must equal the pool's token count (${pool.tokenCount})`
     );
+  }
+
+  // Refuse joins whose integer-rounded basket has a zero live leg. Such a
+  // basket can mint positive BPT in this deployment despite moving no tokens.
+  if (pool.bptTotalSupply.gt(new BN(0))) {
+    const balances = pool.tokens.map(token => BigInt(token.actualBalance.toString()));
+    const amounts = params.tokenAmounts.map(amount => BigInt(amount.toString()));
+    let ratio: bigint | null = null;
+    balances.forEach((balance, i) => {
+      if ((balance > 0n) !== (amounts[i] > 0n)) throw new Error("add_liquidity: token liveness mismatch");
+      if (balance === 0n) return;
+      const candidate = divDown(amounts[i], balance);
+      ratio = ratio === null || candidate < ratio ? candidate : ratio;
+    });
+    if (ratio === null || calcBptOutGivenExactTokensIn(balances, amounts, BigInt(pool.bptTotalSupply.toString())) === 0n ||
+        balances.some(balance => balance > 0n && mulDown(balance, ratio!) === 0n)) {
+      throw new Error("add_liquidity: deposit too small after proportional rounding");
+    }
   }
 
   const data = Buffer.concat([
@@ -262,7 +296,7 @@ export function buildAddLiquidityIx(
     { pubkey: pool.bptMint, isSigner: false, isWritable: true },
     { pubkey: userBpt, isSigner: false, isWritable: true },
     { pubkey: params.user, isSigner: true, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: bptProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
   ];
 
@@ -278,7 +312,7 @@ export function buildAddLiquidityTx(
   pool: PoolInfo,
   params: AddLiquidityParams
 ): BuiltTx {
-  const userBpt = deriveAta(params.user, pool.bptMint, TOKEN_PROGRAM_ID);
+  const userBpt = deriveAta(params.user, pool.bptMint, bptProgram(pool));
   return {
     instructions: [
       ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
@@ -287,7 +321,7 @@ export function buildAddLiquidityTx(
         userBpt,
         params.user,
         pool.bptMint,
-        TOKEN_PROGRAM_ID
+        bptProgram(pool)
       ),
       buildAddLiquidityIx(cfg, pool, params),
     ],
@@ -304,7 +338,15 @@ export function buildRemoveLiquidityIx(
   pool: PoolInfo,
   params: RemoveLiquidityParams
 ): TransactionInstruction {
-  const userBpt = deriveAta(params.user, pool.bptMint, TOKEN_PROGRAM_ID);
+  const supply = pool.bptTotalSupply;
+  const maxBurn = BN.max(supply.sub(new BN(MINIMUM_INITIAL_BPT.toString())), new BN(0));
+  const effectiveBurn = BN.min(params.bptAmount, maxBurn);
+  const transferred = supply.gt(new BN(0))
+    ? calcTokensOutGivenBptIn(pool.tokens.map(token => BigInt(token.actualBalance.toString())), BigInt(effectiveBurn.toString()), BigInt(supply.toString()))
+        .flatMap((amount, i) => amount > 0n ? [i] : [])
+    : [];
+  assertTokensSupported(pool, transferred, "remove_liquidity");
+  const userBpt = deriveAta(params.user, pool.bptMint, bptProgram(pool));
   const mins = requireExplicitMinimums(params.minimumTokenAmounts, pool.tokenCount, "remove_liquidity");
 
   const data = Buffer.concat([
@@ -334,7 +376,7 @@ export function buildRemoveLiquidityIx(
     { pubkey: pool.bptMint, isSigner: false, isWritable: true },
     { pubkey: userBpt, isSigner: false, isWritable: true },
     { pubkey: params.user, isSigner: true, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: bptProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
   ];
 
@@ -418,10 +460,11 @@ export function buildSingleTokenDepositIx(
         `${STLD_MAX_TOKENS} (PoolTooLargeForZap). Use add_liquidity instead.`
     );
   }
+  assertTokensSupported(pool, "all", "deposit_single_token");
   const minBpt = requirePositiveMinimumBpt(params.minimumBptAmount, "deposit_single_token");
   const [helper] = deriveHelperPda(cfg.programs.singleTokenLiquidity, pool.address);
-  const helperBpt = deriveAta(helper, pool.bptMint, TOKEN_PROGRAM_ID);
-  const userBpt = deriveAta(params.user, pool.bptMint, TOKEN_PROGRAM_ID);
+  const helperBpt = deriveAta(helper, pool.bptMint, bptProgram(pool));
+  const userBpt = deriveAta(params.user, pool.bptMint, bptProgram(pool));
 
   const data = Buffer.concat([
     STLD_DISC.depositSingleToken,
@@ -451,7 +494,7 @@ export function buildSingleTokenDepositIx(
     { pubkey: userBpt, isSigner: false, isWritable: true },
     { pubkey: params.user, isSigner: true, isWritable: true },
     { pubkey: cfg.programs.cubicPool, isSigner: false, isWritable: false },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: bptProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
   ];
 
@@ -475,8 +518,8 @@ export function buildSingleTokenDepositAtaIxs(
   user: PublicKey
 ): TransactionInstruction[] {
   const [helper] = deriveHelperPda(cfg.programs.singleTokenLiquidity, pool.address);
-  const helperBpt = deriveAta(helper, pool.bptMint, TOKEN_PROGRAM_ID);
-  const userBpt = deriveAta(user, pool.bptMint, TOKEN_PROGRAM_ID);
+  const helperBpt = deriveAta(helper, pool.bptMint, bptProgram(pool));
+  const userBpt = deriveAta(user, pool.bptMint, bptProgram(pool));
 
   const ixs: TransactionInstruction[] = [];
   // User + helper ATAs (helper has an off-curve owner). Idempotent — safe to
@@ -507,7 +550,7 @@ export function buildSingleTokenDepositAtaIxs(
       helperBpt,
       helper,
       pool.bptMint,
-      TOKEN_PROGRAM_ID
+      bptProgram(pool)
     )
   );
   ixs.push(
@@ -516,7 +559,7 @@ export function buildSingleTokenDepositAtaIxs(
       userBpt,
       user,
       pool.bptMint,
-      TOKEN_PROGRAM_ID
+      bptProgram(pool)
     )
   );
   return ixs;
@@ -863,7 +906,9 @@ export function buildInitializePoolAltTx(
  * `[pool, authority]` has the program read the pool account as the config
  * and fail on the discriminator, or worse pass a lookalike.
  *
- * Pool-admin only — protocol-admin cannot reach this instruction. Combine
+ * Pool admin can appoint or change the manager. The contract also accepts a
+ * config protocol-admin signer for disable-only updates that retain the current
+ * manager key; the deployed protocol-admin program has no CPI wrapper for it. Combine
  * `newManager = PublicKey.default` with `enabled = false` for the fully
  * disabled state.
  */
@@ -948,31 +993,77 @@ export function buildRangeManagerUpdateIx(
   return new TransactionInstruction({ programId: cfg.programs.cubicPool, keys, data });
 }
 
+/** Set the pool-local swap fee (hundredths of a basis point). */
+export function buildSetSwapFeeRateIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey, swapFeeRate: number): TransactionInstruction {
+  return buildContractInstruction(cfg, "cubicPool", "set_swap_fee_rate", { swap_fee_rate: swapFeeRate }, { pool, authority });
+}
+
+/** Replace every token's sell-off policy, including both kink parameters. */
+export function buildSetMaxSelloffIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey, params: SelloffParams[]): TransactionInstruction {
+  return buildContractInstruction(cfg, "cubicPool", "set_max_selloff", { params: params.map(p => ({
+    max_selloff_pct: p.maxSelloffPct, period_length: p.periodLength,
+    fee_threshold_pct: p.feeThresholdPct, fee_slope_low_pct: p.feeSlopeLowPct,
+    fee_slope_high_pct: p.feeSlopeHighPct, fee_slope_mid_pct: p.feeSlopeMidPct,
+    fee_kink_pct: p.feeKinkPct,
+  })) }, { pool, authority });
+}
+
+export function buildInitiatePoolAdminTransferIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey, newAdmin: PublicKey): TransactionInstruction {
+  return buildContractInstruction(cfg, "cubicPool", "initiate_pool_admin_transfer", { new_admin: newAdmin }, { pool, authority });
+}
+
+export function buildAcceptPoolAdminTransferIx(cfg: CubeConfig, pool: PublicKey, newAdmin: PublicKey): TransactionInstruction {
+  return buildContractInstruction(cfg, "cubicPool", "accept_pool_admin_transfer", {}, { pool, new_admin: newAdmin });
+}
+
+export function buildCancelPoolAdminTransferIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
+  return buildContractInstruction(cfg, "cubicPool", "cancel_pool_admin_transfer", {}, { pool, authority });
+}
+
+/** Permanently renounce the pool-local admin role. */
+export function buildDisablePoolAdminIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
+  return buildContractInstruction(cfg, "cubicPool", "disable_pool_admin", {}, { pool, authority });
+}
+
+export function buildGetPoolInfoIx(cfg: CubeConfig, pool: PublicKey): TransactionInstruction {
+  return buildContractInstruction(cfg, "cubicPool", "get_pool_info", {}, { pool });
+}
+
 // ============================================================
 // Borsh encoding helpers (subset used above)
 // ============================================================
 
 function encodeU8(v: number): Buffer {
   const b = Buffer.alloc(1);
-  b.writeUInt8(v & 0xff, 0);
+  requireUnsignedNumber(v, 8);
+  b.writeUInt8(v, 0);
   return b;
 }
 function encodeU16(v: number): Buffer {
   const b = Buffer.alloc(2);
-  b.writeUInt16LE(v & 0xffff, 0);
+  requireUnsignedNumber(v, 16);
+  b.writeUInt16LE(v, 0);
   return b;
 }
 function encodeU32(v: number): Buffer {
   const b = Buffer.alloc(4);
-  b.writeUInt32LE(v >>> 0, 0);
+  requireUnsignedNumber(v, 32);
+  b.writeUInt32LE(v, 0);
   return b;
 }
+function requireUnsignedNumber(value: number, bits: number): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value >= 2 ** bits) {
+    throw new Error(`Expected an unsigned ${bits}-bit integer`);
+  }
+}
 function encodeU64(v: BN): Buffer {
+  if (!BN.isBN(v) || v.isNeg() || v.bitLength() > 64) throw new Error("Expected an unsigned 64-bit BN");
   return v.toArrayLike(Buffer, "le", 8);
 }
 /** Borsh `Option<u64>`: 1 tag byte (0=None, 1=Some) + u64 LE when Some. */
 function encodeOptionU64(v?: BN | number | null): Buffer {
   if (v === undefined || v === null) return Buffer.from([0]);
+  if (typeof v === "number" && (!Number.isSafeInteger(v) || v < 0)) throw new Error("Bitmap must be a non-negative safe integer or BN");
   const bn = BN.isBN(v) ? v : new BN(v);
   return Buffer.concat([Buffer.from([1]), encodeU64(bn)]);
 }
@@ -982,6 +1073,7 @@ function encodeVecU64(vs: BN[]): Buffer {
   return Buffer.concat([len, ...vs.map(encodeU64)]);
 }
 function encodeBool(v: boolean): Buffer {
+  if (typeof v !== "boolean") throw new Error("Expected boolean");
   return Buffer.from([v ? 1 : 0]);
 }
 /**

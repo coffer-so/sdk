@@ -35,6 +35,8 @@ function mockPool(tokenCount = 2): PoolInfo {
       concentration: 1,
       isActive: true,
       maxSelloffPct: 0,
+      extensions: [],
+      unsupportedExtensions: [],
     };
   });
 
@@ -45,6 +47,7 @@ function mockPool(tokenCount = 2): PoolInfo {
     poolId: new BN(1),
     tokenCount,
     tokens,
+    unsupportedTokenIndices: [],
     bptMint: pk(),
     bptTotalSupply: new BN(1_000_000_000),
     swapFeeRate: 0,

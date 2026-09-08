@@ -4,7 +4,10 @@
 
 Pool admins can manage their pools through authenticated SDK methods.
 Admin status is determined by the on-chain `poolAdmin` field, which is
-synced to the backend every 10 minutes.
+synced into the backend. This guide covers off-chain metadata administration,
+not protocol-admin transaction signing; see [contract compatibility](CONTRACT_COMPATIBILITY.md).
+The checked backend revision is `v5.1@a886497`; its pool settings route is absent
+although the SDK exposes `updatePoolSettings`. See [backend scope](BACKEND_COMPATIBILITY.md).
 
 All methods require authentication — call `client.setTokens()` first
 (see `docs/SIWS.md`).

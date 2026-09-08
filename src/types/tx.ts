@@ -17,6 +17,8 @@ export interface SwapQuote {
   tokenOutIndex: number;
   amountIn: BN;
   amountOut: BN;
+  /** Output before the sell-off surge fee (equals amountOut + surgeFeeAmount). */
+  grossAmountOut?: BN;
   /** Spot-based upper bound on amountOut; useful for price-impact UI. */
   spotOut: BN;
   /** Absolute price impact in hundredths of basis point. */
@@ -62,6 +64,27 @@ export interface AddLiquidityParams {
   minimumBptAmount?: BN;
 }
 
+/**
+ * Result of `CubicPoolClient.quoteAddLiquidity`. Mirrors
+ * `cubic-pool/add_liquidity.rs`: the program crops the caller's ceiling
+ * vector to the single limiting ratio `min_i(amount_i / actual_i)`, pulls
+ * `depositAmounts` and leaves `refundAmounts` in the wallet.
+ */
+export interface AddLiquidityQuote {
+  /** The ceiling vector that was quoted (echo of the input). */
+  tokenAmounts: BN[];
+  /** What the program will actually pull per token (proportional basket). */
+  depositAmounts: BN[];
+  /** `tokenAmounts - depositAmounts`; stays in the user's wallet. */
+  refundAmounts: BN[];
+  /** BPT the program will mint for this basket at the synced state. */
+  bptOut: BN;
+  /** `bptOut` after the quoted slippage; pass as `minimumBptAmount`. */
+  minimumBptAmount: BN;
+  /** Index of the token that limits the basket (smallest amount/balance). */
+  limitingTokenIndex: number;
+}
+
 export interface RemoveLiquidityParams {
   user: PublicKey;
   bptAmount: BN;
@@ -76,15 +99,9 @@ export interface RemoveLiquidityParams {
  * a heap-exhaustion limit, audit SF-3). Beyond 10 the program rejects with
  * `PoolTooLargeForZap`.
  *
- * ### Token-2022 transfer fees
- * Transfer-fee mints are supported, but a zap crosses **two** fee-charging
- * hops per token (user→helper→vault on the way in, vault→helper→user for
- * dust), so the user loses roughly **2× the mint's transfer-fee rate on the
- * full notional**, on top of swap and surge fees. `minimumBptAmount` must
- * allow for that or the deposit reverts. Quote it accordingly and say so in
- * the UI — users will otherwise read the shortfall as slippage.
- *
- * Armed transfer hooks are still rejected (`TokenExtensionsUnsupported`).
+ * This deployed build does not account for Token-2022 transfer fees. The SDK
+ * rejects transfer-fee mints and other runtime-incompatible extensions before
+ * building a deposit. Plain Token-2022 mints and compatible extensions work.
  */
 export interface SingleTokenDepositParams {
   user: PublicKey;
@@ -100,11 +117,13 @@ export interface SingleTokenDepositParams {
   slippageHundredthsBps?: number;
   /**
    * Required, must be > 0. The only slippage guard on the whole route:
-   * internal swaps + surge fees + transfer fees + the join.
+   * internal swaps + surge fees + the join.
    */
   minimumBptAmount?: BN;
 }
 
+/** Quote includes the helperBalances supplied to the quote call, or assumes
+ * zero balances when omitted. Re-read helper ATAs and pool state before signing. */
 export interface SingleTokenDepositQuote {
   tokenInIndex: number;
   amountIn: BN;
@@ -114,11 +133,11 @@ export interface SingleTokenDepositQuote {
   expectedOuts: BN[];
   /** Per-leg min_out derived from slippage. */
   minOuts: BN[];
-  /** Amounts the helper will pass to add_liquidity after proportional capping. */
+  /** Estimated actual pool credits after both helper and pool proportional cropping. */
   depositedAmounts: BN[];
   /** Helper-held excess returned to the user after add_liquidity. */
   refundAmounts: BN[];
-  /** Projected BPT to receive (ballpark, pre-CPI). */
+  /** Projected new BPT from the complete swap-and-join sequence at quoted state/time. */
   estimatedBpt: BN;
   /** Indices of tokens excluded from the deposit (actBal == 0). */
   sidelinedTokenIndices: number[];
@@ -152,8 +171,8 @@ export interface DeployPoolParams {
   /**
    * Optional creator-chosen Token-2022 banned-extensions bitmap. Omit
    * (`undefined`/`null`) to inherit the config default. Set a bitmap to vet
-   * THIS pool's tokens against it and store it on the pool. `0` allows every
-   * extension.
+   * THIS pool's tokens against it and store it on the pool. `0` clears the
+   * configurable default; the hard floor and runtime restrictions still apply.
    *
    * ⚠ A permissive policy (un-banning PermanentDelegate / TransferHook /
    * TransferFee) makes the pool drainable/abusable by the token issuer —
@@ -214,7 +233,7 @@ export interface SetRangeManagerParams {
    * PREPENDED before `pool` in the account list.
    */
   config: PublicKey;
-  /** Pool-admin only; protocol-admin cannot reach this instruction. */
+  /** Pool admin, or config protocol admin for disable-only with the same manager. */
   authority: PublicKey;
   /** Pubkey allowed to call `range_manager_update`. */
   newManager: PublicKey;
@@ -243,4 +262,17 @@ export interface SetRangeManagerConfigParams {
    * floor. New in v5.1.
    */
   minLeverageBps: number;
+}
+
+/** Per-token sell-off policy, in pool order. Percent fields use 10,000 = 100%,
+ * except feeKinkPct, which is a whole percent (0 disables the kink).
+ */
+export interface SelloffParams {
+  maxSelloffPct: number;
+  periodLength: number;
+  feeThresholdPct: number;
+  feeSlopeLowPct: number;
+  feeSlopeHighPct: number;
+  feeSlopeMidPct: number;
+  feeKinkPct: number;
 }

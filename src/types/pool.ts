@@ -34,6 +34,14 @@ export interface PoolTokenInfo {
    * (`PERCENT_SCALE` units; 10_000 = 100%). `0` ⇒ no cap.
    */
   maxSelloffPct: number;
+  maxSelloffPeriodLength?: number;
+  variableFeeThresholdPct?: number;
+  variableFeeSlopeLowPct?: number;
+  variableFeeSlopeHighPct?: number;
+  previousSelloff?: BN;
+  currentSelloff?: BN;
+  windowStartTimestamp?: BN;
+  selloffVbSnapshot?: BN;
   /**
    * Surge fee at the curve's KINK (`PERCENT_SCALE` units). New in v5.1 —
    * `0` on pools written by the older program.
@@ -45,13 +53,31 @@ export interface PoolTokenInfo {
    * how every pre-v5.1 pool behaves). New in v5.1.
    */
   variableFeeKinkPct?: number;
+  /**
+   * Token-2022 extension discriminants present on this token's mint
+   * (`[]` for classic SPL Token mints). See `MintExtension`.
+   */
+  extensions?: number[];
+  /**
+   * Subset of `extensions` the AMM cannot move (transfer fee, transfer
+   * hook, non-transferable, pausable, or unknown types). Non-empty ⇒ every quote / build that touches
+   * this token is refused with `unsupported_token_extension`.
+   */
+  unsupportedExtensions?: number[];
 }
 
 /**
- * Fully parsed pool state. Returned by `CubicPoolClient.sync()`.
- * All raw on-chain numerics plus a few convenience derivations.
+ * Parsed operational pool state returned by `CubicPoolClient.sync()`.
+ * Padding and unused token slots are available through decodePoolAccount;
+ * decodeContractAccount preserves the complete exact ABI shape.
  */
 export interface PoolInfo {
+  /**
+   * Indices of tokens with a non-empty `unsupportedExtensions`. Empty for a
+   * pool without runtime-incompatible mints. Swap/add/remove guards check
+   * affected transfer legs; the STLD instruction builder checks all mints.
+   */
+  unsupportedTokenIndices?: number[];
   /** Pool PDA address. */
   address: PublicKey;
   /** Pool config account referenced by the pool. */
@@ -63,6 +89,18 @@ export interface PoolInfo {
   tokenCount: number;
   tokens: PoolTokenInfo[];
   bptMint: PublicKey;
+  /** Owner program of the BPT mint; classic Token for older manually supplied snapshots. */
+  bptTokenProgram?: PublicKey;
+  poolAdmin?: PublicKey;
+  pendingPoolAdmin?: PublicKey;
+  rangeManager?: PublicKey;
+  rangeManagerEnabled?: boolean;
+  rangeManagerMaxVbChangePct?: number;
+  rangeManagerMaxWeightChangePct?: number;
+  rangeManagerMinUpdateIntervalSecs?: number;
+  rangeManagerLastUpdated?: BN;
+  /** Solana Clock timestamp at sync, used for time-dependent selloff quotes. */
+  chainTimestamp?: number;
   /** Total supply of BPT tokens at snapshot time. */
   bptTotalSupply: BN;
   /** Hundredths-of-basis-point units (1_000_000 == 100 %). */

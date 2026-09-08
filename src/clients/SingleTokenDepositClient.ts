@@ -12,6 +12,11 @@ import { deriveHelperPda } from "../utils/pda";
 import { buildSingleTokenDepositTx, buildSingleTokenDepositTxs } from "./tx-builders";
 import { RpcClient } from "./RpcClient";
 import { CubicPoolClient } from "./CubicPoolClient";
+import { describeUnsupportedToken } from "../utils/extensions";
+
+function unsupportedMessage(pool: PoolInfo, op: string): string {
+  return `${op} refused: ${(pool.unsupportedTokenIndices ?? []).filter(i => !pool.tokens[i].actualBalance.isZero()).map((i) => describeUnsupportedToken(pool.tokens[i])).join("; ")}. The cubic-pool program cannot transfer such tokens.`;
+}
 
 export interface SingleTokenDepositClientParams {
   config: CubeConfig;
@@ -76,9 +81,11 @@ export class SingleTokenDepositClient {
   quote(
     tokenInIndex: number,
     amountIn: BN,
-    slippageHundredthsBps?: number
+    slippageHundredthsBps?: number,
+    nowSeconds?: number,
+    helperBalances?: BN[]
   ): SdkResult<SingleTokenDepositQuote> {
-    return this.poolClient.quoteSingleTokenDeposit(tokenInIndex, amountIn, slippageHundredthsBps);
+    return this.poolClient.quoteSingleTokenDeposit(tokenInIndex, amountIn, slippageHundredthsBps, nowSeconds, helperBalances);
   }
 
   /**
@@ -92,10 +99,13 @@ export class SingleTokenDepositClient {
   buildTx(params: SingleTokenDepositParams): SdkResult<BuiltTx> {
     const pool = this.poolClient.getCached();
     if (!pool) return err("invalid_input", "Call sync() first to populate pool state");
-    if (params.tokenInIndex < 0 || params.tokenInIndex >= pool.tokenCount) {
+    if (!Number.isInteger(params.tokenInIndex) || params.tokenInIndex < 0 || params.tokenInIndex >= pool.tokenCount) {
       return err("invalid_input", "Invalid tokenInIndex");
     }
     if (params.amountIn.lten(0)) return err("invalid_input", "amountIn must be > 0");
+    if ((pool.unsupportedTokenIndices ?? []).some(i => !pool.tokens[i].actualBalance.isZero())) {
+      return err("unsupported_token_extension", unsupportedMessage(pool, "deposit_single_token"));
+    }
     try {
       const tx = buildSingleTokenDepositTx(this.config, pool, params);
       return ok(tx);
@@ -117,10 +127,13 @@ export class SingleTokenDepositClient {
   ): SdkResult<{ setup: BuiltTx | null; deposit: BuiltTx }> {
     const pool = this.poolClient.getCached();
     if (!pool) return err("invalid_input", "Call sync() first to populate pool state");
-    if (params.tokenInIndex < 0 || params.tokenInIndex >= pool.tokenCount) {
+    if (!Number.isInteger(params.tokenInIndex) || params.tokenInIndex < 0 || params.tokenInIndex >= pool.tokenCount) {
       return err("invalid_input", "Invalid tokenInIndex");
     }
     if (params.amountIn.lten(0)) return err("invalid_input", "amountIn must be > 0");
+    if ((pool.unsupportedTokenIndices ?? []).some(i => !pool.tokens[i].actualBalance.isZero())) {
+      return err("unsupported_token_extension", unsupportedMessage(pool, "deposit_single_token"));
+    }
     try {
       return ok(buildSingleTokenDepositTxs(this.config, pool, params));
     } catch (e) {

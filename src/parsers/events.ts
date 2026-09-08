@@ -1,7 +1,8 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { BorshReader } from "./borsh";
-import { CubicPoolEvent } from "../types/events";
+import { decodeContractEvent, ContractEvent } from "./contracts";
+import { CubicPoolEvent, AdditionalContractEvent } from "../types/events";
 
 /**
  * Anchor event log format (base64-encoded after `Program data:`):
@@ -46,6 +47,12 @@ export function parseCubicPoolEvents(logs: string[]): CubicPoolEvent[] {
     const payload = buf.slice(8);
     const name = matchDiscriminator(disc);
     if (!name) {
+      const current = decodeContractEvent(m[1]);
+      if (current) {
+        try { out.push(camelEvent(current)); }
+        catch (error) { out.push({ kind: "Unknown", name: current.kind, data: { error: String(error), payload: payload.toString("base64") } }); }
+        continue;
+      }
       out.push({ kind: "Unknown", name: "unknown", data: { disc: disc.toString("base64"), payload: payload.toString("base64") } });
       continue;
     }
@@ -74,16 +81,9 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
   const r = new BorshReader(buf);
   switch (name) {
     case "Swap": {
-      // ⚠ FIELD ORDER IS NOT WHAT IT LOOKS LIKE. Verified field-by-field
-      // against `Swap` in src/idl/cubic_pool.json:
-      //   pool, user, token_in, token_out, amount_in, amount_out,
-      //   fee_amount, protocol_fee_amount, timestamp, surge_fee_amount,
-      //   transfer_fee_in, transfer_fee_out
-      // `surge_fee_amount` sits AFTER `timestamp`, not before it — it was
-      // appended to the struct when it was introduced and never moved up.
-      // Reading it in declaration-intuitive order (surge, then timestamp)
-      // silently returns the unix timestamp as the surge fee and vice
-      // versa, with no length error to catch it.
+      // The deployed without-SF event ends with timestamp, surge_fee_amount.
+      // Optional trailing transfer-fee fields are retained only for decoding
+      // logs from other historical builds; they do not imply mint support.
       const pool = r.pubkey();
       const user = r.pubkey();
       const tokenIn = r.pubkey();
@@ -94,9 +94,7 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       const protocolFeeAmount = r.u64();
       const timestamp = r.i64().toNumber();
       const surgeFeeAmount = r.u64();
-      // Appended in v5.1. Guarded so a log emitted by an older deployment
-      // (which stops after surge_fee_amount) decodes as 0 instead of
-      // throwing. Nothing before this point is version-dependent.
+      // Absent in the deployed without-SF ABI: expose zero for compatibility.
       const transferFeeIn = r.remaining() >= 8 ? r.u64() : new BN(0);
       const transferFeeOut = r.remaining() >= 8 ? r.u64() : new BN(0);
       return {
@@ -255,14 +253,23 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
         newHardValue,
       };
     }
-    // Events we don't yet surface as typed — decode as Unknown so the
-    // caller gets the discriminator name and can act on it.
+    // Decode the remaining current events through the complete shipped ABI.
     case "SwapFeeRateUpdated":
     case "ProtocolFeeRateUpdated":
     case "DebugLiquidityWithdrawn":
     case "PoolInfo":
-      return { kind: "Unknown", name, data: { raw: buf.toString("base64") } };
+      const current = decodeContractEvent(Buffer.concat([DISC[name], buf]).toString("base64"));
+      return current ? camelEvent(current) : { kind: "Unknown", name, data: { raw: buf.toString("base64") } };
   }
 }
 
 void PublicKey; // keep import used by types above via type inference
+
+function camelEvent(event: ContractEvent): AdditionalContractEvent {
+  const fields: Record<string, unknown> = { kind: event.kind };
+  for (const [key, value] of Object.entries(event.data)) {
+    const name = key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+    fields[name] = key === "timestamp" && BN.isBN(value) ? value.toNumber() : value;
+  }
+  return fields as AdditionalContractEvent;
+}

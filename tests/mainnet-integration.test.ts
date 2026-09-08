@@ -2,12 +2,9 @@
  * Live mainnet integration tests for the SDK.
  *
  * These tests hit real Solana mainnet RPC and exercise the full sync /
- * derive / build flow against a live v4 pool, CubeePool
- * (`EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy`, 1683 bytes). The
- * original fixture — the first mainnet pool `27cJ…rzMM` — is a v3 account
- * (1154 bytes) that the v5 SDK intentionally no longer decodes, so it can
- * only serve pre-v5 branches. They guard against the regressions
- * discovered during the mainnet rollout:
+ * derive / build flow against a migrated v5 mainnet pool
+ * (`EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy`). They guard against the
+ * regressions discovered during the mainnet rollout:
  *
  *   1. **Stale dist** — `frontend/node_modules/@cube/sdk/dist/` had old
  *      program IDs (Fc3R…) baked in, so `deriveBptMint` returned a PDA
@@ -21,8 +18,9 @@
  *      transfer is in the built instructions so the frontend hook stays
  *      responsible for wrapping (a contract test for the hook layer).
  *
- * Tests skip themselves automatically if `SKIP_MAINNET_TESTS=1` is set
- * or no network is available — keeps CI fast for offline runs.
+ * Read-only: no signing, transaction sending or balance changes. Set
+ * SKIP_MAINNET_TESTS=1 for an explicitly offline run. Otherwise RPC errors,
+ * a wrong cluster and unexpected account layouts fail the suite.
  */
 
 import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
@@ -32,11 +30,12 @@ import { CubicPoolClient } from "../src/clients/CubicPoolClient";
 import { RpcClient } from "../src/clients/RpcClient";
 import { deriveBptMint } from "../src/utils/pda";
 import cubicPoolIdl from "../src/idl/cubic_pool.json";
+import { POOL_V3_LEN, POOL_LEN, decodePoolAccount } from "../src/parsers/poolAccount";
 
 const POOL_ADDRESS = "EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy";
 const KNOWN_BPT_MINT = "8XENvzVwvdHkYbhrvSaWuivs7pK1ZCwgGj5y3n1rij9B";
 const MAINNET_PROGRAM = "8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu";
-const RPC = "https://api.mainnet-beta.solana.com";
+const RPC = process.env.SDK_MAINNET_RPC_URL ?? process.env.RPC_URL ?? getConfig("mainnet").defaults.rpcEndpoint;
 
 // SystemProgram transfer (used to wrap SOL → wSOL): 4-byte instruction tag = 2.
 function isSystemTransfer(programId: PublicKey, data: Buffer): boolean {
@@ -46,7 +45,7 @@ function isSystemTransfer(programId: PublicKey, data: Buffer): boolean {
 const skipMainnet = process.env.SKIP_MAINNET_TESTS === "1";
 const describeOnline = skipMainnet ? describe.skip : describe;
 
-describeOnline("mainnet integration: sdk against pool EFfV…fyjy", () => {
+describeOnline("mainnet integration: sdk against migrated v5 pool EFfVk…fyjy", () => {
   jest.setTimeout(30_000);
 
   const cfg = getConfig("mainnet", { rpcEndpoint: RPC });
@@ -57,6 +56,14 @@ describeOnline("mainnet integration: sdk against pool EFfV…fyjy", () => {
     rpc,
   });
   const conn = new Connection(RPC, "confirmed");
+
+  beforeAll(async () => {
+    expect(await conn.getGenesisHash()).toBe("5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d");
+    const pool = await conn.getAccountInfo(new PublicKey(POOL_ADDRESS));
+    expect(pool).not.toBeNull();
+    expect(pool!.owner.toBase58()).toBe(MAINNET_PROGRAM);
+    expect(pool!.data.length).toBe(POOL_LEN);
+  });
 
   test("network config exposes the mainnet cubic_pool program ID", () => {
     expect(cfg.programs.cubicPool.toBase58()).toBe(MAINNET_PROGRAM);
@@ -74,6 +81,25 @@ describeOnline("mainnet integration: sdk against pool EFfV…fyjy", () => {
     expect(r.data.tokenCount).toBe(4);
     expect(r.data.bptMint.toBase58()).toBe(KNOWN_BPT_MINT);
     expect(r.data.tokens).toHaveLength(4);
+    expect(r.data.bptTokenProgram?.toBase58()).toBe("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    expect(r.data.poolAdmin?.toBase58()).toBe("F7JVJjeHwYndurrd5DBZoaUvqpsDCJnP1yVWMuFjxkoY");
+    expect(r.data.pendingPoolAdmin).toBeInstanceOf(PublicKey);
+    expect(r.data.rangeManager).toBeInstanceOf(PublicKey);
+    expect(typeof r.data.rangeManagerEnabled).toBe("boolean");
+    expect(Number.isSafeInteger(r.data.chainTimestamp)).toBe(true);
+    expect(r.data.chainTimestamp).toBeGreaterThan(0);
+    for (const token of r.data.tokens) {
+      expect(typeof token.maxSelloffPeriodLength).toBe("number");
+      expect(typeof token.variableFeeThresholdPct).toBe("number");
+      expect(typeof token.variableFeeSlopeLowPct).toBe("number");
+      expect(typeof token.variableFeeSlopeMidPct).toBe("number");
+      expect(typeof token.variableFeeSlopeHighPct).toBe("number");
+      expect(typeof token.variableFeeKinkPct).toBe("number");
+      expect(BN.isBN(token.previousSelloff)).toBe(true);
+      expect(BN.isBN(token.currentSelloff)).toBe(true);
+      expect(BN.isBN(token.windowStartTimestamp)).toBe(true);
+      expect(BN.isBN(token.selloffVbSnapshot)).toBe(true);
+    }
 
     // Spot-check the published mint set: JitoSOL / wSOL / USDC / USDT.
     const wantedMints = new Set([
@@ -100,7 +126,7 @@ describeOnline("mainnet integration: sdk against pool EFfV…fyjy", () => {
 
     const built = client.buildAddLiquidityTx({
       user: new PublicKey(MAINNET_PROGRAM), // any pubkey works for shape check
-      tokenAmounts: r.data.tokens.map(() => new BN(1)),
+      tokenAmounts: r.data.tokens.map(t => t.actualBalance.divn(100).addn(1)),
       minimumBptAmount: new BN(1),
     });
     if (!built.ok) throw new Error(`build failed: ${built.error.humanMessage}`);
@@ -122,7 +148,7 @@ describeOnline("mainnet integration: sdk against pool EFfV…fyjy", () => {
 
     const built = client.buildAddLiquidityTx({
       user: new PublicKey(MAINNET_PROGRAM),
-      tokenAmounts: r.data.tokens.map(() => new BN(1_000_000)),
+      tokenAmounts: r.data.tokens.map(t => t.actualBalance.divn(100).addn(1)),
       minimumBptAmount: new BN(1),
     });
     if (!built.ok) throw new Error(`build failed: ${built.error.humanMessage}`);
@@ -137,5 +163,10 @@ describeOnline("mainnet integration: sdk against pool EFfV…fyjy", () => {
     const programInfo = await conn.getAccountInfo(new PublicKey(MAINNET_PROGRAM));
     expect(programInfo).not.toBeNull();
     expect(programInfo!.owner.toBase58()).toBe("BPFLoaderUpgradeab1e11111111111111111111111");
+    expect(programInfo!.executable).toBe(true);
   });
+});
+
+test("unsupported v3 account layouts fail explicitly instead of skipping sync checks", () => {
+  expect(() => decodePoolAccount(Buffer.alloc(POOL_V3_LEN))).toThrow(/v3|legacy|unsupported/i);
 });

@@ -13,6 +13,7 @@ export type CubicPoolEvent =
   | PoolStateLogEvent
   | MaxSelloffWindowAdvancedEvent
   | BannedExtensionsUpdatedEvent
+  | AdditionalContractEvent
   | UnknownEvent;
 
 export interface PoolInitializedEvent {
@@ -54,24 +55,11 @@ export interface SwapEvent {
    */
   surgeFeeAmount: BN;
   timestamp: number;
-  /**
-   * Token-2022 transfer fee withheld by the INPUT mint on the user→vault
-   * hop, in raw units of `tokenIn`. `0` for classic SPL mints and for
-   * Token-2022 mints with no `TransferFeeConfig`.
-   *
-   * The pool credited `amountIn` (already net of this fee); the user's
-   * wallet was debited `amountIn + transferFeeIn`.
-   *
-   * New in v5.1 — decodes as `0` for logs emitted by an older deployment.
+  /** Legacy compatibility field; the deployed without-SF event omits transfer
+   * fees, so this is zero for current events. No transfer-fee support is implied.
    */
   transferFeeIn: BN;
-  /**
-   * Token-2022 transfer fee withheld by the OUTPUT mint on the vault→user
-   * hop, in raw units of `tokenOut`. The user actually received
-   * `amountOut - transferFeeOut`.
-   *
-   * New in v5.1 — decodes as `0` for logs emitted by an older deployment.
-   */
+  /** Legacy compatibility field; zero for the deployed without-SF event. */
   transferFeeOut: BN;
 }
 
@@ -195,3 +183,16 @@ export interface UnknownEvent {
   name: string;
   data: Record<string, unknown>;
 }
+
+/** Additional current-ABI events, with the camelCase fields used by the legacy
+ * event API. Use parseContractEvents for exact IDL names and BN timestamps.
+ */
+type CamelCase<S extends string> = S extends `${infer Head}_${infer Tail}` ? `${Head}${Capitalize<CamelCase<Tail>>}` : S;
+type CamelEventData<T> = { [K in keyof T as K extends string ? CamelCase<K> : K]: K extends "timestamp" ? number : T[K] };
+type ExistingEventName = "PoolInitialized" | "Swap" | "LiquidityAdded" | "LiquidityRemoved" | "ProtocolFeesCollected" | "PoolEnabledUpdated" | "SwapsEnabledUpdated" | "SingleTokenDeposit" | "PoolStateLog" | "MaxSelloffWindowAdvanced" | "BannedExtensionsUpdated";
+export type AdditionalContractEvent = {
+  [P in keyof import("./contracts").ContractEventMap]: {
+    [E in Exclude<keyof import("./contracts").ContractEventMap[P], ExistingEventName>]:
+      { kind: E } & CamelEventData<import("./contracts").ContractEventMap[P][E]>
+  }[Exclude<keyof import("./contracts").ContractEventMap[P], ExistingEventName>]
+}[keyof import("./contracts").ContractEventMap];

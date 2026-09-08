@@ -1,0 +1,106 @@
+# Contract compatibility: v5.1
+
+Target: `contracts/audit-fixes-excluded-SF`, commit
+`96a2ee20244ff95fb9f14357bb55b17e1eb0e2c0` (mainnet rollout 2026-09-07).
+
+| Program | Instructions | Events | Mainnet address |
+| --- | ---: | ---: | --- |
+| cubic_pool | 28 | 30 | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` |
+| protocol_admin | 29 | 28 | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` |
+| single_token_liquidity | 2 | 2 | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` |
+
+## Full instruction API
+
+`buildContractInstruction` exposes every instruction with its exact arguments,
+fixed account names, account order and signer/writable flags. It uses snake_case
+IDL names; u64/i64/u128 values use `BN`. The generated `ContractInstructionMap`
+provides autocomplete and compile-time types. All fields are also validated at
+runtime. Pass explicit remaining-account metas where the instruction needs them.
+
+```ts
+import { buildContractInstruction } from "@cubee_ee/sdk";
+import { SystemProgram } from "@solana/web3.js";
+
+const ix = buildContractInstruction(config, "protocolAdmin", "set_supervisor",
+  { new_supervisor: supervisor },
+  { treasury, admin, system_program: SystemProgram.programId });
+```
+
+`AdminClient` provides convenient Treasury-governance methods; the exported
+`build*Ix`/`build*Tx` functions also cover normal pool operations. A Treasury PDA
+signs through a protocol-admin CPI, so use that wrapper for protocol governance.
+The generic API does not supply authority signatures or waive contract checks.
+
+[State mapping](STATE_FIELDS.md) documents every pool/config/Treasury field, including
+the distinction between operational `PoolInfo` and the full raw ABI.
+
+`decodeContractAccount` decodes CubicPool, CubicPoolConfig and Treasury with exact
+IDL field names. Verify the RPC account owner before decoding.
+`parseContractEvents` returns `{ program, kind, data }` for every declared event,
+preserving BN values and exact field names. Verify transaction success and the
+emitting program before indexing logs. The existing camelCase event API remains.
+
+## Quotes and token support
+
+- `sync()` loads the full v5 pool state, mint extensions, BPT token-program owner
+  and Solana Clock timestamp. Layout v3 (1154 bytes) is rejected explicitly;
+  the deployed v5 migration does not support that legacy layout. The manual
+  decoder validates the discriminator and canonical booleans, decodes signed
+  i64 timestamps correctly, and preserves reserved bytes. Account size alone
+  does not prove migration because v4 and v5 have equal length.
+- `quoteSwap` follows the contract's integer rounding, sell-off window rotation
+  and four-segment surge fee. `feeAmount`/`protocolFeeAmount` are in the input
+  token; `surgeFeeAmount` is in the output token. `amountOut` is net of surge.
+- `quoteAddLiquidity` accepts spend ceilings and reports the actual cropped
+  basket. `quoteSeedDeposit(user, amounts)` handles the creator-only initial
+  deposit and invariant-based BPT. The seed result has `limitingTokenIndex = -1`.
+- `quoteRemove` applies the minimum remaining BPT supply and two-stage integer
+  rounding. `effectiveBptIn` reports the burn after the contract's clamp.
+- `quoteSingleTokenDeposit` simulates each swap sequentially, then the helper's
+  ratio cap and the pool's proportional join. Its optional fifth argument is the
+  vector of existing helper ATA balances; the default assumes zero. Pass existing
+  dust/donations when present, since the contract includes those holdings and
+  refunds the leftovers. `SingleTokenDepositClient.quote` accepts the same inputs.
+- `actualBalance` already excludes protocol fees; do not subtract
+  `protocolFeesOwed` again. Compatible Token-2022 mints and Token-2022 BPT are
+  supported. Transfer fees, hooks and other unsupported extensions are rejected
+  on affected transfer paths. STLD builders conservatively check every pool mint
+  because helper refunds can touch sidelined tokens, whereas the quote checks
+  live reserve legs and supplied nonzero helper balances. The creation-policy
+  bitmap is a separate diagnostic.
+
+Quotes use the synced state and Clock timestamp; swap and single-token quotes
+accept an explicit `nowSeconds` for an anticipated execution time. Other trades,
+window rotation or admin updates before execution can change the result. Always
+use the final minimum output/BPT amount and refresh the snapshot when needed.
+Per-leg single-token `minOuts` are informational: its instruction carries only a
+final BPT minimum. For large pools, use the split setup/deposit builder and the ALT.
+
+The SDK conservatively rejects proportional deposits whose cropped live-token
+amount rounds to zero. Generic instruction construction does not apply this
+high-level policy. Compatibility checks are not a security audit of the contracts.
+
+## Reproducible checks
+
+```sh
+npm run lint
+npm run build
+SKIP_MAINNET_TESTS=1 npm test -- --runInBand
+node scripts/generate-contract-types.cjs --check
+node scripts/check-contract-abi.cjs --contracts-dir /path/to/contracts
+```
+
+`tests/contract-abi.test.ts` independently encodes every instruction/event and
+checks all declared account layouts against the shipped IDLs. Math reference
+fixtures are generated by compiling the actual Rust math bodies; their metadata
+records the contract revision and source hashes. Regenerate them with
+`python3 tests/math/generate-rust-reference.py --help` for usage.
+Mainnet integration tests only read accounts and build unsigned instructions;
+set `SDK_MAINNET_RPC_URL` or `RPC_URL` and run them without `SKIP_MAINNET_TESTS`.
+
+The comparison command checks all bundled JSON against the explicitly selected
+checkout’s `target/idl` files, including arguments, accounts, privileges, types
+and events. It does not establish which binary a live RPC serves. `sync()`
+returns a parse failure rather than throwing or rounding when a timestamp or
+weight cannot fit its numeric convenience field; raw account decoders retain
+full integer precision.

@@ -1,10 +1,17 @@
 # Token Pair Chart — Frontend Integration Guide
 
+**Version scope:** this guide describes the SDK-declared interface. The matching
+routes are absent from checked local backend `v5.1@a886497`; verify your deployed
+server before using them. Response/freshness/empty-state details below are
+interface expectations, not verified runtime guarantees. See
+[backend compatibility](BACKEND_COMPATIBILITY.md).
+
 ## Overview
 
 One endpoint for the range-picker charts on the pool creation page: the
 price of one token expressed in another token, over time, as a single
-line. Works for ANY two Solana mints — the backend has no notion of a
+line. The interface accepts two mint addresses; actual coverage depends on the server
+and its price data. It has no explicit
 "base token"; which token goes on which side is purely the frontend's
 choice.
 

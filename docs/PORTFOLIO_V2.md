@@ -1,12 +1,18 @@
 # Portfolio v2 — Frontend Integration Guide
 
+**Version scope:** this guide describes the SDK-declared interface. The matching
+routes are absent from checked local backend `v5.1@a886497`; verify your deployed
+server before using them. Response/freshness/empty-state details below are
+interface expectations, not verified runtime guarantees. See
+[backend compatibility](BACKEND_COMPATIBILITY.md).
+
 ## Overview
 
 Endpoints for the redesigned Portfolio page: the tabbed chart card
 (Net Worth / PnL / IL–Profit / XP with period switcher) and the on-chain
 activity feed (Recent Activity widget + full Activity page). The v1
-methods (`docs/PORTFOLIO.md`) keep working unchanged — migrate at your own
-pace. All v2 endpoints require authentication.
+methods are described in [Portfolio](PORTFOLIO.md). Do not enable v2 until your
+server implements its routes. The declared v2 flow uses authentication.
 
 ## Prerequisites
 

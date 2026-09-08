@@ -775,11 +775,9 @@
         "`set_token_active` CPI as the Treasury PDA (= `config.protocol_admin`).",
         "",
         "# Authority",
-        "Direction-dependent. `is_active = false` (deactivate) is open to",
-        "`treasury.admin` OR `treasury.supervisor` — that is the circuit-breaker",
-        "model, letting a supervisor stop accepting a compromised token without",
-        "full admin rights. `is_active = true` (reactivate) is `treasury.admin`",
-        "ONLY: declaring an asset safe again is a governance judgement."
+        "`treasury.admin` OR `treasury.supervisor` (when set) — the",
+        "circuit-breaker authority model, so a supervisor can stop accepting a",
+        "compromised token without full admin rights."
       ],
       "discriminator": [
         210,
@@ -1078,10 +1076,7 @@
         "Mirror of `freeze_pools`.",
         "",
         "# Authority",
-        "`treasury.admin` ONLY. Unlike `freeze_pools`, the supervisor cannot",
-        "reach this: the role may only ever restrict, never relax. Restarting a",
-        "pool that was frozen during an incident is a governance judgement, and",
-        "an exposed incident-response key must not be able to make it."
+        "`treasury.admin` OR `treasury.supervisor` (when set)."
       ],
       "discriminator": [
         19,
@@ -1185,9 +1180,6 @@
       "accounts": [
         {
           "name": "treasury"
-        },
-        {
-          "name": "mint"
         },
         {
           "name": "vault",
