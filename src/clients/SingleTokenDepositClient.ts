@@ -1,6 +1,6 @@
 import { Commitment, PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
-import { CubeConfig } from "../config";
+import { CofferConfig } from "../config";
 import { PoolInfo } from "../types/pool";
 import { SdkResult, err, ok } from "../types/result";
 import {
@@ -19,7 +19,7 @@ function unsupportedMessage(pool: PoolInfo, op: string): string {
 }
 
 export interface SingleTokenDepositClientParams {
-  config: CubeConfig;
+  config: CofferConfig;
   poolAddress: PublicKey;
   /** Optional — reuses an existing one if provided. */
   rpc?: RpcClient | {
@@ -45,7 +45,7 @@ export interface SingleTokenDepositClientParams {
  * `CubicPoolClient.singleTokenDeposit.*` which proxies here.
  */
 export class SingleTokenDepositClient {
-  readonly config: CubeConfig;
+  readonly config: CofferConfig;
   readonly poolAddress: PublicKey;
   private readonly poolClient: CubicPoolClient;
 

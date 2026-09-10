@@ -1,6 +1,6 @@
 import { ComputeBudgetProgram, Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import BN from "bn.js";
-import { CubeConfig } from "../config";
+import { CofferConfig } from "../config";
 import { SdkResult, err, ok } from "../types/result";
 import { BuiltTx, DeployPoolParams } from "../types/tx";
 import {
@@ -11,7 +11,7 @@ import {
 import { derivePoolPda } from "../utils/pda";
 
 export interface PoolFactoryClientParams {
-  config: CubeConfig;
+  config: CofferConfig;
 }
 
 export interface InitializeConfigParams {
@@ -24,7 +24,7 @@ export interface InitializeConfigParams {
  * by the deploy-pool UI flow and by the backend's admin tools.
  */
 export class PoolFactoryClient {
-  readonly config: CubeConfig;
+  readonly config: CofferConfig;
 
   constructor(params: PoolFactoryClientParams) {
     this.config = params.config;

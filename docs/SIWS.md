@@ -17,7 +17,7 @@ available for Ledger sign-in. See [backend scope](BACKEND_COMPATIBILITY.md).
 
 ## Prerequisites
 
-- `@cubee_ee/sdk` (already used for API calls)
+- `@coffer_so/sdk` (already used for API calls)
 - `@solana/wallet-adapter-react` (already used for wallet connection)
 
 No additional dependencies needed.
@@ -36,13 +36,13 @@ The SDK does **not** persist tokens. The frontend must:
 ### Setup with Callbacks
 
 ```tsx
-import { CubeBackendClient, AuthTokens } from "@cubee_ee/sdk";
+import { CofferBackendClient, AuthTokens } from "@coffer_so/sdk";
 
-const STORAGE_KEY_ACCESS = "cubee_access_token";
-const STORAGE_KEY_REFRESH = "cubee_refresh_token";
+const STORAGE_KEY_ACCESS = "coffer_access_token";
+const STORAGE_KEY_REFRESH = "coffer_refresh_token";
 
-const client = new CubeBackendClient({
-  apiEndpoint: "https://api.cubee.ee",
+const client = new CofferBackendClient({
+  apiEndpoint: "https://api.coffer.so",
 
   // Called when SDK auto-refreshes tokens after a 401
   onTokenRefreshed: (tokens: AuthTokens) => {

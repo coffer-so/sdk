@@ -20,8 +20,8 @@ A TypeScript return type does not prove that a route exists or validate its JSON
 | `getPortfolioChart/Activity/Holdings/Positions` | No matching portfolio v2 controllers |
 | Campaign methods | No matching campaign controllers |
 
-Construct the client with `new CubeBackendClient({ apiEndpoint })`. Its optional
-`apiKey` initializes Bearer authorization, not a global `X-Cube-Api-Key` header.
+Construct the client with `new CofferBackendClient({ apiEndpoint })`. Its optional
+`apiKey` initializes Bearer authorization, not a global `X-Coffer-Api-Key` header.
 Public discovery reads have no such global key requirement in the checked source.
 Wallet JWT, internal admin keys and Layer3 integration keys serve separate roles.
 

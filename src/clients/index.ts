@@ -1,5 +1,5 @@
 export * from "./RpcClient";
-export * from "./CubeBackendClient";
+export * from "./CofferBackendClient";
 export * from "./CubicPoolClient";
 export * from "./tx-builders";
 export * from "./versioned";

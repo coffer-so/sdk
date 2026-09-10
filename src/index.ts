@@ -3,12 +3,12 @@
 // See LICENSE at the repository root.
 
 /**
- * @cubee_ee/sdk — client library for the Cubic Pool AMM on Solana.
+ * @coffer_so/sdk — client library for the Cubic Pool AMM on Solana.
  *
  * Entry point barrel. Most consumers will want to import from this root:
  *
  * ```ts
- * import { CubicPoolClient, CubeBackendClient, getConfig } from "@cubee_ee/sdk";
+ * import { CubicPoolClient, CofferBackendClient, getConfig } from "@coffer_so/sdk";
  *
  * const cfg = getConfig("mainnet", { backendEndpoint: "https://api.coffer.so" });
  * const pool = new CubicPoolClient({ config: cfg, poolAddress });
@@ -89,7 +89,7 @@ export {
   SURGE_FEE_SEGMENTS,
 } from "./math/maxSelloff";
 export { RpcClient } from "./clients/RpcClient";
-export { CubeBackendClient } from "./clients/CubeBackendClient";
+export { CofferBackendClient } from "./clients/CofferBackendClient";
 export { CubicPoolClient } from "./clients/CubicPoolClient";
 export { SingleTokenDepositClient } from "./clients/SingleTokenDepositClient";
 export { PoolFactoryClient } from "./clients/PoolFactoryClient";
@@ -127,8 +127,8 @@ export { parseCubicPoolEvents } from "./parsers/events";
 export { BorshReader } from "./parsers/borsh";
 
 export type {
-  CubeConfig,
-  CubeConfigOverrides,
+  CofferConfig,
+  CofferConfigOverrides,
   ProgramIdKind,
   Network,
   NetworkPrograms,
@@ -167,7 +167,7 @@ export type {
   SetRangeManagerParams,
   SetRangeManagerConfigParams,
 } from "./types";
-export type { CubeProgram } from "./utils/errors";
+export type { CofferProgram } from "./utils/errors";
 export type {
   AllocationResult,
 } from "./math/singleToken";
@@ -182,7 +182,7 @@ export type {
 } from "./parsers";
 export type {
   RpcClientParams,
-  CubeBackendClientParams,
+  CofferBackendClientParams,
   StatsKind,
   StatsWindow,
   StatsSeriesPoint,
@@ -244,3 +244,19 @@ export type { SurgeCurve } from "./math/surgeFee";
 export { calculateInvariant } from "./math/weightedMath";
 
 export { MintExtension, MAX_KNOWN_MINT_EXTENSION, HARD_UNSUPPORTED_MINT_EXTENSIONS, DEFAULT_BANNED_EXTENSIONS, mintExtensionName, parseMintExtensions, unsupportedMintExtensions, bannedMintExtensions, describeUnsupportedToken, assertTokensSupported } from "./utils/extensions";
+
+// ── Legacy aliases (pre-rebrand identifiers) ────────────────────────────
+// The package was renamed @cubee_ee/sdk → @coffer_so/sdk. These aliases
+// keep old import names compiling so migration is just a package-name
+// swap. New code should use the Coffer* names.
+/** @deprecated Use `CofferBackendClient`. */
+export { CofferBackendClient as CubeBackendClient } from "./clients/CofferBackendClient";
+/** @deprecated Use `CofferConfig` / `CofferConfigOverrides`. */
+export type {
+  CofferConfig as CubeConfig,
+  CofferConfigOverrides as CubeConfigOverrides,
+} from "./config";
+/** @deprecated Use `CofferProgram`. */
+export type { CofferProgram as CubeProgram } from "./utils/errors";
+/** @deprecated Use `CofferBackendClientParams`. */
+export type { CofferBackendClientParams as CubeBackendClientParams } from "./clients";

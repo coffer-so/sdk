@@ -13,7 +13,7 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
 } from "@solana/spl-token";
 import BN from "bn.js";
-import { CubeConfig, MINIMUM_INITIAL_BPT } from "../config";
+import { CofferConfig, MINIMUM_INITIAL_BPT } from "../config";
 import { CUBIC_POOL_IDL, PROTOCOL_ADMIN_IDL, SINGLE_TOKEN_LIQUIDITY_IDL } from "../idl";
 import { PoolInfo } from "../types/pool";
 import {
@@ -164,7 +164,7 @@ function requireExplicitMinimums(
 // ============================================================
 
 export function buildSwapIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: SwapParams & { minAmountOut: BN }
 ): TransactionInstruction {
@@ -204,7 +204,7 @@ export function buildSwapIx(
 }
 
 export function buildSwapTx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: SwapParams & { minAmountOut: BN }
 ): BuiltTx {
@@ -235,7 +235,7 @@ export function buildSwapTx(
  * encoding change: the same bytes now mean "at most this much".
  */
 export function buildAddLiquidityIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: AddLiquidityParams
 ): TransactionInstruction {
@@ -308,7 +308,7 @@ export function buildAddLiquidityIx(
 }
 
 export function buildAddLiquidityTx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: AddLiquidityParams
 ): BuiltTx {
@@ -334,7 +334,7 @@ export function buildAddLiquidityTx(
 // ============================================================
 
 export function buildRemoveLiquidityIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: RemoveLiquidityParams
 ): TransactionInstruction {
@@ -388,7 +388,7 @@ export function buildRemoveLiquidityIx(
 }
 
 export function buildRemoveLiquidityTx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: RemoveLiquidityParams
 ): BuiltTx {
@@ -445,7 +445,7 @@ export const STLD_MAX_TOKENS = 10;
 export const STLD_DEPOSIT_CU_LIMIT = 1_400_000;
 
 export function buildSingleTokenDepositIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: SingleTokenDepositParams
 ): TransactionInstruction {
@@ -513,7 +513,7 @@ export function buildSingleTokenDepositIx(
  * in any pool token, so these cannot be trimmed to just the input token.
  */
 export function buildSingleTokenDepositAtaIxs(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   user: PublicKey
 ): TransactionInstruction[] {
@@ -584,7 +584,7 @@ export function buildSingleTokenDepositAtaIxs(
  * deposit leg through the pool's ALT via `compileBuiltTx`.
  */
 export function buildSingleTokenDepositTx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: SingleTokenDepositParams
 ): BuiltTx {
@@ -617,7 +617,7 @@ export function buildSingleTokenDepositTx(
  * slot it was extended, so a freshly-created table needs a slot to settle.
  */
 export function buildSingleTokenDepositTxs(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PoolInfo,
   params: SingleTokenDepositParams
 ): { setup: BuiltTx | null; deposit: BuiltTx } {
@@ -669,7 +669,7 @@ export function buildSingleTokenDepositTxs(
  * the outer `invoke_signed` signature.
  */
 export function buildInitializeConfigIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   params: { config: PublicKey; payer: PublicKey; defaultProtocolFeeRate: number }
 ): TransactionInstruction {
   const [treasuryPda] = PublicKey.findProgramAddressSync(
@@ -713,7 +713,7 @@ export function buildInitializeConfigIx(
  * generated keypair — the account is `init`, not a PDA).
  */
 export function buildPoolInitializeConfigIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   params: { config: PublicKey; admin: PublicKey; defaultProtocolFeeRate: number }
 ): TransactionInstruction {
   const [treasuryPda] = PublicKey.findProgramAddressSync(
@@ -739,7 +739,7 @@ export function buildPoolInitializeConfigIx(
 }
 
 export function buildInitializeCubicPoolIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   params: DeployPoolParams
 ): TransactionInstruction {
   const tokenProgram = params.bptTokenProgram ?? TOKEN_PROGRAM_ID;
@@ -787,7 +787,7 @@ export function buildInitializeCubicPoolIx(
   });
 }
 
-export function buildDeployPoolTx(cfg: CubeConfig, params: DeployPoolParams): BuiltTx {
+export function buildDeployPoolTx(cfg: CofferConfig, params: DeployPoolParams): BuiltTx {
   return {
     instructions: [
       ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
@@ -851,7 +851,7 @@ export function deriveAltAddress(authority: PublicKey, recentSlot: BN): PublicKe
  * least one slot before sending any v0 tx that references it.
  */
 export function buildInitializePoolAltIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   params: InitializePoolAltParams,
 ): TransactionInstruction {
   const altAddr = deriveAltAddress(params.authority, params.recentSlot);
@@ -881,7 +881,7 @@ export function buildInitializePoolAltIx(
 }
 
 export function buildInitializePoolAltTx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   params: InitializePoolAltParams,
 ): BuiltTx & { lookupTable: PublicKey } {
   return {
@@ -913,7 +913,7 @@ export function buildInitializePoolAltTx(
  * disabled state.
  */
 export function buildSetRangeManagerIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PublicKey,
   params: SetRangeManagerParams,
 ): TransactionInstruction {
@@ -937,7 +937,7 @@ export function buildSetRangeManagerIx(
  * list. Both are required; pass `0` to leave a bound disabled.
  */
 export function buildSetRangeManagerConfigIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PublicKey,
   params: SetRangeManagerConfigParams,
 ): TransactionInstruction {
@@ -971,7 +971,7 @@ export function buildSetRangeManagerConfigIx(
  * `pool_enabled` is false.
  */
 export function buildRangeManagerUpdateIx(
-  cfg: CubeConfig,
+  cfg: CofferConfig,
   pool: PublicKey,
   params: RangeManagerUpdateParams,
 ): TransactionInstruction {
@@ -994,12 +994,12 @@ export function buildRangeManagerUpdateIx(
 }
 
 /** Set the pool-local swap fee (hundredths of a basis point). */
-export function buildSetSwapFeeRateIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey, swapFeeRate: number): TransactionInstruction {
+export function buildSetSwapFeeRateIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, swapFeeRate: number): TransactionInstruction {
   return buildContractInstruction(cfg, "cubicPool", "set_swap_fee_rate", { swap_fee_rate: swapFeeRate }, { pool, authority });
 }
 
 /** Replace every token's sell-off policy, including both kink parameters. */
-export function buildSetMaxSelloffIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey, params: SelloffParams[]): TransactionInstruction {
+export function buildSetMaxSelloffIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, params: SelloffParams[]): TransactionInstruction {
   return buildContractInstruction(cfg, "cubicPool", "set_max_selloff", { params: params.map(p => ({
     max_selloff_pct: p.maxSelloffPct, period_length: p.periodLength,
     fee_threshold_pct: p.feeThresholdPct, fee_slope_low_pct: p.feeSlopeLowPct,
@@ -1008,24 +1008,24 @@ export function buildSetMaxSelloffIx(cfg: CubeConfig, pool: PublicKey, authority
   })) }, { pool, authority });
 }
 
-export function buildInitiatePoolAdminTransferIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey, newAdmin: PublicKey): TransactionInstruction {
+export function buildInitiatePoolAdminTransferIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, newAdmin: PublicKey): TransactionInstruction {
   return buildContractInstruction(cfg, "cubicPool", "initiate_pool_admin_transfer", { new_admin: newAdmin }, { pool, authority });
 }
 
-export function buildAcceptPoolAdminTransferIx(cfg: CubeConfig, pool: PublicKey, newAdmin: PublicKey): TransactionInstruction {
+export function buildAcceptPoolAdminTransferIx(cfg: CofferConfig, pool: PublicKey, newAdmin: PublicKey): TransactionInstruction {
   return buildContractInstruction(cfg, "cubicPool", "accept_pool_admin_transfer", {}, { pool, new_admin: newAdmin });
 }
 
-export function buildCancelPoolAdminTransferIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
+export function buildCancelPoolAdminTransferIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
   return buildContractInstruction(cfg, "cubicPool", "cancel_pool_admin_transfer", {}, { pool, authority });
 }
 
 /** Permanently renounce the pool-local admin role. */
-export function buildDisablePoolAdminIx(cfg: CubeConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
+export function buildDisablePoolAdminIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
   return buildContractInstruction(cfg, "cubicPool", "disable_pool_admin", {}, { pool, authority });
 }
 
-export function buildGetPoolInfoIx(cfg: CubeConfig, pool: PublicKey): TransactionInstruction {
+export function buildGetPoolInfoIx(cfg: CofferConfig, pool: PublicKey): TransactionInstruction {
   return buildContractInstruction(cfg, "cubicPool", "get_pool_info", {}, { pool });
 }
 

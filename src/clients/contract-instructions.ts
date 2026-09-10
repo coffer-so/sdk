@@ -1,7 +1,7 @@
 import { BorshInstructionCoder, Idl } from "@coral-xyz/anchor";
 import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import BN from "bn.js";
-import { CubeConfig } from "../config";
+import { CofferConfig } from "../config";
 import { IDLS } from "../idl";
 import { ContractInstructionMap, ContractProgram } from "../types/contracts";
 
@@ -25,7 +25,7 @@ const coders = new Map<ContractProgram, BorshInstructionCoder>();
  * governance, rather than sending a cubicPool instruction with a PDA signer.
  */
 export function buildContractInstruction<P extends ContractProgram, I extends InstructionName<P>>(
-  config: CubeConfig,
+  config: CofferConfig,
   program: P,
   instruction: I,
   args: ContractInstructionArgs<P, I>,

@@ -113,7 +113,7 @@ late — a "%" off a sign-flipping base is meaningless). Render it as "—";
 
 ### 2. Activity Feed (`getPortfolioActivity`)
 
-Paginated feed of the user's actions in Cube pools, newest first.
+Paginated feed of the user's actions in Coffer pools, newest first.
 
 ```ts
 // Recent Activity widget — 4 latest events
@@ -147,10 +147,10 @@ whatever the order.
 | Type | Row example from the design | What to use |
 |---|---|---|
 | `added` / `removed` | `SOL / USDC · + Added · +$120.00` | `pool.tokens` icons, `pool.feePercent` subtitle, signed `valueUsd` |
-| `swap` | `USDC → SOL · Swap · $50.00` | `swap.tokenIn` / `swap.tokenOut` (mint, symbol, logo); subtitle "via Cube router" is static frontend text |
+| `swap` | `USDC → SOL · Swap · $50.00` | `swap.tokenIn` / `swap.tokenOut` (mint, symbol, logo); subtitle "via Coffer router" is static frontend text |
 | `zap` | `USDC / USDT · ⚡ Zap in · +$80.00` | like `added`; asset count = `pool.tokens.length` |
 | `sent` / `received` | `USDC / USDT · ↗ Sent · −$500.00` | `transfer.counterparty` for the `→ 4nPz…3xLm` subtitle; `valueUsd` is priced at the HISTORICAL LP-token price of the transfer moment |
-| `deployed` | `CUBE / USDC · ◇ Deployed` | `pool.weights` for the "80/20 weights" subtitle; `valueUsd` is `null` by design (the seed deposit shows up as its own `added` row) |
+| `deployed` | `COFFER / USDC · ◇ Deployed` | `pool.weights` for the "80/20 weights" subtitle; `valueUsd` is `null` by design (the seed deposit shows up as its own `added` row) |
 
 Every row links to the transaction via `signature`. There is NO `fees`
 event type: LP fees auto-reinvest continuously on every swap (no claim

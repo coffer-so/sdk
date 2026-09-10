@@ -7,14 +7,14 @@ import { SdkError, SdkErrorCode } from "../types/result";
  * Which on-chain program produced an error code.
  *
  * Anchor numbers every program's errors from 6000, so a bare custom-error
- * code is ambiguous across the three Cube programs — `6030` is
+ * code is ambiguous across the three Coffer programs — `6030` is
  * `InvalidTokenProgram` in cubic-pool but `TokenExtensionsUnsupported` in
  * single-token-liquidity. Pass this to {@link toSdkError} when you know
  * which program the failing instruction belonged to; without it the
  * cubic-pool table is used, which is the right default for swap / add /
  * remove but WRONG for a zap or an admin call.
  */
-export type CubeProgram = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin";
+export type CofferProgram = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin";
 
 const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InvalidTokenCount: "invalid_input",
@@ -116,7 +116,7 @@ function buildErrorTable(errors: AnchorIdlError[]): ErrorTable {
   );
 }
 
-const ERROR_TABLES: Record<CubeProgram, ErrorTable> = {
+const ERROR_TABLES: Record<CofferProgram, ErrorTable> = {
   cubicPool: buildErrorTable(cubicPoolIdl.errors as AnchorIdlError[]),
   protocolAdmin: buildErrorTable(protocolAdminIdl.errors as AnchorIdlError[]),
   singleTokenLiquidity: buildErrorTable(singleTokenLiquidityIdl.errors as AnchorIdlError[]),
@@ -129,14 +129,14 @@ const CONTRACT_ERROR_MAP = ERROR_TABLES.cubicPool;
  * cleanly-typed SdkError. Used by safeCall wrappers so callers always
  * get structured errors, never exceptions.
  *
- * @param program Which Cube program the failing instruction belonged to.
+ * @param program Which Coffer program the failing instruction belonged to.
  *   Anchor numbers each program's errors from 6000 independently, so the
  *   same code means different things in different programs. Defaults to
  *   `"cubicPool"` (correct for swap / add / remove liquidity). Pass
  *   `"singleTokenLiquidity"` for zap failures and `"protocolAdmin"` for
  *   treasury-routed admin calls, or the message will be plausible and wrong.
  */
-export function toSdkError(cause: unknown, program: CubeProgram = "cubicPool"): SdkError {
+export function toSdkError(cause: unknown, program: CofferProgram = "cubicPool"): SdkError {
   // Anchor-encoded program errors
   const msg = extractMessage(cause);
   const code = extractErrorCode(msg);
@@ -192,7 +192,7 @@ function extractErrorCode(msg: string): number | null {
 }
 
 /** @internal Exported for tests */
-export function contractErrorMapForTests(program: CubeProgram = "cubicPool"): ErrorTable {
+export function contractErrorMapForTests(program: CofferProgram = "cubicPool"): ErrorTable {
   return ERROR_TABLES[program];
 }
 
@@ -202,7 +202,7 @@ export function contractErrorMapForTests(program: CubeProgram = "cubicPool"): Er
  */
 export function describeProgramError(
   code: number,
-  program: CubeProgram = "cubicPool"
+  program: CofferProgram = "cubicPool"
 ): { name: string; message: string; sdkCode: SdkErrorCode } | undefined {
   const hit = ERROR_TABLES[program]?.[code];
   if (!hit) return undefined;

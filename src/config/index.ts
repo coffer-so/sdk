@@ -16,7 +16,7 @@ export * from "./tokens";
  * Root SDK configuration. Passed into every Client class at construction.
  * Immutable after creation — rebuild if you need to switch networks.
  */
-export interface CubeConfig {
+export interface CofferConfig {
   network: Network;
   programs: NetworkPrograms;
   defaults: {
@@ -35,11 +35,11 @@ export interface CubeConfig {
   };
   /** Optional token registry keyed by mint pubkey string. */
   tokens?: Record<string, TokenInfo>;
-  /** Optional backend endpoint; consumed by CubeBackendClient. */
+  /** Optional backend endpoint; consumed by CofferBackendClient. */
   backendEndpoint?: string;
 }
 
-export interface CubeConfigOverrides {
+export interface CofferConfigOverrides {
   rpcEndpoint?: string;
   rpcEndpoints?: string[];
   rpcTimeoutMs?: number;
@@ -50,8 +50,8 @@ export interface CubeConfigOverrides {
   tokens?: Record<string, TokenInfo>;
 }
 
-/** Build a CubeConfig for the named network with optional overrides. */
-export function getConfig(network: Network, overrides: CubeConfigOverrides = {}): CubeConfig {
+/** Build a CofferConfig for the named network with optional overrides. */
+export function getConfig(network: Network, overrides: CofferConfigOverrides = {}): CofferConfig {
   const rpcEndpoints = resolveRpcEndpoints(network, overrides);
   return {
     network,
@@ -69,7 +69,7 @@ export function getConfig(network: Network, overrides: CubeConfigOverrides = {})
   };
 }
 
-function resolveRpcEndpoints(network: Network, overrides: CubeConfigOverrides): string[] {
+function resolveRpcEndpoints(network: Network, overrides: CofferConfigOverrides): string[] {
   if (overrides.rpcEndpoints && overrides.rpcEndpoints.length > 0) {
     return dedupe(overrides.rpcEndpoints);
   }
@@ -106,6 +106,6 @@ export const MIN_SLIPPAGE_HBPS = 10; // 0.001 %
 
 export type ProgramIdKind = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin";
 
-export function programId(cfg: CubeConfig, kind: ProgramIdKind): PublicKey {
+export function programId(cfg: CofferConfig, kind: ProgramIdKind): PublicKey {
   return cfg.programs[kind];
 }

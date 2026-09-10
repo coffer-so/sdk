@@ -11,7 +11,7 @@ import {
 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
-import { CubeConfig } from "../config";
+import { CofferConfig } from "../config";
 import { PROTOCOL_ADMIN_IDL } from "../idl";
 import { buildContractInstruction } from "./contract-instructions";
 import { deriveAltAddress } from "./tx-builders";
@@ -47,12 +47,12 @@ export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
  */
 export class AdminClient {
   readonly program: Program;
-  readonly config: CubeConfig;
+  readonly config: CofferConfig;
   readonly cubicPoolProgramId: PublicKey;
   readonly stldProgramId: PublicKey;
   readonly treasuryPda: PublicKey;
 
-  constructor(opts: { config: CubeConfig; provider: anchor.AnchorProvider }) {
+  constructor(opts: { config: CofferConfig; provider: anchor.AnchorProvider }) {
     const { config, provider } = opts;
     this.config = config;
     const idl = JSON.parse(JSON.stringify(PROTOCOL_ADMIN_IDL)) as any;

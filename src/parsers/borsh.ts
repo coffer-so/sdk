@@ -2,7 +2,7 @@ import BN from "bn.js";
 import { PublicKey } from "@solana/web3.js";
 
 /**
- * Minimal Borsh-compatible reader. Enough to decode the Cube contract
+ * Minimal Borsh-compatible reader. Enough to decode the Coffer contract
  * event structs (Pubkey × N, u8/u16/u32/u64/i64, bool, Vec<u64>,
  * Vec<Pubkey>). Avoids pulling a borsh dep into the SDK's hot path.
  */

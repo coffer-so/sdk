@@ -18,7 +18,7 @@ provides autocomplete and compile-time types. All fields are also validated at
 runtime. Pass explicit remaining-account metas where the instruction needs them.
 
 ```ts
-import { buildContractInstruction } from "@cubee_ee/sdk";
+import { buildContractInstruction } from "@coffer_so/sdk";
 import { SystemProgram } from "@solana/web3.js";
 
 const ix = buildContractInstruction(config, "protocolAdmin", "set_supervisor",

@@ -1,8 +1,8 @@
-# @cubee_ee/sdk
+# @coffer_so/sdk
 
-[![npm](https://img.shields.io/npm/v/@cubee_ee/sdk.svg)](https://www.npmjs.com/package/@cubee_ee/sdk)
+[![npm](https://img.shields.io/npm/v/@coffer_so/sdk.svg)](https://www.npmjs.com/package/@coffer_so/sdk)
 
-📦 **npm**: <https://www.npmjs.com/package/@cubee_ee/sdk>
+📦 **npm**: <https://www.npmjs.com/package/@coffer_so/sdk>
 
 Client library for the Cubic Pool AMM on Solana. Targeted at both frontend
 and backend consumers; no bundler-specific code.
@@ -20,9 +20,9 @@ All three IDLs match that revision. Typed `buildContractInstruction` covers all
 ## Install
 
 ```bash
-npm install @cubee_ee/sdk
+npm install @coffer_so/sdk
 # or
-yarn add @cubee_ee/sdk
+yarn add @coffer_so/sdk
 ```
 
 Workspace-local development (linking against the in-repo source):
@@ -38,7 +38,7 @@ From sibling packages:
 ```json
 {
   "dependencies": {
-    "@cubee_ee/sdk": "file:../sdk"
+    "@coffer_so/sdk": "file:../sdk"
   }
 }
 ```
@@ -46,7 +46,7 @@ From sibling packages:
 ## Quick start
 
 ```ts
-import { getConfig, CubicPoolClient, CubeBackendClient } from "@cubee_ee/sdk";
+import { getConfig, CubicPoolClient, CofferBackendClient } from "@coffer_so/sdk";
 import { PublicKey } from "@solana/web3.js";
 
 const config = getConfig("mainnet", {
@@ -81,13 +81,13 @@ const info = res.data;
 ## Architecture
 
 ```
-config/       CubeConfig, program IDs per network, token registry
+config/       CofferConfig, program IDs per network, token registry
 types/        Result<T> shape, PoolInfo, SwapQuote, SingleTokenDepositQuote,
               CubicPoolEvent
 utils/        Error mapping, retry wrapper (safeCall), PDA helpers
 math/         Pure math — port of cubic-pool + stld Rust math modules
 parsers/      Binary layout decoders for CubicPool / Mint / events
-clients/      RpcClient, CubeBackendClient, CubicPoolClient
+clients/      RpcClient, CofferBackendClient, CubicPoolClient
 idl/          Anchor IDL exports generated from the current contracts
 examples/     Runnable scripts demonstrating each capability
 ```
@@ -131,7 +131,7 @@ Builders return instructions. Call `compileBuiltTx` to fetch the pool's ALT and
 compile a v0 transaction. The wallet supplies signatures and the caller sends it.
 
 ```ts
-import { compileBuiltTx } from "@cubee_ee/sdk";
+import { compileBuiltTx } from "@coffer_so/sdk";
 
 const built = client.buildRemoveLiquidityTx({ user, bptAmount, minimumTokenAmounts });
 if (!built.ok) throw new Error(built.error.humanMessage);
@@ -143,7 +143,7 @@ if (!compiled.ok) throw new Error(compiled.error.humanMessage);
 ### Provisioning an ALT for a new pool
 
 ```ts
-import { buildInitializePoolAltTx } from "@cubee_ee/sdk";
+import { buildInitializePoolAltTx } from "@coffer_so/sdk";
 
 const recentSlot = new BN(await connection.getSlot("finalized"));
 const { instructions, lookupTable } = buildInitializePoolAltTx(config, {
@@ -202,7 +202,7 @@ See `examples/*.ts`:
 - `02-fetch-pool.ts` — parse pool state
 - `03-quote-swap.ts` — swap quote with slippage
 - `06-single-token-deposit.ts` — single-token deposit quote
-- `08-backend-stats.ts` — statistics via CubeBackendClient
+- `08-backend-stats.ts` — statistics via CofferBackendClient
 
 Run: `npx ts-node examples/<name>.ts`.
 
@@ -233,7 +233,7 @@ insufficient funds) short-circuit.
 | `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 29 protocol-admin instructions |
 | Generic ABI | `buildContractInstruction` for all 59 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 60 events |
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, STLD, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation |
-| RPC/HTTP | `RpcClient`, `CubeBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
+| RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 
 `getCached()` is the actual cache accessor; there is no `getState()`, `swap()`,
 or `getSwapQuote()` method. `pool.singleTokenDeposit` is a client getter, not a

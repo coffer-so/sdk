@@ -28,14 +28,14 @@ Every authenticated user has a referral code (their wallet address by default, o
 const status = await client.getReferralStatus();
 if (status.ok) {
   const code = status.data.customCodes[0] ?? status.data.referralCode;
-  const link = `https://cubee.ee?ref=${code}`;
+  const link = `https://coffer.so?ref=${code}`;
   // Share this link
 }
 ```
 
 ### 2. Open a Referral Link
 
-When a new user visits `https://cubee.ee?ref=<code>`, the frontend should:
+When a new user visits `https://coffer.so?ref=<code>`, the frontend should:
 
 1. Extract `ref` from the URL query params
 2. Store it (e.g. in `localStorage`) — the user hasn't signed in yet
@@ -46,26 +46,26 @@ When a new user visits `https://cubee.ee?ref=<code>`, the frontend should:
 const params = new URLSearchParams(window.location.search);
 const refCode = params.get("ref");
 if (refCode) {
-  localStorage.setItem("cubee_ref_code", refCode);
+  localStorage.setItem("coffer_ref_code", refCode);
 }
 ```
 
 ### 3. Bind as a Referral (after sign-in)
 
 ```ts
-const refCode = localStorage.getItem("cubee_ref_code");
+const refCode = localStorage.getItem("coffer_ref_code");
 if (refCode) {
   const res = await client.bindReferral(refCode);
   if (res.ok) {
     // Successfully bound — clear stored code
-    localStorage.removeItem("cubee_ref_code");
+    localStorage.removeItem("coffer_ref_code");
   } else {
     // Possible errors:
     // - "Cannot refer yourself"
     // - "Already bound to a referrer"
     // - "Invalid referral code"
     console.warn(res.error.humanMessage);
-    localStorage.removeItem("cubee_ref_code");
+    localStorage.removeItem("coffer_ref_code");
   }
 }
 ```
@@ -130,7 +130,7 @@ Paginated list of your direct referrals (L1). Requires auth.
 ## Referral Link Format
 
 ```
-https://cubee.ee?ref=<code>
+https://coffer.so?ref=<code>
 ```
 
 Where `<code>` is either:

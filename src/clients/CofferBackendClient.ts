@@ -2,7 +2,7 @@ import { SdkResult, err, ok } from "../types/result";
 import { PoolSummary } from "../types/pool";
 import { safeCall } from "../utils/retry";
 
-export interface CubeBackendClientParams {
+export interface CofferBackendClientParams {
   apiEndpoint: string;
   apiKey?: string;
   defaultHeaders?: Record<string, string>;
@@ -683,7 +683,7 @@ export interface AuthTokens {
 }
 
 /**
- * REST wrapper around the Cube backend. Every method is a SdkResult; no
+ * REST wrapper around the Coffer backend. Every method is a SdkResult; no
  * exceptions escape. If a request fails, the result carries a
  * human-readable error plus the original cause.
  *
@@ -691,7 +691,7 @@ export interface AuthTokens {
  * to refresh tokens via POST /api/auth/refresh. If successful, the
  * original request is retried once with the new access token.
  */
-export class CubeBackendClient {
+export class CofferBackendClient {
   private readonly endpoint: string;
   private readonly headers: Record<string, string>;
   private refreshToken: string | null = null;
@@ -699,7 +699,7 @@ export class CubeBackendClient {
   private readonly onTokenRefreshed?: (tokens: AuthTokens) => void;
   private readonly onAuthExpired?: () => void;
 
-  constructor(params: CubeBackendClientParams) {
+  constructor(params: CofferBackendClientParams) {
     this.endpoint = params.apiEndpoint.replace(/\/$/, "");
     this.headers = {
       "Content-Type": "application/json",
@@ -1391,7 +1391,7 @@ export class CubeBackendClient {
 
   /**
    * Fetch a response envelope of the form `{ data: T, ... }` and unwrap
-   * the `.data` field. The existing Cube backend wraps most endpoints
+   * the `.data` field. The existing Coffer backend wraps most endpoints
    * this way.
    */
   private async getDataField<T>(path: string): Promise<SdkResult<T>> {

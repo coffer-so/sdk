@@ -2,7 +2,7 @@ import { simulatePoolSwap, quoteTimestamp, u64 } from "./quote-math";
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { PublicKey, Commitment, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
 import BN from "bn.js";
-import { CubeConfig } from "../config";
+import { CofferConfig } from "../config";
 import { PoolInfo, PoolTokenInfo } from "../types/pool";
 import { SdkResult, err, ok } from "../types/result";
 import { AddLiquidityQuote, SwapQuote, SingleTokenDepositQuote } from "../types/tx";
@@ -48,7 +48,7 @@ import {
 import { SingleTokenDepositClient } from "./SingleTokenDepositClient";
 
 export interface CubicPoolClientParams {
-  config: CubeConfig;
+  config: CofferConfig;
   poolAddress: PublicKey;
   rpc?:
     | RpcClient
@@ -67,7 +67,7 @@ export interface CubicPoolClientParams {
  * quote / buildTx methods off the cached snapshot.
  */
 export class CubicPoolClient {
-  readonly config: CubeConfig;
+  readonly config: CofferConfig;
   readonly poolAddress: PublicKey;
   readonly rpc: RpcClient;
 
