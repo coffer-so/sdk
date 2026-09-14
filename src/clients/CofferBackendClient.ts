@@ -697,6 +697,55 @@ export interface PoolChartResponse {
   points: PoolChartPoint[];
 }
 
+// ── Pool token chart types (pool page composition rows) ──
+
+/** Curve price bounds of one pool token, in base-token units. */
+export interface PoolTokenPriceBounds {
+  /** Lowest price the curve allows. */
+  min: number;
+  /** Current marginal price. */
+  spot: number;
+  /** Highest price the curve allows; `null` means unbounded. */
+  max: number | null;
+}
+
+export interface PoolTokenChartEntry {
+  mint: string;
+  symbol: string | null;
+  /** Position in the pool; the base token is index 0. */
+  orderIndex: number;
+  /** Weight in percent (e.g. 33.33). */
+  weight: number;
+  /**
+   * Price-range slider bounds. `null` for the base token (nothing to
+   * quote it against) and when the pair has no usable state — render "—".
+   *
+   * These MOVE: they are derived from live virtual/actual balances, not
+   * stored settings, so every swap shifts them.
+   */
+  bounds: PoolTokenPriceBounds | null;
+  /** Live price in base-token units per 1 token. */
+  currentRatio: number;
+  /** Change over the range; `pct` is null on a zero base. */
+  change: { abs: number; pct: number | null };
+  /** `[unixSeconds, ratio]` ascending. Empty for the base token. */
+  series: Array<[number, number]>;
+}
+
+/**
+ * Every pool token priced in the pool's base token — the composition
+ * table's price column and its per-row chart, in one response.
+ */
+export interface PoolTokenChartResponse {
+  poolAddress: string;
+  range: PairChartRange;
+  /** Spacing between series points, seconds. 0 when nothing is charted. */
+  granularitySec: number;
+  /** The token every series is quoted in — the pool's first token. */
+  base: { mint: string; symbol: string | null };
+  tokens: PoolTokenChartEntry[];
+}
+
 // ── Auth types ──
 
 export interface NonceResponse {
@@ -1279,6 +1328,32 @@ export class CofferBackendClient {
     const query = qs.toString();
     return this.get<PoolChartResponse>(
       `/api/pools/${poolAddress}/chart${query ? `?${query}` : ""}`,
+    );
+  }
+
+  /**
+   * Price of each pool token quoted in the pool's BASE token (its first
+   * token), plus the curve bounds the price-range slider shows. No auth.
+   *
+   * Use this instead of `getTokenPairChart` on an existing pool: the pool
+   * already fixes both sides of every pair, so the base is resolved
+   * server-side and each row comes back correctly paired. One call covers
+   * the whole composition table; pass `token` to refresh a single row.
+   *
+   * The base token's own row is included for ordering, with `ratio: 1`,
+   * an empty `series` and no `bounds` — there is nothing to quote it
+   * against.
+   */
+  getPoolTokenChart(
+    poolAddress: string,
+    options?: { range?: PairChartRange; token?: string },
+  ): Promise<SdkResult<PoolTokenChartResponse>> {
+    const qs = new URLSearchParams();
+    if (options?.range) qs.set("range", options.range);
+    if (options?.token) qs.set("token", options.token);
+    const query = qs.toString();
+    return this.get<PoolTokenChartResponse>(
+      `/api/pools/${poolAddress}/token-chart${query ? `?${query}` : ""}`,
     );
   }
 

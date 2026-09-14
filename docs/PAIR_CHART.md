@@ -63,17 +63,21 @@ for (const [t, price] of series) {
 
 ## Ranges and point counts
 
-Point counts are deliberately small — the creation page fetches one
-chart per pool token and refetches all of them when the user flips the
-base token:
+Grids are sized to match the pool page's other charts, so two cards on
+one screen carry comparable detail:
 
 | Range | Step | Points |
 |---|---|---|
-| `1d` | 1 hour | 25 |
-| `1w` | 6 hours | 29 |
-| `1m` | 1 day | 31 |
-| `1y` | 1 week | ~53 |
-| `all` | 1 week | ~53 |
+| `1d` | 30 minutes | 49 |
+| `1w` | 2 hours | 85 |
+| `1m` | 6 hours | 121 |
+| `1y` | 3 days | ~122 |
+| `all` | 3 days | ~122 |
+
+A denser grid costs nothing upstream: the USD price series behind each
+token is fetched once per mint and cached, so a finer step only resamples
+data already in hand. The creation page's refetch on every base-token
+flip is served from that cache.
 
 `all` is capped at one year: historical prices for arbitrary mints are
 only available that far back. Read `granularitySec` rather than
