@@ -656,6 +656,47 @@ export interface TokenPairChartResponse {
   series: Array<[number, number]>;
 }
 
+// ── Pool chart types (pool page) ──
+
+export type PoolChartMetric = "apy" | "tvl" | "volume" | "fees";
+export type PoolChartRange = "24h" | "1w" | "1m" | "1y" | "all";
+/** Rolling window the APY is computed over. Ignored for other metrics. */
+export type PoolChartBasis = "24h" | "7d";
+
+/** One point of a pool series: `t` is unix MILLISECONDS. */
+export interface PoolChartPoint {
+  t: number;
+  v: number;
+}
+
+/**
+ * Historical series for a single pool — the chart card on the pool page.
+ *
+ * Values are percent for `apy` and USD for `tvl` / `volume` / `fees`.
+ * `fees` is the TOTAL fee flow (LP + protocol share) per point.
+ */
+export interface PoolChartResponse {
+  poolAddress: string;
+  metric: PoolChartMetric;
+  range: PoolChartRange;
+  /** Spacing between points, seconds — the grid is uniform. */
+  granularitySec: number;
+  /** Echo of the APY basis; absent for non-APY metrics. */
+  basis?: PoolChartBasis;
+  /**
+   * Latest value of the series — render this as the headline rather than
+   * reading `points.at(-1)`, so the number always matches the line.
+   */
+  current: number;
+  /**
+   * Change across the range. `pct` is null when the range starts at zero
+   * (a pool with no activity yet) — render "—" instead of an infinity.
+   */
+  change: { abs: number; pct: number | null };
+  /** Ascending by time. */
+  points: PoolChartPoint[];
+}
+
 // ── Auth types ──
 
 export interface NonceResponse {
@@ -1207,6 +1248,37 @@ export class CofferBackendClient {
     const qs = new URLSearchParams({ a, b, range });
     return this.get<TokenPairChartResponse>(
       `/api/tokens/pair-chart?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * Historical series for ONE pool — the chart card on the pool page.
+   * No auth required.
+   *
+   * The APY series uses the same compounded formula as `Pool.apy`, so its
+   * trailing point matches the APY shown on the pool card (`basis: "24h"`,
+   * the default). Pass `basis: "7d"` for a smoother line — but note it
+   * will then read higher/lower than the card's number.
+   *
+   * Points are computed from 10-minute stats buckets on a uniform grid
+   * (~150 points per range, see `granularitySec`) and cached server-side
+   * for two minutes, so polling costs nothing extra.
+   */
+  getPoolChart(
+    poolAddress: string,
+    options?: {
+      metric?: PoolChartMetric;
+      range?: PoolChartRange;
+      basis?: PoolChartBasis;
+    },
+  ): Promise<SdkResult<PoolChartResponse>> {
+    const qs = new URLSearchParams();
+    if (options?.metric) qs.set("metric", options.metric);
+    if (options?.range) qs.set("range", options.range);
+    if (options?.basis) qs.set("basis", options.basis);
+    const query = qs.toString();
+    return this.get<PoolChartResponse>(
+      `/api/pools/${poolAddress}/chart${query ? `?${query}` : ""}`,
     );
   }
 
