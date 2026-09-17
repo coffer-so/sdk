@@ -1,5 +1,47 @@
 # XP Snapshots — Frontend Integration Guide
 
+## Quick start
+
+Frozen results of finished leaderboard epochs and swap-XP campaigns. Public,
+no auth, never recomputed — cache successful responses forever.
+
+```ts
+// Which epochs are frozen? (same call the countdown already makes)
+const epoch = await client.getLeaderboardEpoch();
+const frozen = epoch.ok ? epoch.data.epochs.filter((e) => e.finalized) : [];
+
+// The board as it stood when epoch 1 ended — paginated like getLeaderboard
+const board = await client.getLeaderboardEpochSnapshot(1, page, 10);
+// board.data: [{ place, address, points, epochPoints }], board.data.totalUsers
+
+// One wallet's place IN THAT SNAPSHOT (not its live rank)
+const me = await client.getLeaderboardEpochUser(1, wallet);
+// me.data: { place, points, epochPoints, totalUsers } — 404 if not on the board then
+
+// Campaigns: which ones have final results?
+const history = await client.getCampaignHistory();
+// [{ campaign, ended, finalized, finalizedAt, prizes, totalRanked, ... }] newest first
+
+// Final standings with prizes already resolved per row
+const top = await client.getCampaignSnapshotTop("swap-xp-2", page, 10);
+// top.data: [{ place, address, swapXp, swapVolumeUsd, prizeUsd, joinedAt }]
+
+// One wallet's campaign result, by address (no SIWS needed)
+const mine = await client.getCampaignSnapshotUser("swap-xp-2", wallet);
+// { participating, place | null, swapXp, prizeUsd, totalRanked }
+```
+
+Two rules of thumb:
+
+- **A finished epoch is frozen within ~10 minutes** of its boundary. A
+  campaign is `ended` at once but `finalized` **24 hours** later; until then
+  use the live `getCampaignTop` / `getCampaignRank` for it.
+- **Every "not yet" is a plain 404** (`res.ok === false`) — current epoch,
+  unfinalized campaign, unknown slug, wallet absent from the snapshot. Show
+  the empty state; do not retry in a loop.
+
+Details, field semantics and caching keys follow.
+
 ## Overview
 
 Two things in Coffer have a natural "final result": a leaderboard **epoch**
