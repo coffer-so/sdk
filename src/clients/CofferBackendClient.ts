@@ -165,7 +165,14 @@ export interface LeaderboardEpochResponse {
   };
   currentRates: {
     swapXpPerUsdLpFee: number;
+    /** XP per $1 of liquidity per 3-hour accrual tick. */
     lpXpPerUsd: number;
+    /**
+     * XP per $1 of liquidity per DAY (lpXpPerUsd × 8 ticks) — the "+N XP"
+     * badge next to APY. Every pool object returned by /api/pools also
+     * carries it as `lpXpPerUsdPerDay`, so a pools table needs no second call.
+     */
+    lpXpPerUsdPerDay: number;
   };
   epochs: EpochHistoryEntry[];
 }
