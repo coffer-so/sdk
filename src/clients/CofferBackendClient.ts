@@ -148,6 +148,9 @@ export interface EpochHistoryEntry {
   swapXpPerUsdLpFee: number;
   lpXpPerUsd: number;
   isCurrent: boolean;
+  /** A frozen snapshot of the board at this epoch's end exists (see getLeaderboardEpochSnapshot). */
+  finalized: boolean;
+  finalizedAt: string | null;
 }
 
 export interface LeaderboardEpochResponse {
@@ -244,6 +247,114 @@ export interface CampaignTopResponse {
   page: number;
   limit: number;
   data: CampaignTopEntry[];
+}
+
+// ── Frozen snapshot types (finished epochs and campaigns) ──
+
+/** How an epoch snapshot was produced; `rewind` rows carry a small reconstruction risk, `capture` rows none. */
+export type EpochSnapshotMethod = "capture" | "rewind";
+
+export interface EpochSnapshotEntry {
+  /** Positional place in the frozen board (same ordering as the live list). */
+  place: number;
+  address: string;
+  /** Cumulative XP at the epoch's end — all epochs so far, referral bonuses included. */
+  points: number;
+  /** XP earned inside this epoch alone (points minus the previous epoch's frozen points). */
+  epochPoints: number;
+}
+
+/**
+ * The leaderboard exactly as it stood the instant an epoch ended. Frozen
+ * once, never recomputed — the live board keeps moving, this does not.
+ */
+export interface EpochSnapshotResponse {
+  epoch: number;
+  start: string;
+  /** Exclusive: the instant the next epoch began. */
+  end: string;
+  finalizedAt: string;
+  method: EpochSnapshotMethod;
+  multiplier: number;
+  /** Everyone on the board at the time, zero-XP users included (as live). */
+  totalUsers: number;
+  totalXp: number;
+  /** Same as totalUsers — pagination total. */
+  total: number;
+  page: number;
+  limit: number;
+  data: EpochSnapshotEntry[];
+}
+
+export interface EpochSnapshotUser {
+  epoch: number;
+  place: number;
+  address: string;
+  points: number;
+  epochPoints: number;
+  /** Board size, for "N of M". */
+  totalUsers: number;
+}
+
+export interface CampaignHistoryEntry {
+  campaign: string;
+  startsAt: string;
+  endsAt: string;
+  prizePoolUsd: number;
+  prizes: CampaignPrizeTier[];
+  /** The window has closed. */
+  ended: boolean;
+  /**
+   * Frozen results exist. They appear a grace period (24h) after `endsAt`;
+   * until then keep using the live campaign endpoints for this campaign.
+   */
+  finalized: boolean;
+  finalizedAt: string | null;
+  /** Null until finalized. */
+  totalParticipants: number | null;
+  totalRanked: number | null;
+}
+
+export interface CampaignSnapshotTopEntry {
+  /** Continuous across pages. */
+  place: number;
+  address: string;
+  swapXp: number;
+  swapVolumeUsd: number;
+  /** Prize for this place under the campaign's tiers — already resolved, no client-side join. */
+  prizeUsd: number;
+  joinedAt: string;
+}
+
+export interface CampaignSnapshotTopResponse {
+  campaign: string;
+  startsAt: string;
+  /** Inclusive. */
+  endsAt: string;
+  finalizedAt: string;
+  prizePoolUsd: number;
+  prizes: CampaignPrizeTier[];
+  rates: { swapXpPerUsdLpFee: number };
+  /** Everyone who joined, ranked or not. */
+  totalParticipants: number;
+  /** Ranked participants (swap XP > 0) — pagination total. */
+  total: number;
+  page: number;
+  limit: number;
+  data: CampaignSnapshotTopEntry[];
+}
+
+export interface CampaignSnapshotUserResponse {
+  campaign: string;
+  participating: boolean;
+  /** Null when the wallet did not join or earned no swap XP. */
+  place: number | null;
+  swapXp: number;
+  swapVolumeUsd: number;
+  prizeUsd: number;
+  joinedAt: string | null;
+  /** Table size for "N of M". */
+  totalRanked: number;
 }
 
 // ── Platform stats ──
@@ -1003,6 +1114,86 @@ export class CofferBackendClient {
     if (from) qs.set("from", from);
     if (to) qs.set("to", to);
     return this.get<CampaignTopResponse>(`/api/campaign/top?${qs.toString()}`);
+  }
+
+  // ── Frozen snapshots: finished epochs and campaigns ──
+
+  /**
+   * The leaderboard as it stood the instant `epoch` ended — frozen, never
+   * recomputed. Only finished epochs: the current one is a 404, as is an
+   * epoch whose snapshot is not finalized yet (check
+   * `epochs[].finalized` from getLeaderboardEpoch). Paginated like
+   * getLeaderboard. Safe to cache forever once received.
+   */
+  getLeaderboardEpochSnapshot(
+    epoch: number,
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<SdkResult<EpochSnapshotResponse>> {
+    const qs = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+    return this.get<EpochSnapshotResponse>(
+      `/api/leaderboard/epoch/${epoch}?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * A wallet's frozen place and points at the end of `epoch` — the place
+   * it held in THAT snapshot, not its live rank today. 404 if the wallet
+   * was not on the board at the time. Same envelope as getLeaderboardUser.
+   */
+  getLeaderboardEpochUser(
+    epoch: number,
+    address: string,
+  ): Promise<SdkResult<EpochSnapshotUser>> {
+    return this.getDataField<EpochSnapshotUser>(
+      `/api/leaderboard/epoch/${epoch}/user/${encodeURIComponent(address)}`,
+    );
+  }
+
+  /**
+   * Every campaign, newest first, with whether its frozen results exist.
+   * A campaign is `ended` the moment its window closes and `finalized` a
+   * grace period (24h) later; in between, the live campaign endpoints
+   * still serve its (already fixed) standings.
+   */
+  getCampaignHistory(): Promise<SdkResult<CampaignHistoryEntry[]>> {
+    return this.get<CampaignHistoryEntry[]>("/api/campaign/history");
+  }
+
+  /**
+   * Frozen final standings of a finished campaign, prizes resolved per
+   * row. Same shape as getCampaignTop plus `prizeUsd` and the tiers in
+   * the header, so a results page needs one call. 404 until finalized.
+   */
+  getCampaignSnapshotTop(
+    campaign: string,
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<SdkResult<CampaignSnapshotTopResponse>> {
+    const qs = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+    return this.get<CampaignSnapshotTopResponse>(
+      `/api/campaign/${encodeURIComponent(campaign)}/top?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * A wallet's frozen result in a finished campaign, by address (no auth —
+   * results are public once frozen). Mirrors getCampaignRank. 404 until
+   * the campaign is finalized.
+   */
+  getCampaignSnapshotUser(
+    campaign: string,
+    address: string,
+  ): Promise<SdkResult<CampaignSnapshotUserResponse>> {
+    return this.get<CampaignSnapshotUserResponse>(
+      `/api/campaign/${encodeURIComponent(campaign)}/user/${encodeURIComponent(address)}`,
+    );
   }
 
   getTokenPrices(mints: string[]): Promise<SdkResult<PriceMap>> {
