@@ -370,6 +370,12 @@ export interface PlatformStatsResponse {
   totalTvlUsd: number;
   totalVirtualTvl: number;
   totalVolume24h: number;
+  /**
+   * All-time swap volume (USD, input side), summed over every indexed
+   * swap. The canonical "Total Volume" headline — the landing and the
+   * dashboard both read this field, so they always agree.
+   */
+  totalVolumeAllTime: number;
   poolCount: number;
   updatedAt: string | null;
 }
