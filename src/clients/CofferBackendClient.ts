@@ -570,7 +570,7 @@ export interface PortfolioChartResponse {
   granularitySec: number;
   /**
    * Headline value: the last point. For `xp` — the lifetime XP total.
-   * For `il` — the NET result (profit + IL, the bottom line vs HODL).
+   * For `il` — the NET result (profit − il, the bottom line vs HODL).
    */
   current: number;
   /**
@@ -583,7 +583,9 @@ export interface PortfolioChartResponse {
   /**
    * True when the data is partially estimated: wallet history coverage
    * hit its cap / the history API was unavailable (amounts frozen at the
-   * horizon), or LP events inside the range (il / pnl metrics).
+   * horizon); pnl — a position predating the range closed inside it;
+   * il — a basis token without price history, a snapshot older than an
+   * LP event, or an exit that could not be priced.
    */
   approximate: boolean;
   /**
@@ -603,7 +605,11 @@ export interface PortfolioChartResponse {
    * magnitudes.
    * - `profit`: cumulative LP fees earned (≥ 0, draw green).
    * - `il`: impermanent loss as a positive number (≥ 0, draw red) — the
-   *   red line already means "loss", so it carries no minus sign.
+   *   red line already means "loss", so it carries no minus sign. Same
+   *   formula as the positions table's `il` (HODL value of the deposited
+   *   basket minus the position value excluding reinvested fees),
+   *   evaluated at every point; realized divergence from withdrawals
+   *   stays on the line.
    * The net LP result vs HODL is `profit − il`, and that is what
    * `current` and `change` report. There is no `series` for this metric.
    */
@@ -783,7 +789,7 @@ export interface TokenPairChartResponse {
 // ── Pool chart types (pool page) ──
 
 export type PoolChartMetric = "apy" | "tvl" | "volume" | "fees";
-export type PoolChartRange = "24h" | "1w" | "1m" | "1y" | "all";
+export type PoolChartRange = "24h" | "1w" | "1m" | "6m" | "1y" | "all";
 /** Rolling window the APY is computed over. Ignored for other metrics. */
 export type PoolChartBasis = "24h" | "7d";
 
@@ -1508,10 +1514,15 @@ export class CofferBackendClient {
    * Historical series for ONE pool — the chart card on the pool page.
    * No auth required.
    *
-   * The APY series uses the same compounded formula as `Pool.apy`, so its
-   * trailing point matches the APY shown on the pool card (`basis: "24h"`,
-   * the default). Pass `basis: "7d"` for a smoother line — but note it
-   * will then read higher/lower than the card's number.
+   * The APY series uses the same compounded formula as the pool card.
+   * By default each point is the 7-day rolling APY (`basis: "7d"` — fees
+   * over the trailing week, smooth; its trailing point equals
+   * `Pool.apy7d`). Pass `basis: "24h"` for the daily one that matches the
+   * card headline (`Pool.apy`) — it spikes on single swaps and drops to 0
+   * on quiet days.
+   *
+   * Ranges: `1m` (default), `6m`, `1y`, `all` (whole history, never
+   * shorter than a year); `24h`/`1w` remain accepted for older UIs.
    *
    * Points are computed from 10-minute stats buckets on a uniform grid
    * (~150 points per range, see `granularitySec`) and cached server-side

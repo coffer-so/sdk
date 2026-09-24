@@ -14,8 +14,8 @@ No authentication required.
 ```ts
 const res = await client.getPoolChart("6NjpZAqu5BHnNf9xMKgesVS6WBGE4ZLT8DvrdsGCjLg5", {
   metric: "apy",   // "apy" (default) | "tvl" | "volume" | "fees"
-  range: "1m",     // "24h" | "1w" | "1m" (default) | "1y" | "all"
-  basis: "24h",    // "24h" (default) | "7d" — APY only
+  range: "1m",     // "1m" (default) | "6m" | "1y" | "all"  ("24h" | "1w" still accepted)
+  basis: "7d",     // "7d" (default) | "24h" — APY only
 });
 if (!res.ok) return;           // res.error.humanMessage is safe to render
 const { current, change, points, granularitySec } = res.data;
@@ -27,7 +27,7 @@ const { current, change, points, granularitySec } = res.data;
 {
   poolAddress: string;
   metric: "apy" | "tvl" | "volume" | "fees";
-  range: "24h" | "1w" | "1m" | "1y" | "all";
+  range: "24h" | "1w" | "1m" | "6m" | "1y" | "all";
   granularitySec: number;       // spacing between points
   basis?: "24h" | "7d";         // present for apy only
   current: number;              // latest value — the headline
@@ -69,23 +69,35 @@ spacing — use it for axis labels rather than assuming a step.
 
 ## APY specifics
 
-The APY series uses the same compounded formula as `Pool.apy`
+The APY series uses the same compounded formula as the pool card
 (`(1 + fees/TVL)^365 − 1` — LP fees auto-reinvest into the pool, so
-compounding is what actually happens), which means **the trailing point of
-the default series matches the APY number on the pool card**. Render them
-together without reconciliation.
+compounding is what actually happens).
 
-`basis` controls the rolling window the fees are summed over:
+`basis` controls the rolling window the fees are summed over at each point:
 
-- `"24h"` (default) — matches the pool card; reacts fast, so the line is
-  jumpy on low-volume pools.
-- `"7d"` — a week of fees averaged to a daily rate before compounding.
-  Much smoother, but it will read differently from the card's number, so
-  only use it where that number is not shown next to the chart.
+- `"7d"` (default) — fees over the trailing 7 days, averaged to a daily
+  rate before compounding. This is the smoothed line the pool page shows;
+  its trailing point equals `Pool.apy7d` (the number DefiLlama displays as
+  `apyBase7d`).
+- `"24h"` — fees over the trailing day. Reacts fast: a single large swap
+  produces a one-day plateau and quiet days read `0`. Its trailing point
+  equals the pool card headline `Pool.apy`.
+
+Because the default is the 7-day basis, the chart's headline `current`
+reads differently from the card's 24h APY next to it — that is expected;
+pass `basis: "24h"` if the two must match.
 
 Pools below a small TVL floor report `0` rather than a six-digit APY: on a
 pool holding a few dollars the ratio is real but meaningless, and one such
 series flattens every other pool on a shared axis.
+
+## Ranges
+
+`1m` (default), `6m`, `1y`, `all`. `1y` is the last 365 days; `all` is the
+pool's whole indexed history but **never shorter than a year** — a pool
+younger than a year gets a year-wide chart with an empty left part, the
+same rule the portfolio chart follows. `24h` and `1w` remain accepted for
+older UIs but are no longer offered on the pool page.
 
 ## Freshness and cost
 

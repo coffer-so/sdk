@@ -18,7 +18,7 @@ metrics.
 ```ts
 const res = await client.getPoolChart(poolAddress, {
   metric: "apy",   // "apy" | "tvl" | "volume" | "fees"
-  range: "1m",     // "24h" | "1w" | "1m" | "1y" | "all"
+  range: "1m",     // "1m" | "6m" | "1y" | "all"  ("24h" | "1w" still accepted)
 });
 if (!res.ok) return;
 const { current, change, points } = res.data;
@@ -27,11 +27,11 @@ const { current, change, points } = res.data;
 Render `current` as the headline rather than reading `points.at(-1)`, and
 show "—" when `change.pct` is `null` (the range started at zero).
 
-**The default APY series matches the APY number in the sidebar.** Both use
-the same compounded 24-hour formula, so the chart and the figure above it
-agree without any reconciliation on your side. `basis: "7d"` gives a
-smoother line but will read differently from that number — only use it
-where the number is not shown next to the chart.
+**The default APY series is the smoothed 7-day one** (`basis: "7d"`): each
+point is the APY from the trailing week of fees, so it does not spike on a
+single swap. Its trailing point equals `Pool.apy7d`, not the 24h headline
+in the sidebar (`Pool.apy`) — the two are expected to differ. Pass
+`basis: "24h"` only where the chart must match that headline exactly.
 
 ## 2. The token price charts (composition rows)
 
@@ -102,15 +102,17 @@ one per surface, or the slider will jump.
 Both endpoints return comparable detail, so two cards on one screen look
 consistent:
 
-Both take the same range vocabulary (`24h | 1w | 1m | 1y | all`):
+Both take the same range vocabulary (`1m | 1y | all`, plus `24h | 1w` for
+older UIs); `6m` exists on `getPoolChart` only:
 
 | Range | `getPoolChart` | `getPoolTokenChart` |
 |---|---|---|
 | `24h` | ~145 | 49 |
 | `1w` | ~85 | 85 |
 | `1m` | ~121 | 121 |
+| `6m` | ~121 | — |
 | `1y` | ~122 | ~122 |
-| `all` | ~122 | ~122 |
+| `all` | ~122 (never shorter than 1y) | ~122 |
 
 Read `granularitySec` for axis labels instead of assuming a step.
 

@@ -75,14 +75,20 @@ capital together — no fake jumps on top-ups either. A position that was
 fully closed inside the range still shows its whole trajectory and the
 profit it locked in (not a flat zero).
 
-**`il` two lines:** `lines.profit` is cumulative LP fees earned (≥ 0,
-draw green), `lines.il` is the impermanent loss as a POSITIVE magnitude
-(≥ 0, draw red — the red colour already conveys "loss", so no minus
-sign), both on the same grid. Reading the gap between them is the point —
-when green outweighs red, LPing beat holding. `current` and `change`
-report the NET (`profit − il`, the bottom line vs HODL), so the headline
-stays a single honest number that can be negative. There is no `series`
-for this metric.
+**`il` two lines:** `lines.profit` is cumulative LP fees earned inside
+the selected range (≥ 0, draw green), `lines.il` is the impermanent loss
+as a POSITIVE magnitude (≥ 0, draw red — the red colour already conveys
+"loss", so no minus sign), both on the same grid. IL is evaluated at every
+point from historical prices: the HODL value of the deposited basket minus
+the position's value with its reinvested fees taken out — the same formula
+the positions table uses for its `il` column, so the last point of the red
+line matches the table and fees are never counted twice. Divergence locked
+in by a withdrawal stays on the line (a position closed inside the range
+still draws its whole trajectory). Reading the gap between the lines is
+the point — when green outweighs red, LPing beat holding. `current` and
+`change` report the NET (`profit − il`, the bottom line vs HODL), so the
+headline stays a single honest number that can be negative. There is no
+`series` for this metric.
 
 **`xp` is cumulative:** each point is the user's total XP as of that
 moment — a monotonic, never-decreasing line (draw as an area/line, not
@@ -101,8 +107,11 @@ than assuming a step.
 **`approximate: true`** means part of the data is estimated (wallet
 history coverage hit its cap or the history API was unavailable, so
 amounts are frozen at the oldest known values; for `pnl` — a position
-that predates the range and was fully closed inside it; for `il` — LP
-events inside the range). Optionally show a subtle "approximate" hint.
+that predates the range and was fully closed inside it; for `il` — a
+basis token with no price history (valued flat at today's price), a
+position snapshot older than an LP event, an exit that could not be
+priced, or a position closed inside the range that predates it).
+Optionally show a subtle "approximate" hint.
 
 **`change.pct: null`** means the percentage is undefined — the range
 started from a zero base (e.g. a wallet that was empty at range start,
