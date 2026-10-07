@@ -11,7 +11,7 @@ import {
 import { getConfig } from "../src/config";
 
 /**
- * Regression guards for the v5.1 wire-format changes that fail SILENTLY —
+ * Regression guards for the v5.1/v6 wire-format changes that fail SILENTLY —
  * no length error, no exception, just wrong numbers. Each test pins the
  * decoder/encoder against the field order declared in the shipped IDL
  * rather than against the previous hand-written code.
@@ -48,10 +48,11 @@ const u16 = (v: number) => {
 };
 const vecU64 = (vs: number[]) => Buffer.concat([u32(vs.length), ...vs.map((v) => u64(v))]);
 
-describe("Swap event field order (v5.1)", () => {
+describe("Swap event field order (v6)", () => {
   // The trap: surge_fee_amount sits AFTER timestamp. A decoder using the
-  // intuitive order returns the unix timestamp as the surge fee.
-  test("IDL declares timestamp before surge_fee_amount (no-t22 build: no transfer fees)", () => {
+  // intuitive order returns the unix timestamp as the surge fee. v6 appends
+  // the two Token-2022 transfer-fee legs after it.
+  test("IDL declares timestamp, surge_fee_amount, then the v6 transfer-fee tail", () => {
     expect(idlFields(cubicPoolIdl as any, "Swap")).toEqual([
       "pool",
       "user",
@@ -63,6 +64,8 @@ describe("Swap event field order (v5.1)", () => {
       "protocol_fee_amount",
       "timestamp",
       "surge_fee_amount",
+      "transfer_fee_in",
+      "transfer_fee_out",
     ]);
   });
 
@@ -105,7 +108,7 @@ describe("Swap event field order (v5.1)", () => {
     expect(ev.transferFeeOut.toNumber()).toBe(7_000);
   });
 
-  test("a pre-v5.1 log without the transfer fees decodes them as 0, not garbage", () => {
+  test("a v5 log without the transfer-fee tail decodes them as 0, not garbage", () => {
     const pk = () => Keypair.generate().publicKey.toBuffer();
     const payload = Buffer.concat([
       pk(),
@@ -131,7 +134,41 @@ describe("Swap event field order (v5.1)", () => {
   });
 });
 
-describe("SingleTokenDeposit event (v5.1)", () => {
+describe("SingleTokenDepositDirect event (v6 planned zap)", () => {
+  test("IDL field order: no helper, dust_remaining is a vec", () => {
+    expect(idlFields(stldIdl as any, "SingleTokenDepositDirect")).toEqual([
+      "pool", "user", "token_in_index", "amount_in", "allocations", "deposited_amounts", "bpt_received", "dust_remaining", "timestamp",
+    ]);
+  });
+
+  test("decoder returns the plan, measured debits and per-token dust", () => {
+    const pk = () => Keypair.generate().publicKey.toBuffer();
+    const payload = Buffer.concat([
+      pk(), // pool
+      pk(), // user
+      Buffer.from([2]), // token_in_index
+      u64(300), // amount_in
+      vecU64([200, 100, 0]), // allocations (sum = amount_in)
+      vecU64([200, 87, 0]), // deposited_amounts
+      u64(95), // bpt_received
+      vecU64([0, 3, 0]), // dust_remaining
+      i64(1_700_000_321), // timestamp
+    ]);
+    const [ev] = parseCubicPoolEvents([
+      programDataLog(discriminatorOf(stldIdl as any, "SingleTokenDepositDirect"), payload),
+    ]);
+    if (ev.kind !== "SingleTokenDepositDirect") throw new Error(`got ${ev.kind}`);
+    expect(ev.tokenInIndex).toBe(2);
+    expect(ev.amountIn.toNumber()).toBe(300);
+    expect(ev.allocations.map((b) => b.toNumber())).toEqual([200, 100, 0]);
+    expect(ev.depositedAmounts.map((b) => b.toNumber())).toEqual([200, 87, 0]);
+    expect(ev.bptReceived.toNumber()).toBe(95);
+    expect(ev.dustRemaining.map((b) => b.toNumber())).toEqual([0, 3, 0]);
+    expect(ev.timestamp).toBe(1_700_000_321);
+  });
+});
+
+describe("SingleTokenDeposit event (legacy v5 helper route, kept for history)", () => {
   test("IDL has no slippage field and dust_refunded is a vec", () => {
     const fields = idlFields(stldIdl as any, "SingleTokenDeposit");
     expect(fields).toEqual([

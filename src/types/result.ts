@@ -33,11 +33,19 @@ export type SdkErrorCode =
   | "token_swaps_disabled"
   | "unsupported_pool_state"
   | "unsupported_token_extension"
+  /** The amount is too small to survive fees/rounding (`AmountFullyConsumedByTransferFee`, `DepositTooSmall`). */
+  | "amount_too_small"
   | "slippage_exceeded"
   | "simulation_failed"
   | "tx_build_failed"
   | "alt_fetch_failed"
   | "auth_failed"
+  /** v6 planned zap: the plan's budget/shape was rejected by the program. */
+  | "plan_invalid"
+  /** v6 planned zap: the plan is older than 90 s or its slot passed. */
+  | "plan_expired"
+  /** v6 planned zap: pool, BPT supply, a mint or the epoch changed since the quote. */
+  | "plan_stale"
   | "unknown";
 
 export const ok = <T>(data: T): SdkResult<T> => ({ ok: true, data });

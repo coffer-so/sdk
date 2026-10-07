@@ -9,7 +9,7 @@ import {
   PublicKey,
   SystemProgram,
 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import { CofferConfig } from "../config";
 import { PROTOCOL_ADMIN_IDL } from "../idl";
@@ -127,8 +127,11 @@ export class AdminClient {
 
   // ── Treasury vault management ────────────────────────────────────────────
 
+  /** v6: the vault is created under whichever program owns `mint` (SPL Token or Token-2022). */
   registerTokenIx(admin: PublicKey, mint: PublicKey, tokenProgram = TOKEN_PROGRAM_ID) {
-    if (!tokenProgram.equals(TOKEN_PROGRAM_ID)) throw new Error("Treasury vaults only support classic SPL Token in this deployment");
+    if (!tokenProgram.equals(TOKEN_PROGRAM_ID) && !tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+      throw new Error("Treasury vaults support SPL Token and Token-2022 only");
+    }
     const [vault] = PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), mint.toBuffer()],
       this.program.programId,
@@ -149,8 +152,11 @@ export class AdminClient {
   /**
    * Withdraw from a registered treasury vault.
    *
-   * Treasury vaults use classic SPL Token in this deployed build. The mint
-   * argument derives the vault PDA; it is not an account in the instruction.
+   * v6 pays out with `transfer_checked`, so the mint is an account of the
+   * instruction (pinned to `vault.mint` on chain) and Token-2022 vaults are
+   * supported. For a mint with a transfer fee the vault is debited `amount`
+   * while the recipient is credited `amount − fee`. `extraAccounts` is the
+   * optional transfer-hook / memo tail (see `resolveTransferExtraAccounts`).
    */
   withdrawIx(
     admin: PublicKey,
@@ -158,8 +164,11 @@ export class AdminClient {
     recipient: PublicKey,
     amount: BN,
     tokenProgram = TOKEN_PROGRAM_ID,
+    extraAccounts: AccountMeta[] = [],
   ) {
-    if (!tokenProgram.equals(TOKEN_PROGRAM_ID)) throw new Error("Treasury vaults only support classic SPL Token in this deployment");
+    if (!tokenProgram.equals(TOKEN_PROGRAM_ID) && !tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+      throw new Error("Treasury vaults support SPL Token and Token-2022 only");
+    }
     const [vault] = PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), mint.toBuffer()],
       this.program.programId,
@@ -168,11 +177,13 @@ export class AdminClient {
       .withdraw(amount)
       .accounts({
         treasury: this.treasuryPda,
+        mint,
         vault,
         recipient,
         admin,
         tokenProgram,
       })
+      .remainingAccounts(extraAccounts.map(assertTailMeta))
       .instruction();
   }
 
@@ -457,45 +468,43 @@ export class AdminClient {
   }
 
   /**
-   * Collects protocol fees from a pool to the supplied recipient ATAs.
+   * Collects protocol fees from a pool to the supplied recipient accounts.
    *
-   * `vaults` / `recipients` / `tokenPrograms` must be aligned with
-   * `pool.token_mints` (one entry per token in pool order).
+   * v6 layout: `[vault_i, recipient_i, mint_i, token_program_i]` per token
+   * in pool order, then the optional transfer-hook / memo tail. For a mint
+   * with a transfer fee the recipient receives `fees − transfer_fee`; the
+   * counter is cleared either way.
    */
   collectProtocolFeesIx(
     admin: PublicKey,
     config: PublicKey,
     pool: PublicKey,
-    vaults: PublicKey[],
-    recipients: PublicKey[],
-    tokenPrograms: PublicKey[] = vaults.map(() => TOKEN_PROGRAM_ID),
+    tokens: PoolTokenTransferAccounts,
   ) {
-    const remaining: AccountMeta[] = this.tripleRemaining(vaults, recipients, tokenPrograms);
     return (this.program.methods as any)
       .poolCollectProtocolFees()
       .accounts({ ...this.poolAdminAccounts(admin, config, pool) })
-      .remainingAccounts(remaining)
+      .remainingAccounts(quadRemaining(tokens))
       .instruction();
   }
 
   /**
    * Emergency drain. Pool must be paused first. `amounts.length` must equal
-   * the pool's token_count; pass 0 to skip a token.
+   * the pool's token_count; pass 0 to skip a token. Same v6 account layout
+   * as `collectProtocolFeesIx`.
    */
   debugWithdrawLiquidityIx(
     admin: PublicKey,
     config: PublicKey,
     pool: PublicKey,
     amounts: BN[],
-    vaults: PublicKey[],
-    recipients: PublicKey[],
-    tokenPrograms: PublicKey[] = vaults.map(() => TOKEN_PROGRAM_ID),
+    tokens: PoolTokenTransferAccounts,
   ) {
-    const remaining: AccountMeta[] = this.tripleRemaining(vaults, recipients, tokenPrograms);
+    if (amounts.length !== tokens.vaults.length) throw new Error("AdminClient: amounts must have one entry per pool token");
     return (this.program.methods as any)
       .poolDebugWithdrawLiquidity(amounts)
       .accounts({ ...this.poolAdminAccounts(admin, config, pool) })
-      .remainingAccounts(remaining)
+      .remainingAccounts(quadRemaining(tokens))
       .instruction();
   }
 
@@ -589,20 +598,41 @@ export class AdminClient {
     return acc;
   }
 
-  private tripleRemaining(
-    vaults: PublicKey[],
-    recipients: PublicKey[],
-    tokenPrograms: PublicKey[],
-  ): AccountMeta[] {
-    if (vaults.length !== recipients.length || vaults.length !== tokenPrograms.length) {
-      throw new Error("AdminClient: vaults/recipients/tokenPrograms must be the same length");
-    }
-    const acc: AccountMeta[] = [];
-    for (let i = 0; i < vaults.length; i++) {
-      acc.push({ pubkey: vaults[i], isSigner: false, isWritable: true });
-      acc.push({ pubkey: recipients[i], isSigner: false, isWritable: true });
-      acc.push({ pubkey: tokenPrograms[i], isSigner: false, isWritable: false });
-    }
-    return acc;
+}
+
+/**
+ * Per-token accounts of a pool-level payout (`collect_protocol_fees`,
+ * `debug_withdraw_liquidity`), all index-aligned with the pool's token slots.
+ * `mints` and `tokenPrograms` come straight from `PoolInfo.tokens[i]`.
+ */
+export interface PoolTokenTransferAccounts {
+  vaults: PublicKey[];
+  recipients: PublicKey[];
+  mints: PublicKey[];
+  tokenPrograms: PublicKey[];
+  /** Optional transfer-hook / memo tail appended after the fixed ×4 block. */
+  extraAccounts?: AccountMeta[];
+}
+
+/** v6 remaining accounts: `[vault, recipient, mint, token_program] × N` + tail. */
+function quadRemaining(t: PoolTokenTransferAccounts): AccountMeta[] {
+  const n = t.vaults.length;
+  if (n === 0 || t.recipients.length !== n || t.mints.length !== n || t.tokenPrograms.length !== n) {
+    throw new Error("AdminClient: vaults/recipients/mints/tokenPrograms must be the same non-zero length");
   }
+  const acc: AccountMeta[] = [];
+  for (let i = 0; i < n; i++) {
+    acc.push({ pubkey: t.vaults[i], isSigner: false, isWritable: true });
+    acc.push({ pubkey: t.recipients[i], isSigner: false, isWritable: true });
+    acc.push({ pubkey: t.mints[i], isSigner: false, isWritable: false });
+    acc.push({ pubkey: t.tokenPrograms[i], isSigner: false, isWritable: false });
+  }
+  for (const extra of t.extraAccounts ?? []) acc.push(assertTailMeta(extra));
+  return acc;
+}
+
+/** Tail accounts never carry a signer bit; the pool PDA is the only signer of the payout. */
+function assertTailMeta(meta: AccountMeta): AccountMeta {
+  if (meta.isSigner) throw new Error("AdminClient: transfer-hook / memo tail accounts cannot be signers");
+  return { pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable };
 }

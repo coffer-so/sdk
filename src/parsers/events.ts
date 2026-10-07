@@ -32,6 +32,7 @@ const DISC = {
   MaxSelloffWindowAdvanced: Buffer.from([229, 227, 163, 30, 22, 183, 78, 57]),
   // Stld:
   SingleTokenDeposit:       Buffer.from([215, 54, 137, 104, 219, 39, 164, 235]),
+  SingleTokenDepositDirect: Buffer.from([78, 128, 118, 93, 148, 179, 216, 112]),
 };
 
 type DiscName = keyof typeof DISC;
@@ -145,7 +146,9 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       // Appended: the effective banned-extensions bitmap the pool's tokens
       // were vetted against at creation. Guarded for older logs.
       const bannedExtensions = r.remaining() >= 8 ? r.u64() : new BN(0);
-      return { kind: "PoolInitialized", pool, config, tokenCount, bptMint, timestamp, bannedExtensions };
+      // Appended in v6: the PDA salt. Guarded for pre-v6 logs (reads as 0).
+      const poolId = r.remaining() >= 8 ? r.u64() : new BN(0);
+      return { kind: "PoolInitialized", pool, config, tokenCount, bptMint, timestamp, bannedExtensions, poolId };
     }
     case "PoolEnabledUpdated": {
       const pool = r.pubkey();
@@ -200,6 +203,23 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
         dustRefunded,
         timestamp,
       };
+    }
+    case "SingleTokenDepositDirect": {
+      // v6 planned zap receipt (`SingleTokenDepositDirect` in
+      // src/idl/single_token_liquidity.json): pool, user, token_in_index,
+      // amount_in, allocations, deposited_amounts, bpt_received,
+      // dust_remaining, timestamp. No helper: swaps and the join run with
+      // the user's own accounts, so `dust_remaining` is what stayed in them.
+      const pool = r.pubkey();
+      const user = r.pubkey();
+      const tokenInIndex = r.u8();
+      const amountIn = r.u64();
+      const allocations = r.vecU64();
+      const depositedAmounts = r.vecU64();
+      const bptReceived = r.u64();
+      const dustRemaining = r.vecU64();
+      const timestamp = r.i64().toNumber();
+      return { kind: "SingleTokenDepositDirect", pool, user, tokenInIndex, amountIn, allocations, depositedAmounts, bptReceived, dustRemaining, timestamp };
     }
     case "PoolStateLog": {
       const pool = r.pubkey();

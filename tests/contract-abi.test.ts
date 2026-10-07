@@ -1,6 +1,6 @@
 import BN from "bn.js";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { execFileSync } from "child_process";
 import { IDLS } from "../src/idl";
 import { getConfig } from "../src/config";
@@ -8,7 +8,8 @@ import { ContractProgram } from "../src/types/contracts";
 import { buildContractInstruction } from "../src/clients/contract-instructions";
 import { decodeContractAccount, parseContractEvents } from "../src/parsers/contracts";
 import { parseCubicPoolEvents } from "../src/parsers/events";
-import { buildAddLiquidityIx, buildRemoveLiquidityIx, buildSingleTokenDepositIx, buildSingleTokenDepositAtaIxs, buildSetMaxSelloffIx, buildSetRangeManagerConfigIx } from "../src/clients/tx-builders";
+import { buildAddLiquidityIx, buildRemoveLiquidityIx, buildSetMaxSelloffIx, buildSetRangeManagerConfigIx } from "../src/clients/tx-builders";
+import { buildPlannedZapIx, plannedZapAccounts } from "../src/clients/plannedZap/instruction";
 import { deriveAta } from "../src/utils/pda";
 import { PoolInfo } from "../src/types/pool";
 
@@ -66,8 +67,8 @@ const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
 test("generated public types match all shipped IDLs", () => {
-  expect(instructions).toHaveLength(59);
-  expect(events).toHaveLength(60);
+  expect(instructions).toHaveLength(61);
+  expect(events).toHaveLength(61);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
 
@@ -136,7 +137,7 @@ function poolFixture(): PoolInfo {
   };
 }
 
-test("Token-2022 BPT is used for joins, exits, STLD and ATA setup", () => {
+test("Token-2022 BPT is used for joins, exits and the planned zap", () => {
   const pool = poolFixture(); const user = pk();
   const add = buildAddLiquidityIx(cfg, pool, { user, tokenAmounts: [new BN(100), new BN(100)], minimumBptAmount: new BN(1) });
   const remove = buildRemoveLiquidityIx(cfg, pool, { user, bptAmount: new BN(100), minimumTokenAmounts: [new BN(0), new BN(0)] });
@@ -144,10 +145,12 @@ test("Token-2022 BPT is used for joins, exits, STLD and ATA setup", () => {
     expect(ix.keys[2].pubkey.equals(deriveAta(user, pool.bptMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
     expect(ix.keys[4].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
   }
-  const stld = buildSingleTokenDepositIx(cfg, pool, { user, amountIn: new BN(100), tokenInIndex: 0, minimumBptAmount: new BN(1) });
-  expect(stld.keys[7].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
-  const atas = buildSingleTokenDepositAtaIxs(cfg, pool, user).slice(-2);
-  for (const ix of atas) expect(ix.keys[5].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+  const zap = buildPlannedZapIx(cfg, plannedZapAccounts(cfg, pool, user), { amountIn: 100n, tokenInIndex: 0, minimumBpt: 1n, plan: { allocations: [60n, 40n], expectedState: new Uint8Array(32), quotedAt: 0n, validUntilSlot: 1n } });
+  expect(zap.keys[2].pubkey.equals(deriveAta(user, pool.bptMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
+  expect(zap.keys[5].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+  // Every pool token shares the BPT program (Token-2022) → no token-program suffix.
+  expect(zap.keys).toHaveLength(6 + 3 * 2);
+  expect(zap.keys.some((k) => k.pubkey.equals(TOKEN_PROGRAM_ID))).toBe(false);
 });
 
 test("sell-off convenience builder sends all seven per-token parameters in ABI order", () => {
@@ -196,8 +199,8 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     unfreeze_pools: () => client.unfreezePoolsIx(a, [{ config, pool }]),
     pool_set_token_active: () => client.setTokenActiveIx(a, config, pool, 1, true),
     set_supervisor: () => client.setSupervisorIx(a, other),
-    pool_collect_protocol_fees: () => client.collectProtocolFeesIx(a, config, pool, [mint], [recipient]),
-    pool_debug_withdraw_liquidity: () => client.debugWithdrawLiquidityIx(a, config, pool, [amount], [mint], [recipient]),
+    pool_collect_protocol_fees: () => client.collectProtocolFeesIx(a, config, pool, { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] }),
+    pool_debug_withdraw_liquidity: () => client.debugWithdrawLiquidityIx(a, config, pool, [amount], { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] }),
     withdraw_sol: () => client.withdrawSolIx(a, recipient, amount),
     pool_withdraw_sol: () => client.poolWithdrawSolIx(a, config, other, recipient, amount),
     pool_initialize_alt: () => client.poolInitializeAltIx(a, config, pool, new BN(1000)),
@@ -216,15 +219,26 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
       expect(ix.keys[i].isWritable).toBe(!!declared.writable);
     }
   }
-  expect(() => client.withdrawIx(a, mint, recipient, amount, TOKEN_2022_PROGRAM_ID)).toThrow(/classic SPL/);
-  expect(() => client.registerTokenIx(a, mint, TOKEN_2022_PROGRAM_ID)).toThrow(/classic SPL/);
+  // v6: Token-2022 treasury vaults are supported; the withdraw carries the mint and an optional hook/memo tail.
+  const t22 = await client.withdrawIx(a, mint, recipient, amount, TOKEN_2022_PROGRAM_ID, [{ pubkey: other, isSigner: false, isWritable: false }]);
+  expect(t22.keys.map((k: any) => k.pubkey.toBase58())).toEqual([client.treasuryPda, mint, PublicKey.findProgramAddressSync([Buffer.from("vault"), mint.toBuffer()], cfg.programs.protocolAdmin)[0], recipient, a, TOKEN_2022_PROGRAM_ID, other].map((k) => k.toBase58()));
+  expect(() => client.withdrawIx(a, mint, recipient, amount, TOKEN_2022_PROGRAM_ID, [{ pubkey: other, isSigner: true, isWritable: false }])).toThrow(/cannot be signers/);
+  await expect(client.registerTokenIx(a, mint, TOKEN_2022_PROGRAM_ID)).resolves.toBeDefined();
+  expect(() => client.withdrawIx(a, mint, recipient, amount, other)).toThrow(/SPL Token and Token-2022/);
+  // v6 pool payouts: [vault, recipient, mint, token_program] per token, then the tail.
+  const quad = await client.collectProtocolFeesIx(a, config, pool, { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_2022_PROGRAM_ID], extraAccounts: [{ pubkey: a, isSigner: false, isWritable: true }] });
+  expect(quad.keys.slice(-5).map((k: any) => [k.pubkey.toBase58(), k.isWritable])).toEqual([[other.toBase58(), true], [recipient.toBase58(), true], [mint.toBase58(), false], [TOKEN_2022_PROGRAM_ID.toBase58(), false], [a.toBase58(), true]]);
+  expect(() => client.debugWithdrawLiquidityIx(a, config, pool, [amount, amount], { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] })).toThrow(/one entry per pool token/);
 });
 
-test("join builder refuses positive BPT backed by a zero rounded live deposit", () => {
+test("join builder accepts a thin basket (v6 credits live legs UP) but refuses a zero-BPT one", () => {
   const pool = poolFixture();
   pool.tokens[0].actualBalance = new BN(3);
   pool.tokens[1].actualBalance = new BN(3);
   pool.bptTotalSupply = new BN(1000000);
+  // ratio 1/3 → BPT 333_333, each leg credited ceil(3 · 1/3) = 1: a valid v6 join.
+  expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumBptAmount: new BN(1) })).not.toThrow();
+  pool.bptTotalSupply = new BN(2);
   expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumBptAmount: new BN(1) })).toThrow(/too small/);
 });
 

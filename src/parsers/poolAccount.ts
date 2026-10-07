@@ -129,6 +129,8 @@ export interface RawPoolAccount {
   bannedExtensions: BN;
   /** The exact trailing ABI padding, preserved for complete state inspection. */
   reserved: Buffer;
+  /** `reserved[0..4] == "V5M1"`: `CubicPool::is_v5_migrated()`. */
+  v5Migrated: boolean;
 }
 
 /** 8-byte anchor discriminator for CubicPool. */
@@ -151,6 +153,9 @@ const ASSET_DYNAMICS_LEN = 56;
 const TOKEN_SLOT_LEN = ASSET_CONFIG_LEN + ASSET_DYNAMICS_LEN;
 /** Pre-v4 size — legacy accounts are unsupported by the current v4-to-v5 migration. */
 export const POOL_V3_LEN = 1154;
+
+/** `CubicPool::V5_MIGRATION_MARKER`: stamped into `reserved[0..4]` by `migrate_to_v5` and at creation. */
+export const V5_MIGRATION_MARKER = Buffer.from("V5M1", "ascii");
 
 export function decodePoolAccount(data: Buffer): RawPoolAccount {
   if (data.length === POOL_V3_LEN) {
@@ -308,6 +313,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
     );
   }
   const reserved = Buffer.from(data.subarray(off, off + 16));
+  const v5Migrated = reserved.subarray(0, 4).equals(V5_MIGRATION_MARKER);
 
   return {
     config,
@@ -350,6 +356,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
     lookupTable,
     bannedExtensions,
     reserved,
+    v5Migrated,
   };
 }
 

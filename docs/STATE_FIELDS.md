@@ -1,7 +1,8 @@
 # Exact decoded state mapping
 
-Target: SDK 0.11.1 with the current local decoder corrections; contract source
-`audit-fixes-excluded-SF@96a2ee20244ff95fb9f14357bb55b17e1eb0e2c0`.
+Target: `@coffer_so/sdk-v6` 0.1.0; contract source `contracts/v6@7d753b3`.
+The account layouts are unchanged from v5; v6 adds the `"V5M1"` migration
+marker in `CubicPool.reserved[0..4]` (`v5Migrated`).
 
 Three read interfaces serve different purposes:
 
@@ -109,11 +110,11 @@ Treasury’s registered `token_mints` and `token_vaults` are distinct from pool 
 
 ## Mint and derived fields
 
-`decodeMintAccount(data)` returns `mintAuthority`, `supply: BN`, `decimals`, `isInitialized`, `freezeAuthority`, and extension type IDs in `extensions`. It checks the base mint shape, authority-option tags, initialized flag and Token-2022 mint/TLV structure. It lists extensions; it does not decode every extension-specific configuration payload or prove transfer compatibility.
+`decodeMintAccount(data)` returns `mintAuthority`, `supply: BN`, `decimals`, `isInitialized`, `freezeAuthority`, extension type IDs in `extensions`, and the three extension bodies the v6 transfer path depends on: `transferFeeConfig` (both epoch schedules), `transferHook` (`programId === PublicKey.default` means disarmed) and `pausableConfig`. It checks the base mint shape, authority-option tags, initialized flag, Token-2022 mint/TLV structure and rejects a fee schedule above 100 % like the program. Other extension payloads are not decoded.
 
-`sync()` adds token `index`, `vault`, optional display `metadata`, `concentration`, mint `decimals`, `extensions`, and `unsupportedExtensions`. Pool-level derived fields are `address`, `bptMint`, `bptTokenProgram`, `bptTotalSupply`, `unsupportedTokenIndices`, `chainTimestamp` (seconds) and `syncedAt` (local milliseconds). Metadata/concentration are display conveniences, not on-chain state.
+`sync()` adds token `index`, `vault`, optional display `metadata`, `concentration`, mint `decimals`, `extensions`, `unsupportedExtensions` (only `NonTransferable`/unknown types), `transferFee` (the schedule selected for `chainEpoch`), `transferHookProgram` (armed hooks only) and `paused`. Pool-level derived fields are `address`, `bptMint`, `bptTokenProgram`, `bptTotalSupply`, `unsupportedTokenIndices` (unsupported, paused or native-mint tokens), `chainSlot`, `chainEpoch`, `chainTimestamp` (seconds), `v5Migrated` and `syncedAt` (local milliseconds). Metadata/concentration are display conveniences, not on-chain state.
 
-`PoolInfo.createdAt` and `chainTimestamp` are numbers for compatibility. Values outside the exact safe-number range cause a `parse_failure` result rather than truncation. Raw account decoders retain full i64 precision. All token balances, fees, windows and supply remain BN. Separate account reads are not an atomic multi-account snapshot.
+`PoolInfo.createdAt`, `chainSlot`, `chainEpoch` and `chainTimestamp` are numbers for compatibility. Values outside the exact safe-number range cause a `parse_failure` result rather than truncation. Raw account decoders retain full i64 precision. All token balances, fees, windows and supply remain BN. `sync()` reads the pool and then the mints + Clock in two calls, so it is not an atomic multi-account snapshot; `PlannedZapClient.quote` takes the atomic snapshot the plan hash needs.
 
 ```ts
 const account = await pool.rpc.getAccountInfo(configAddress);
@@ -133,4 +134,4 @@ The example assumes an existing pool client/config and `configAddress: PublicKey
 
 `tests/account-state.test.ts` compares the manual decoder and every operational `sync()` field against an independent IDL-driven Borsh fixture. It covers all ten token slots, nonzero padding, mixed token programs, negative i64, u64 values above `Number.MAX_SAFE_INTEGER`, malformed discriminators/booleans and precise numeric-conversion failures.
 
-`tests/contract-abi.test.ts` covers all complete config/Treasury/pool layouts, all 59 instructions and all 60 events. `scripts/check-contract-abi.cjs --contracts-dir ...` compares the bundled IDLs with a chosen checkout’s target IDLs.
+`tests/contract-abi.test.ts` covers all complete config/Treasury/pool layouts, all 61 instructions and all 61 events. `scripts/check-contract-abi.cjs --contracts-dir ...` compares the bundled IDLs with a chosen checkout’s target IDLs.

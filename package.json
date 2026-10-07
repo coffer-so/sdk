@@ -1,10 +1,10 @@
 {
-  "name": "@coffer_so/sdk",
-  "version": "1.3.2",
+  "name": "@coffer_so/sdk-v6",
+  "version": "0.1.0",
   "publishConfig": {
     "access": "public"
   },
-  "description": "Coffer DEX SDK — client library for interacting with the Cubic Pool AMM on Solana",
+  "description": "Coffer DEX SDK for the v6 Cubic Pool contracts (Token-2022 transfer fees and hooks, planned single-token deposits) on Solana",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -20,7 +20,11 @@
     "build:mainnet": "npm run env:mainnet && npm run build",
     "build:testnet": "npm run env:testnet && npm run build",
     "test": "jest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "types:generate": "node scripts/generate-contract-types.cjs",
+    "types:check": "node scripts/generate-contract-types.cjs --check",
+    "abi:check": "node scripts/check-contract-abi.cjs --contracts-dir ../contracts",
+    "fixtures:rust": "python3 tests/math/generate-rust-reference.py ../contracts"
   },
   "repository": {
     "type": "git",
@@ -31,7 +35,9 @@
     "dex",
     "amm",
     "coffer",
-    "sdk"
+    "sdk",
+    "token-2022",
+    "v6"
   ],
   "license": "MIT",
   "peerDependencies": {
@@ -39,11 +45,12 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/spl-token": "^0.4.8",
-    "@solana/web3.js": "^1.95.0",
+    "@noble/hashes": "^1.4.0",
+    "@solana/spl-token": "^0.4.14",
     "bn.js": "^5.2.1"
   },
   "devDependencies": {
+    "@solana/web3.js": "^1.95.0",
     "@types/bn.js": "^5.1.5",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.10.4",

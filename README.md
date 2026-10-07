@@ -1,28 +1,33 @@
-# @coffer_so/sdk
+# @coffer_so/sdk-v6
 
-[![npm](https://img.shields.io/npm/v/@coffer_so/sdk.svg)](https://www.npmjs.com/package/@coffer_so/sdk)
+Client library for the **v6** Cubic Pool AMM contracts on Solana. Targeted
+at both frontend and backend consumers; no bundler-specific code.
 
-📦 **npm**: <https://www.npmjs.com/package/@coffer_so/sdk>
+This is a separate package from [`@coffer_so/sdk`](https://www.npmjs.com/package/@coffer_so/sdk)
+(the 1.x line), which keeps tracking the v5 contracts deployed on mainnet.
+Pick by the program version you talk to:
 
-Client library for the Cubic Pool AMM on Solana. Targeted at both frontend
-and backend consumers; no bundler-specific code.
+| Package | Contracts | Status |
+| --- | --- | --- |
+| `@coffer_so/sdk` 1.x | v5 (`main`, mainnet since 2026-09-07) | stable |
+| `@coffer_so/sdk-v6` 0.x | v6 (`contracts/v6`: Token-2022 transfer fees, hooks and memos; planned single-token deposits; 100 % fee ceilings; v6 rounding) | pre-release until v6 is deployed |
 
 ## Contract compatibility
 
-This release targets `contracts/audit-fixes-excluded-SF` at
-`96a2ee20244ff95fb9f14357bb55b17e1eb0e2c0`, deployed on mainnet on 2026-09-07.
-All three IDLs match that revision. Typed `buildContractInstruction` covers all
-59 instructions, `parseContractEvents` covers all 60 events, and
-`decodeContractAccount` decodes their declared accounts. See
-[the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for usage and limits, and
-[the exact state-field mapping](docs/STATE_FIELDS.md) for decoded account data.
+This release targets `contracts/v6` at `7d753b3` (`feat: allow swap and protocol
+fee rates anywhere in 0..=100%`). All three IDLs match that revision. Typed
+`buildContractInstruction` covers all 61 instructions, `parseContractEvents`
+covers all 61 events, and `decodeContractAccount` decodes their declared
+accounts. See [the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for
+usage and limits, and [the exact state-field mapping](docs/STATE_FIELDS.md)
+for decoded account data.
 
 ## Install
 
 ```bash
-npm install @coffer_so/sdk
+npm install @coffer_so/sdk-v6
 # or
-yarn add @coffer_so/sdk
+yarn add @coffer_so/sdk-v6
 ```
 
 Workspace-local development (linking against the in-repo source):
@@ -38,7 +43,7 @@ From sibling packages:
 ```json
 {
   "dependencies": {
-    "@coffer_so/sdk": "file:../sdk"
+    "@coffer_so/sdk-v6": "file:../sdk"
   }
 }
 ```
@@ -46,7 +51,7 @@ From sibling packages:
 ## Quick start
 
 ```ts
-import { getConfig, CubicPoolClient, CofferBackendClient } from "@coffer_so/sdk";
+import { getConfig, CubicPoolClient, CofferBackendClient } from "@coffer_so/sdk-v6";
 import { PublicKey } from "@solana/web3.js";
 
 const config = getConfig("mainnet", {
@@ -82,12 +87,14 @@ const info = res.data;
 
 ```
 config/       CofferConfig, program IDs per network, token registry
-types/        Result<T> shape, PoolInfo, SwapQuote, SingleTokenDepositQuote,
-              CubicPoolEvent
+types/        Result<T> shape, PoolInfo, SwapQuote, AddLiquidityQuote,
+              RemoveLiquidityQuote, CubicPoolEvent
 utils/        Error mapping, retry wrapper (safeCall), PDA helpers
-math/         Pure math — port of cubic-pool + stld Rust math modules
+math/         Pure math — ports of the v6 cubic-pool + stld Rust math, the
+              swap simulator and the zap planner
 parsers/      Binary layout decoders for CubicPool / Mint / events
-clients/      RpcClient, CofferBackendClient, CubicPoolClient
+clients/      RpcClient, CofferBackendClient, CubicPoolClient, PlannedZapClient,
+              AdminClient, PoolFactoryClient
 idl/          Anchor IDL exports generated from the current contracts
 examples/     Runnable scripts demonstrating each capability
 ```
@@ -108,16 +115,18 @@ low-level instruction builders throw on invalid input.
 **In the SDK:**
 - All on-chain account parsing (pool, mint, events)
 - All math (quote, allocations, slippage, price impact)
-- All transaction building (swap, add/remove liquidity, single-token deposit, pool deploy)
+- All transaction building (swap, add/remove liquidity, planned single-token deposit, pool deploy)
+- The off-chain zap planner and the Token-2022 hook/memo tail resolver
 - Current Anchor IDLs for `cubic_pool`, `single_token_liquidity`, and
   `protocol_admin`
 - Retry + fallback for RPC and backend calls
 - Event log decoding
 
 **In the application:** UI/state, wallet signing, transaction submission and
-confirmation, native SOL wrapping, any missing token-account setup, and fresh
-helper-balance reads for STLD. Use the SDK quote and ABI helpers for contract
-math and encoding; direct `rpc.connection` calls bypass its fallback wrapper.
+confirmation, native SOL wrapping, token-account setup (the SDK hands you the
+idempotent-create instructions) and wallet-ALT setup for large pools. Use the
+SDK quote and ABI helpers for contract math and encoding; direct
+`rpc.connection` calls bypass its fallback wrapper.
 
 ## v0 transactions + per-pool ALT
 
@@ -131,7 +140,7 @@ Builders return instructions. Call `compileBuiltTx` to fetch the pool's ALT and
 compile a v0 transaction. The wallet supplies signatures and the caller sends it.
 
 ```ts
-import { compileBuiltTx } from "@coffer_so/sdk";
+import { compileBuiltTx } from "@coffer_so/sdk-v6";
 
 const built = client.buildRemoveLiquidityTx({ user, bptAmount, minimumTokenAmounts });
 if (!built.ok) throw new Error(built.error.humanMessage);
@@ -143,7 +152,7 @@ if (!compiled.ok) throw new Error(compiled.error.humanMessage);
 ### Provisioning an ALT for a new pool
 
 ```ts
-import { buildInitializePoolAltTx } from "@coffer_so/sdk";
+import { buildInitializePoolAltTx } from "@coffer_so/sdk-v6";
 
 const recentSlot = new BN(await connection.getSlot("finalized"));
 const { instructions, lookupTable } = buildInitializePoolAltTx(config, {
@@ -175,23 +184,27 @@ The contract freezes the table; it cannot then be closed to reclaim that rent.
 ## Token-2022 support
 
 Pools may mix the classic SPL Token program and Token-2022. Every
-`PoolTokenInfo` carries a `tokenProgram` field decoded straight from
-the on-chain pool account. The transaction builders
-(`buildSwapTx`, `buildAddLiquidityTx`, `buildRemoveLiquidityTx`,
-`buildSingleTokenDepositTx`) thread `token.tokenProgram` through ATA
-derivation and remaining-accounts assembly, so consumers do not need
-to special-case Token-2022 on the call site.
+`PoolTokenInfo` carries `tokenProgram`, `extensions`, `transferFee` (the
+schedule in force at the snapshot epoch), `transferHookProgram` (armed hooks
+only) and `paused`, all decoded on `sync()`. Builders thread
+`token.tokenProgram` through ATA derivation and remaining-accounts assembly.
+
+The v6 program moves every token with `transfer_checked`, nets transfer fees
+on both legs and forwards a remaining-account tail to armed hooks and to the
+memo program. The SDK:
+
+- nets fees in every quote (`transferFeeIn/Out`, `amountOutReceived`,
+  `chargedAmounts` vs `creditedAmounts`, `receivedAmounts`);
+- resolves the tail (`resolveSwapExtraAccounts`, …, `PlannedZapClient.resolveExtraAccounts`)
+  and appends it through `extraAccounts`;
+- refuses only what the program refuses: `NonTransferable`, the Token-2022
+  native mint, unknown extension types, and any **paused** mint
+  (`unsupported_token_extension`). Hooks that need an extra signer or a core
+  account are outside the supported profile.
 
 The BPT mint defaults to classic SPL Token; `bptTokenProgram` can select
-Token-2022. `sync()` records its actual owner and builders use that program.
-
-The deployed contracts do not support transfer-fee or transfer-hook accounting.
-SDK swap/add/remove guards reject incompatible extensions on affected transfer
-legs. STLD instruction builders check **every pool mint**, including sidelined
-ones, because existing helper balances can be refunded. Its quote checks live
-reserve legs and any supplied nonzero helper balances, so a quote can succeed
-while the stricter STLD builder rejects a sidelined incompatible mint.
-`bannedMintExtensions()` separately reports the creation-policy bitmap; a bit in
+Token-2022 for joins/exits, but the planned zap requires a plain BPT mint.
+`bannedMintExtensions()` reports the pool's creation-policy bitmap; a bit in
 that bitmap does not by itself make an existing token non-transferable.
 
 ## Examples
@@ -201,7 +214,7 @@ See `examples/*.ts`:
 - `01-init-sdk.ts` — initialisation patterns
 - `02-fetch-pool.ts` — parse pool state
 - `03-quote-swap.ts` — swap quote with slippage
-- `06-single-token-deposit.ts` — single-token deposit quote
+- `06-single-token-deposit.ts` — planned single-token deposit: snapshot, plan, tail, packet budget
 - `08-backend-stats.ts` — statistics via CofferBackendClient
 
 Run: `npx ts-node examples/<name>.ts`.
@@ -227,17 +240,17 @@ insufficient funds) short-circuit.
 
 | Client / helpers | Public operations |
 | --- | --- |
-| `CubicPoolClient` | `sync`, `getCached`, `helperPda`, `quoteSwap`, `quoteSeedDeposit`, `quoteAddLiquidity`, `quoteRemove`, `quoteSingleTokenDeposit`, swap/add/remove/STLD transaction builders, split STLD builder, `singleTokenDeposit` getter, `parseEventsFromLogs` |
-| `SingleTokenDepositClient` | `sync`, `helperPda`, `quote`, `buildTx`, `buildTxs` |
+| `CubicPoolClient` | `sync`, `getCached`, `quoteSwap`, `quoteSeedDeposit`, `quoteAddLiquidity`, `quoteRemove`, `resolve*ExtraAccounts`, swap/add/remove transaction builders, `plannedZap` getter, `quotePlannedZap`, `parseEventsFromLogs` |
+| `PlannedZapClient` | `quote`, `replayAt`, `ensureUserTokenAccountIxs`, `resolveExtraAccounts`, `buildIx`, `buildTx`, `walletLookupAddresses`, `prepareWalletLookupTable`, `waitForWalletLookupTable`, `poolLookupTable`, `compileTransaction`; see [PLANNED_ZAP.md](docs/PLANNED_ZAP.md) |
 | `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializeCubicPoolIx` |
 | `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 29 protocol-admin instructions |
-| Generic ABI | `buildContractInstruction` for all 59 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 60 events |
-| Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, STLD, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation |
+| Generic ABI | `buildContractInstruction` for all 61 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 61 events |
+| Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation; `buildPlannedZapIx`, `stateCommitment`, `compilePlannedZapTransaction`; `resolveTransferExtraAccounts` |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 | XP snapshots | Frozen results of finished epochs and campaigns — `getLeaderboardEpochSnapshot`, `getCampaignSnapshotTop`, …; see [XP snapshots guide](docs/XP_SNAPSHOTS.md) |
 
 `getCached()` is the actual cache accessor; there is no `getState()`, `swap()`,
-or `getSwapQuote()` method. `pool.singleTokenDeposit` is a client getter, not a
+or `getSwapQuote()` method. `pool.plannedZap` is a client getter, not a
 callable deposit function. Raw builders and AdminClient instruction methods
 construct instructions; the caller signs and sends them.
 `AdminClient.initializeTreasuryIfMissing` is the explicit exception that can
@@ -251,31 +264,33 @@ const swap = pool.quoteSwap(inIndex, outIndex, amountIn, slippageHbps, nowSecond
 const seed = pool.quoteSeedDeposit(user, tokenAmounts, slippageHbps);
 const join = pool.quoteAddLiquidity(tokenAmounts, slippageHbps);
 const exit = pool.quoteRemove(bptIn);
-const zap = pool.quoteSingleTokenDeposit(inIndex, amountIn, slippageHbps, nowSeconds, helperBalances);
+const zap = await pool.plannedZap.quote(inIndex, amountIn, { slippageHundredthsBps, validForSlots, nowSeconds });
 ```
 
-`nowSeconds` is optional Unix seconds; omitted uses Solana Clock from `sync()`.
-STLD `helperBalances` is an optional vector of **existing helper token ATA
-balances before the operation**; omitted means zero and does not fetch them.
-`sync()` does not read helper ATAs. There is no per-leg minimum-output argument
-on the deployed STLD instruction: quote `minOuts` are informational.
+`nowSeconds` is optional Unix seconds; omitted uses the Solana Clock from
+`sync()` (or, for the zap, from its own snapshot).
 
-- Swap `amountOut` is net of the output-token surge fee; pass `minAmountOut` to
-  the builder. `feeAmount` and `protocolFeeAmount` use the input token.
-- Join `tokenAmounts` are spend ceilings. Display `depositAmounts` as the quoted
-  pool credit and `refundAmounts` as unspent funds. Seed uses exact amounts.
-- Exit `effectiveBptIn` may be smaller than requested to preserve 1,000 raw BPT.
-- Add/STLD builders require a **positive** `minimumBptAmount` at runtime, even
-  though the compatibility interfaces retain it as optional. Remove builders
-  require an explicit `minimumTokenAmounts` vector.
+- Swap `amountOut` is the vault debit net of the surge fee; `amountOutReceived`
+  subtracts the output mint's transfer fee and is what `minAmountOut` protects.
+  `feeAmount` and `protocolFeeAmount` use the input token (net of its fee).
+- Join `tokenAmounts` are spend ceilings. Display `creditedAmounts` as the pool
+  credit, `chargedAmounts` as the wallet debit (credit + transfer fee) and
+  `unspentAmounts` as what stays. Seed uses exact amounts.
+- Exit `effectiveBptIn` may be smaller than requested to preserve 1,000 raw BPT;
+  `receivedAmounts` is what lands in the wallet. Derive `minimumTokenAmounts`
+  from it.
+- Add/zap builders require a **positive** BPT floor at runtime, even though the
+  compatibility interfaces retain it as optional. Remove builders require an
+  explicit `minimumTokenAmounts` vector.
+- Token-2022 hooks/memos: pass the resolved tail as `extraAccounts`.
 
 `buildDeployPoolTx` initializes the pool and BPT mint without seeding or creating
 reserve vault ATAs. `buildAddLiquidityTx` creates the user's BPT ATA, but the
-user's input-token accounts and pool reserve vaults must already exist. Supply
-the necessary ATA setup in the application before the first deposit.
-For STLD on larger pools, use `buildSingleTokenDepositTxs`, confirm its setup
-transaction, then compile the deposit with the already initialized pool ALT.
-Neither splitting nor compiling creates the ALT.
+user's input-token accounts and pool reserve vaults must already exist. The
+planned zap needs every user token account and the BPT account to exist:
+`ensureUserTokenAccountIxs` returns the idempotent creates to send first.
+For 7+-token pools compile the zap with the pool ALT plus a wallet-owned ALT
+(`prepareWalletLookupTable`); neither quoting nor compiling creates an ALT.
 
 The complete typed event API keeps snake_case fields and full-width BN values.
 The camelCase `parseCubicPoolEvents` compatibility API also recognizes all 60

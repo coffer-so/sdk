@@ -113,7 +113,7 @@ function mockClient(state: State, data = bytes(state)) {
   const bpt = deriveBptMint(cfg.programs.cubicPool,address)[0];
   infos.set(bpt.toBase58(), {data:mint(9,wide.addn(999)),owner:TOKEN_2022_PROGRAM_ID,lamports:456});
   state.tokens.slice(0,state.token_count).forEach((s,i) => infos.set(s.config.mint.toBase58(),{data:mint(6+i,wide.addn(i)),owner:s.config.token_program,lamports:789}));
-  const clock=Buffer.alloc(40); clock.writeBigInt64LE(1788799999n,32);
+  const clock=Buffer.alloc(40); clock.writeBigUInt64LE(445105299n,0); clock.writeBigUInt64LE(1030n,16); clock.writeBigInt64LE(1788799999n,32);
   infos.set(SYSVAR_CLOCK_PUBKEY.toBase58(),{data:clock,owner:key(55),lamports:1});
   const rpc = new RpcClient({endpoint:"http://127.0.0.1:8899",connectionFactory:() => ({
     getAccountInfo: async (key: PublicKey) => infos.get(key.toBase58()) ?? null,
@@ -145,7 +145,20 @@ test("sync maps every operational field and token program with full-width balanc
   expect(info.bptTokenProgram.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
   expect(info.bptTotalSupply.eq(wide.addn(999))).toBe(true);
   expect(info.chainTimestamp).toBe(1788799999);
+  expect(info.chainSlot).toBe(445105299);
+  expect(info.chainEpoch).toBe(1030);
+  expect(info.v5Migrated).toBe(false);
+  for (const t of info.tokens) expect([t.transferFee, t.transferHookProgram, t.paused]).toEqual([null, null, false]);
   expect(client.getCached()).toBe(info);
+});
+
+test("the V5M1 marker in reserved[0..4] reads as v5Migrated", async () => {
+  const state=fixture(); state.reserved=[0x56,0x35,0x4d,0x31, ...Array.from({length:12}, (_,i) => i+5)];
+  expect(decodePoolAccount(bytes(state)).v5Migrated).toBe(true);
+  expect(decodePoolAccount(bytes(state)).reserved.subarray(0,4).toString("ascii")).toBe("V5M1");
+  const result=await mockClient(state).sync();
+  if (!result.ok) throw new Error(result.error.humanMessage);
+  expect(result.data.v5Migrated).toBe(true);
 });
 
 test("sync returns a parse failure for a same-owner account with a wrong discriminator", async () => {

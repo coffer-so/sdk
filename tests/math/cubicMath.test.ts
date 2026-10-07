@@ -53,7 +53,7 @@ describe("cubicMath.calcOutGivenIn", () => {
       weightOutBps: 5000n,
       amountIn: BN_BILLION * 100n,
       actualBalanceOut: BN_BILLION / 2n, // ceiling
-    })).toThrow(/exceeds actual balance/);
+    })).toThrow("AmountOutExceedsBalance");
   });
 });
 

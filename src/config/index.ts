@@ -40,6 +40,12 @@ export interface CofferConfig {
 }
 
 export interface CofferConfigOverrides {
+  /**
+   * Program ids to use instead of the network table. Needed while v6 runs
+   * on a local validator or a devnet copy under different addresses; a
+   * partial object overrides only the listed programs.
+   */
+  programs?: Partial<NetworkPrograms>;
   rpcEndpoint?: string;
   rpcEndpoints?: string[];
   rpcTimeoutMs?: number;
@@ -55,7 +61,7 @@ export function getConfig(network: Network, overrides: CofferConfigOverrides = {
   const rpcEndpoints = resolveRpcEndpoints(network, overrides);
   return {
     network,
-    programs: NETWORK_PROGRAMS[network],
+    programs: { ...NETWORK_PROGRAMS[network], ...(overrides.programs ?? {}) },
     defaults: {
       rpcEndpoint: rpcEndpoints[0] ?? overrides.rpcEndpoint ?? DEFAULT_RPC_ENDPOINT[network],
       rpcEndpoints,
@@ -98,8 +104,9 @@ export const BPT_DECIMALS = 9;
 export const SWAP_FEE_PRECISION = 1_000_000; // 100 %
 export const PROTOCOL_FEE_PRECISION = 10_000; // 100 %
 export const PERCENT_SCALE = 10_000; // 100 % (max-selloff / surge-fee scale)
-export const MAX_SWAP_FEE_RATE = 100_000; // 10 %
-export const MAX_PROTOCOL_FEE_RATE = 5_000; // 50 %
+/** v6: any rate in 0..=100 % is a legal pool configuration (v5 capped at 10 % / 50 %). */
+export const MAX_SWAP_FEE_RATE = SWAP_FEE_PRECISION; // 100 %
+export const MAX_PROTOCOL_FEE_RATE = PROTOCOL_FEE_PRECISION; // 100 %
 export const MINIMUM_INITIAL_BPT = 1_000n;
 export const SLIPPAGE_PRECISION = 1_000_000;
 export const MIN_SLIPPAGE_HBPS = 10; // 0.001 %

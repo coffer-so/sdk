@@ -10,6 +10,7 @@ export type CubicPoolEvent =
   | PoolEnabledUpdatedEvent
   | SwapsEnabledUpdatedEvent
   | SingleTokenDepositEvent
+  | SingleTokenDepositDirectEvent
   | PoolStateLogEvent
   | MaxSelloffWindowAdvancedEvent
   | BannedExtensionsUpdatedEvent
@@ -34,6 +35,8 @@ export interface PoolInitializedEvent {
    * the distinction matters.
    */
   bannedExtensions: BN;
+  /** PDA salt (`pool_id`). Appended in v6; `0` for logs of older deployments. */
+  poolId: BN;
 }
 
 export interface SwapEvent {
@@ -55,11 +58,17 @@ export interface SwapEvent {
    */
   surgeFeeAmount: BN;
   timestamp: number;
-  /** Legacy compatibility field; the deployed without-SF event omits transfer
-   * fees, so this is zero for current events. No transfer-fee support is implied.
+  /**
+   * Token-2022 transfer fee withheld on the INPUT leg: the vault received
+   * `amountIn − transferFeeIn`. Appended in v6; `0` for classic mints and
+   * for logs emitted by a v5 deployment.
    */
   transferFeeIn: BN;
-  /** Legacy compatibility field; zero for the deployed without-SF event. */
+  /**
+   * Token-2022 transfer fee withheld on the OUTPUT leg: the user received
+   * `amountOut − transferFeeOut` (`amountOut` is the vault debit, net of
+   * surge, gross of this fee).
+   */
   transferFeeOut: BN;
 }
 
@@ -133,6 +142,29 @@ export interface SingleTokenDepositEvent {
 }
 
 /**
+ * v6 planned single-token deposit receipt (`deposit_single_token_planned`).
+ * Swaps and the join run with the user's own token accounts, so there is
+ * no helper and no refund: `dustRemaining` is what this zap left unspent
+ * in the user's accounts (prior balances excluded).
+ */
+export interface SingleTokenDepositDirectEvent {
+  kind: "SingleTokenDepositDirect";
+  pool: PublicKey;
+  user: PublicKey;
+  tokenInIndex: number;
+  /** Gross input the user signed for (the plan's allocations sum to it). */
+  amountIn: BN;
+  /** The plan: gross input spent on each swap leg; the input slot is the amount reserved for the join. */
+  allocations: BN[];
+  /** Measured per-token debits of the join (after the pool's own crop). */
+  depositedAmounts: BN[];
+  bptReceived: BN;
+  /** Per-token unspent budget left in the user's accounts; each entry is in a different mint. */
+  dustRemaining: BN[];
+  timestamp: number;
+}
+
+/**
  * `set_banned_extensions` / `pool_set_banned_extensions` audit trail.
  *
  * `hard*` values are the protocol-level floor a pool creator's per-pool
@@ -189,7 +221,7 @@ export interface UnknownEvent {
  */
 type CamelCase<S extends string> = S extends `${infer Head}_${infer Tail}` ? `${Head}${Capitalize<CamelCase<Tail>>}` : S;
 type CamelEventData<T> = { [K in keyof T as K extends string ? CamelCase<K> : K]: K extends "timestamp" ? number : T[K] };
-type ExistingEventName = "PoolInitialized" | "Swap" | "LiquidityAdded" | "LiquidityRemoved" | "ProtocolFeesCollected" | "PoolEnabledUpdated" | "SwapsEnabledUpdated" | "SingleTokenDeposit" | "PoolStateLog" | "MaxSelloffWindowAdvanced" | "BannedExtensionsUpdated";
+type ExistingEventName = "PoolInitialized" | "Swap" | "LiquidityAdded" | "LiquidityRemoved" | "ProtocolFeesCollected" | "PoolEnabledUpdated" | "SwapsEnabledUpdated" | "SingleTokenDeposit" | "SingleTokenDepositDirect" | "PoolStateLog" | "MaxSelloffWindowAdvanced" | "BannedExtensionsUpdated";
 export type AdditionalContractEvent = {
   [P in keyof import("./contracts").ContractEventMap]: {
     [E in Exclude<keyof import("./contracts").ContractEventMap[P], ExistingEventName>]:

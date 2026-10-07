@@ -1,7 +1,4 @@
-import {
-  capDepositAmountsToLpRatio,
-  computeAllocations,
-} from "../../src/math/singleToken";
+import { computeAllocations } from "../../src/math/singleToken";
 
 describe("computeAllocations", () => {
   test("balanced pool splits 50/50", () => {
@@ -61,7 +58,7 @@ describe("computeAllocations", () => {
         amountIn: 1000n,
         tokenInIndex: 0,
       })
-    ).toThrow(/pool not seeded/);
+    ).toThrow(/PoolNotSeeded/);
   });
 
   test("throws on zero virtual balance", () => {
@@ -73,7 +70,7 @@ describe("computeAllocations", () => {
         amountIn: 1000n,
         tokenInIndex: 0,
       })
-    ).toThrow(/virtualBalance.*positive/);
+    ).toThrow(/InvalidVirtualBalance/);
   });
 
   test("length mismatch throws", () => {
@@ -85,7 +82,7 @@ describe("computeAllocations", () => {
         amountIn: 1n,
         tokenInIndex: 0,
       })
-    ).toThrow(/length mismatch/);
+    ).toThrow(/InvalidTokenCount/);
   });
 
   test("tokenInIndex out of range throws", () => {
@@ -97,24 +94,9 @@ describe("computeAllocations", () => {
         amountIn: 1n,
         tokenInIndex: 5,
       })
-    ).toThrow(/out of range/);
+    ).toThrow(/InvalidTokenIndex/);
   });
 
-  test("caps imbalanced helper balances to LP-accessible proportional ratio", () => {
-    const capped = capDepositAmountsToLpRatio({
-      helperBalances: [100n, 900n, 700n],
-      actualBalances: [1_000n, 2_000n, 3_000n],
-      protocolFeesOwed: [500n, 200n, 0n],
-    });
-
-    expect(capped.lpBalancesForAdd).toEqual([1000n, 2000n, 3000n]);
-    expect(capped.depositAmounts).toEqual([100n, 200n, 300n]);
-    expect(capped.refundAmounts).toEqual([0n, 700n, 400n]);
-  });
-
-  test("pending fees cannot remove the LP-owned actual balance",()=>{
-    expect(capDepositAmountsToLpRatio({helperBalances:[1n,1n],actualBalances:[100n,100n],protocolFeesOwed:[100n,0n]}).depositAmounts).toEqual([1n,1n]);
-  });
   test("virtual ceiling clamps allocation weights",()=>{
     expect(computeAllocations({actualBalances:[1000000n,500000000n],virtualBalances:[1000000n,1000000n],weightsBps:[5000,5000],amountIn:1000000n,tokenInIndex:0}).allocations).toEqual([500000n,500000n]);
   });

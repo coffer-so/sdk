@@ -186,7 +186,8 @@
         "`protocol_admin` AND Treasury PDA.",
         "",
         "# remaining_accounts",
-        "`[vault_i, recipient_i, token_program_i]` per token.",
+        "`[vault_i, recipient_i, mint_i, token_program_i]` per token, plus",
+        "an optional tail of transfer-hook / memo accounts.",
         "",
         "# Used by",
         "`protocol_admin::pool_collect_protocol_fees` (CPI)."
@@ -235,6 +236,10 @@
         "",
         "# Parameters",
         "* `token_amounts` — per-token withdraw amounts (use 0 to skip).",
+        "",
+        "# remaining_accounts",
+        "`[vault_i, recipient_i, mint_i, token_program_i]` per token, plus",
+        "an optional tail of transfer-hook / memo accounts.",
         "",
         "# Used by",
         "`protocol_admin::pool_debug_withdraw_liquidity` (CPI),",
@@ -2210,6 +2215,11 @@
       "code": 6068,
       "name": "PoolNotSeeded",
       "msg": "Pool holds no liquidity: every actual_balance is zero"
+    },
+    {
+      "code": 6069,
+      "name": "UnsafeLegacyMigration",
+      "msg": "Legacy migration requires verified zero V4 policy bytes and inactive legacy tokens"
     }
   ],
   "types": [
@@ -3459,6 +3469,13 @@
               "Appended (wire append-only): effective per-pool banned-extensions bitmap."
             ],
             "type": "u64"
+          },
+          {
+            "name": "pool_id",
+            "docs": [
+              "Pool identifier used in the PDA seeds. Appended for existing decoders."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -3781,6 +3798,17 @@
           {
             "name": "new_max_leverage_bps",
             "type": "u32"
+          },
+          {
+            "name": "old_min_leverage_bps",
+            "docs": [
+              "Lower virtual/actual bound, in bps. Appended (wire append-only)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "new_min_leverage_bps",
+            "type": "u32"
           }
         ]
       }
@@ -4034,6 +4062,22 @@
               "Borsh encodes positionally, so every field added after the original",
               "`timestamp` tail must stay AFTER it — otherwise an indexer decoding a",
               "pre-upgrade event with the new IDL misreads every following field."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "transfer_fee_in",
+            "docs": [
+              "Token-2022 transfer fee withheld on the INPUT leg (vault received",
+              "`amount_in − transfer_fee_in`). Appended (wire append-only)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "transfer_fee_out",
+            "docs": [
+              "Token-2022 transfer fee withheld on the OUTPUT leg (user received",
+              "`amount_out − transfer_fee_out`). Appended (wire append-only)."
             ],
             "type": "u64"
           }

@@ -1,10 +1,21 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
-import { parseMintExtensions } from "../utils/extensions";
+import {
+  ExtensionType,
+  getExtensionData,
+  PausableConfigLayout,
+  TransferFeeConfigLayout,
+  TransferHookLayout,
+} from "@solana/spl-token";
+import type { PausableConfig, TransferFeeConfig, TransferHook } from "@solana/spl-token";
+import { MAX_FEE_BASIS_POINTS } from "../math/transferFee";
+import { MINT_TLV_OFFSET, parseMintExtensions } from "../utils/extensions";
 
 /**
  * SPL Token (or Token-2022) Mint parser. Reads the 82-byte base layout and,
- * for Token-2022 mints, the TLV extension list (discriminants only).
+ * for Token-2022 mints, the TLV extension list plus the bodies the v6
+ * transfer path depends on (transfer-fee schedules, transfer hook, pause
+ * state).
  *
  * Layout:
  *   0..36  COption<Pubkey>  mintAuthority  (4 bytes tag + 32 bytes pubkey)
@@ -21,6 +32,15 @@ export interface RawMintAccount {
   freezeAuthority: PublicKey | null;
   /** Token-2022 extension discriminants; `[]` for classic SPL mints. */
   extensions: number[];
+  /** Both fee schedules (older/newer with activation epoch); `null` without the extension. */
+  transferFeeConfig: TransferFeeConfig | null;
+  /**
+   * `TransferHook` extension body; `null` without the extension. A hook with
+   * `programId === PublicKey.default` is DISARMED and adds no extra accounts.
+   */
+  transferHook: TransferHook | null;
+  /** `Pausable` extension body; `null` without the extension. */
+  pausableConfig: PausableConfig | null;
 }
 
 export function decodeMintAccount(data: Buffer): RawMintAccount {
@@ -40,5 +60,34 @@ export function decodeMintAccount(data: Buffer): RawMintAccount {
   }
   const freezeAuthority =
     freezeTag === 0 ? null : new PublicKey(data.slice(50, 82));
-  return { mintAuthority, supply, decimals, isInitialized, freezeAuthority, extensions };
+
+  // Extension bodies: `parseMintExtensions` already validated the TLV walk.
+  const tlv = extensions.length > 0 ? data.subarray(MINT_TLV_OFFSET) : Buffer.alloc(0);
+  const body = (type: ExtensionType, expectedLen: number): Buffer | null => {
+    if (!extensions.includes(type)) return null;
+    const bytes = getExtensionData(type, tlv);
+    if (!bytes || bytes.length !== expectedLen) {
+      throw new Error(`decodeMintAccount: extension ${type} has ${bytes?.length ?? 0} bytes, expected ${expectedLen}`);
+    }
+    return bytes;
+  };
+  const feeBytes = body(ExtensionType.TransferFeeConfig, TransferFeeConfigLayout.span);
+  const transferFeeConfig = feeBytes ? TransferFeeConfigLayout.decode(feeBytes) : null;
+  if (transferFeeConfig) {
+    // `validate_mint` rejects schedules above 100 % as `InvalidMint`.
+    for (const schedule of [transferFeeConfig.olderTransferFee, transferFeeConfig.newerTransferFee]) {
+      if (schedule.transferFeeBasisPoints > MAX_FEE_BASIS_POINTS) {
+        throw new Error(`decodeMintAccount: transfer fee ${schedule.transferFeeBasisPoints} bps exceeds 100 %`);
+      }
+    }
+  }
+  const hookBytes = body(ExtensionType.TransferHook, TransferHookLayout.span);
+  const transferHook = hookBytes ? TransferHookLayout.decode(hookBytes) : null;
+  const pausableBytes = body(ExtensionType.PausableConfig, PausableConfigLayout.span);
+  if (pausableBytes && pausableBytes[32] > 1) {
+    throw new Error("decodeMintAccount: non-canonical Pausable flag");
+  }
+  const pausableConfig = pausableBytes ? PausableConfigLayout.decode(pausableBytes) : null;
+
+  return { mintAuthority, supply, decimals, isInitialized, freezeAuthority, extensions, transferFeeConfig, transferHook, pausableConfig };
 }

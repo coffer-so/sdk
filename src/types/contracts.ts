@@ -22,7 +22,7 @@ export interface ContractTypes {
     "PoolAltInitialized": { "pool": PublicKey; "lookup_table": PublicKey; "authority": PublicKey; "address_count": number; "timestamp": BN };
     "PoolEnabledUpdated": { "pool": PublicKey; "authority": PublicKey; "old_value": boolean; "new_value": boolean; "timestamp": BN };
     "PoolInfo": { "pool": PublicKey; "config": PublicKey; "bpt_mint": PublicKey; "token_count": number; "pool_id": BN; "tokens": Array<PublicKey>; "token_vaults": Array<PublicKey>; "normalized_weights": Array<BN>; "virtual_balances": Array<BN>; "actual_balances": Array<BN>; "protocol_fees_owed": Array<BN>; "swap_fee_rate": number; "protocol_fee_rate": number; "pool_enabled": boolean; "swaps_enabled": boolean; "token_programs": Array<PublicKey>; "timestamp": BN };
-    "PoolInitialized": { "pool": PublicKey; "config": PublicKey; "token_count": number; "bpt_mint": PublicKey; "timestamp": BN; "banned_extensions": BN };
+    "PoolInitialized": { "pool": PublicKey; "config": PublicKey; "token_count": number; "bpt_mint": PublicKey; "timestamp": BN; "banned_extensions": BN; "pool_id": BN };
     "PoolMigratedToV5": { "pool": PublicKey; "authority": PublicKey; "token_count": number; "reactivated": number; "timestamp": BN };
     "PoolSolWithdrawn": { "source": PublicKey; "authority": PublicKey; "recipient": PublicKey; "amount": BN; "timestamp": BN };
     "PoolStateLog": { "pool": PublicKey; "virtual_balances": Array<BN>; "actual_balances": Array<BN>; "protocol_fees_owed": Array<BN>; "timestamp": BN };
@@ -31,11 +31,11 @@ export interface ContractTypes {
     "ProtocolAdminTransferred": { "config": PublicKey; "old_admin": PublicKey; "new_admin": PublicKey; "timestamp": BN };
     "ProtocolFeeRateUpdated": { "pool": PublicKey; "old_rate": number; "new_rate": number; "timestamp": BN; "authority": PublicKey };
     "ProtocolFeesCollected": { "pool": PublicKey; "authority": PublicKey; "token_amounts": Array<BN>; "timestamp": BN };
-    "RangeManagerConfigSet": { "pool": PublicKey; "authority": PublicKey; "max_vb_change_pct": number; "max_weight_change_pct": number; "min_update_interval_secs": number; "timestamp": BN; "old_max_vb_change_pct": number; "old_max_weight_change_pct": number; "old_min_update_interval_secs": number; "old_max_leverage_bps": number; "new_max_leverage_bps": number };
+    "RangeManagerConfigSet": { "pool": PublicKey; "authority": PublicKey; "max_vb_change_pct": number; "max_weight_change_pct": number; "min_update_interval_secs": number; "timestamp": BN; "old_max_vb_change_pct": number; "old_max_weight_change_pct": number; "old_min_update_interval_secs": number; "old_max_leverage_bps": number; "new_max_leverage_bps": number; "old_min_leverage_bps": number; "new_min_leverage_bps": number };
     "RangeManagerSet": { "pool": PublicKey; "authority": PublicKey; "old_manager": PublicKey; "new_manager": PublicKey; "enabled": boolean; "timestamp": BN; "old_enabled": boolean; "new_enabled": boolean };
     "RangeManagerUpdated": { "pool": PublicKey; "manager": PublicKey; "vb_indices": Buffer; "vb_new_values": Array<BN>; "weight_indices": Buffer; "weight_new_values": Array<BN>; "timestamp": BN };
     "SelloffParams": { "max_selloff_pct": number; "period_length": number; "fee_threshold_pct": number; "fee_slope_low_pct": number; "fee_slope_high_pct": number; "fee_slope_mid_pct": number; "fee_kink_pct": number };
-    "Swap": { "pool": PublicKey; "user": PublicKey; "token_in": PublicKey; "token_out": PublicKey; "amount_in": BN; "amount_out": BN; "fee_amount": BN; "protocol_fee_amount": BN; "timestamp": BN; "surge_fee_amount": BN };
+    "Swap": { "pool": PublicKey; "user": PublicKey; "token_in": PublicKey; "token_out": PublicKey; "amount_in": BN; "amount_out": BN; "fee_amount": BN; "protocol_fee_amount": BN; "timestamp": BN; "surge_fee_amount": BN; "transfer_fee_in": BN; "transfer_fee_out": BN };
     "SwapFeeRateUpdated": { "pool": PublicKey; "old_rate": number; "new_rate": number; "timestamp": BN; "authority": PublicKey };
     "SwapsEnabledUpdated": { "pool": PublicKey; "authority": PublicKey; "old_value": boolean; "new_value": boolean; "timestamp": BN };
     "TokenActiveSet": { "pool": PublicKey; "authority": PublicKey; "token_index": number; "old_value": boolean; "new_value": boolean; "timestamp": BN };
@@ -74,11 +74,13 @@ export interface ContractTypes {
     "UpgradeAuthorityTransferred": { "treasury": PublicKey; "programdata": PublicKey; "new_authority": PublicKey; "timestamp": BN; "old_authority": PublicKey };
   };
   "singleTokenLiquidity": {
+    "AllocationPlan": { "allocations": Array<BN>; "expected_state": Array<number>; "quoted_at": BN; "valid_until_slot": BN };
     "AssetConfig": { "mint": PublicKey; "token_program": PublicKey; "normalized_weight": BN; "max_selloff_pct": number; "max_selloff_period_length": number; "variable_fee_threshold_pct": number; "variable_fee_slope_low_pct": number; "variable_fee_slope_high_pct": number; "is_active": boolean; "variable_fee_slope_mid_pct": number; "variable_fee_kink_pct": number };
     "AssetDynamics": { "virtual_balance": BN; "actual_balance": BN; "protocol_fees_owed": BN; "previous_selloff": BN; "current_selloff": BN; "window_start_timestamp": BN; "selloff_vb_snapshot": BN };
     "CubicPool": { "config": PublicKey; "bump": number; "token_count": number; "pool_id": BN; "swap_fee_rate": number; "protocol_fee_rate": number; "created_at": BN; "pool_enabled": boolean; "swaps_enabled": boolean; "pool_admin": PublicKey; "pending_pool_admin": PublicKey; "range_manager": PublicKey; "range_manager_enabled": boolean; "range_manager_max_vb_change_pct": number; "range_manager_max_weight_change_pct": number; "range_manager_min_update_interval_secs": number; "range_manager_last_updated": BN; "tokens": Array<ContractTypes["singleTokenLiquidity"]["TokenSlot"]>; "lookup_table": PublicKey; "banned_extensions": BN; "range_manager_max_leverage_bps": number; "range_manager_min_leverage_bps": number; "reserved": Array<number> };
     "CubicPoolConfig": { "protocol_admin": PublicKey; "pending_protocol_admin": PublicKey; "default_protocol_fee_rate": number; "banned_extensions": BN; "hard_banned_extensions": BN; "reserved": Array<number> };
     "SingleTokenDeposit": { "helper": PublicKey; "pool": PublicKey; "user": PublicKey; "token_in_index": number; "amount_in": BN; "allocations": Array<BN>; "deposited_amounts": Array<BN>; "bpt_received": BN; "dust_refunded": Array<BN>; "timestamp": BN };
+    "SingleTokenDepositDirect": { "pool": PublicKey; "user": PublicKey; "token_in_index": number; "amount_in": BN; "allocations": Array<BN>; "deposited_amounts": Array<BN>; "bpt_received": BN; "dust_remaining": Array<BN>; "timestamp": BN };
     "StldSolWithdrawn": { "source": PublicKey; "authority": PublicKey; "recipient": PublicKey; "amount": BN; "timestamp": BN };
     "TokenSlot": { "config": ContractTypes["singleTokenLiquidity"]["AssetConfig"]; "dynamics": ContractTypes["singleTokenLiquidity"]["AssetDynamics"] };
   };
@@ -143,11 +145,13 @@ export interface ContractInstructionMap {
     "transfer_upgrade_authority": { args: Record<string, never>; accounts: { "treasury": PublicKey; "admin": PublicKey; "program": PublicKey; "programdata": PublicKey; "new_authority": PublicKey; "bpf_loader_upgradeable": PublicKey } };
     "unfreeze_pools": { args: Record<string, never>; accounts: { "treasury": PublicKey; "authority": PublicKey; "cubic_pool_program": PublicKey } };
     "upgrade_pool_program": { args: Record<string, never>; accounts: { "treasury": PublicKey; "admin": PublicKey; "programdata": PublicKey; "program_to_upgrade": PublicKey; "buffer": PublicKey; "spill": PublicKey; "rent": PublicKey; "clock": PublicKey; "bpf_loader_upgradeable": PublicKey } };
-    "withdraw": { args: { "amount": BN }; accounts: { "treasury": PublicKey; "vault": PublicKey; "recipient": PublicKey; "admin": PublicKey; "token_program": PublicKey } };
+    "withdraw": { args: { "amount": BN }; accounts: { "treasury": PublicKey; "mint": PublicKey; "vault": PublicKey; "recipient": PublicKey; "admin": PublicKey; "token_program": PublicKey } };
     "withdraw_sol": { args: { "amount": BN }; accounts: { "treasury": PublicKey; "admin": PublicKey; "recipient": PublicKey } };
   };
   "singleTokenLiquidity": {
     "deposit_single_token": { args: { "amount_in": BN; "token_in_index": number; "minimum_bpt_amount": BN }; accounts: { "pool": PublicKey; "helper": PublicKey; "bpt_mint": PublicKey; "helper_bpt_account": PublicKey; "user_bpt_account": PublicKey; "user": PublicKey; "cubic_pool_program": PublicKey; "bpt_token_program": PublicKey } };
+    "deposit_single_token_direct": { args: { "amount_in": BN; "token_in_index": number; "minimum_bpt_amount": BN }; accounts: { "pool": PublicKey; "bpt_mint": PublicKey; "user_bpt_account": PublicKey; "user": PublicKey; "cubic_pool_program": PublicKey; "bpt_token_program": PublicKey } };
+    "deposit_single_token_planned": { args: { "amount_in": BN; "token_in_index": number; "minimum_bpt_amount": BN; "plan": ContractTypes["singleTokenLiquidity"]["AllocationPlan"] }; accounts: { "pool": PublicKey; "bpt_mint": PublicKey; "user_bpt_account": PublicKey; "user": PublicKey; "cubic_pool_program": PublicKey; "bpt_token_program": PublicKey } };
     "withdraw_sol": { args: { "amount": BN }; accounts: { "config": PublicKey; "pool": PublicKey; "source": PublicKey; "recipient": PublicKey; "authority": PublicKey; "system_program": PublicKey } };
   };
 }
@@ -231,6 +235,7 @@ export interface ContractEventMap {
   };
   "singleTokenLiquidity": {
     "SingleTokenDeposit": ContractTypes["singleTokenLiquidity"]["SingleTokenDeposit"];
+    "SingleTokenDepositDirect": ContractTypes["singleTokenLiquidity"]["SingleTokenDepositDirect"];
     "StldSolWithdrawn": ContractTypes["singleTokenLiquidity"]["StldSolWithdrawn"];
   };
 }

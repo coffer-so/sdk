@@ -59,6 +59,22 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InvalidPendingAdmin: "invalid_input",
   ProtocolAdminNotTreasury: "invalid_input",
 
+  // ── cubic-pool 6069, v6 ──────────────────────────────────────────────
+  /** `migrate_to_v5` refused: the pool is not a verified unmarked legacy layout. */
+  UnsafeLegacyMigration: "unsupported_pool_state",
+
+  // ── single-token-liquidity 6033–6039, v6 planned zap ─────────────────
+  /** The user's input account does not hold the complete `amount_in`. */
+  InsufficientInputBalance: "insufficient_funds",
+  /** The join tried to spend wallet funds beyond this zap's budget. */
+  TokenBudgetExceeded: "invalid_input",
+  ZapTokenExtensionsUnsupported: "unsupported_token_extension",
+  /** The legacy helper-PDA instructions always reject on v6. */
+  AllocationPlanRequired: "plan_invalid",
+  InvalidAllocationPlan: "plan_invalid",
+  AllocationPlanExpired: "plan_expired",
+  AllocationPlanStale: "plan_stale",
+
   // ── cubic-pool 6055–6068, new in v5.1 ────────────────────────────────
   /** Mint carries a Token-2022 extension this pool's policy forbids. */
   UnsupportedExtension: "invalid_input",
@@ -66,7 +82,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   MemoProgramMissing: "invalid_input",
   TransferFeeCalculationMismatch: "invalid_input",
   /** The whole deposit was eaten by the mint's transfer fee. */
-  AmountFullyConsumedByTransferFee: "invalid_input",
+  AmountFullyConsumedByTransferFee: "amount_too_small",
   /** Only `pool.pool_admin` may make a pool's first (seed) deposit. */
   SeedDepositNotPoolAdmin: "auth_failed",
   StldTokenExtensionsUnsupported: "unsupported_pool_state",
@@ -84,7 +100,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   FirstDepositRequiresNonzero: "invalid_input",
   TokenLivenessMismatch: "invalid_input",
   /** Deposit too small to mint a single unit of BPT — increase the amount. */
-  DepositTooSmall: "invalid_input",
+  DepositTooSmall: "amount_too_small",
   /** Pool holds no liquidity yet; the pool admin must seed it first. */
   PoolNotSeeded: "unsupported_pool_state",
 

@@ -10,20 +10,7 @@
     {
       "name": "deposit_single_token",
       "docs": [
-        "Single-token liquidity-add into a Cubic Pool. See",
-        "`instructions/deposit_single_token.rs` for the",
-        "`remaining_accounts` layout.",
-        "",
-        "# Parameters",
-        "* `amount_in`          — raw units of",
-        "`pool.token_mints[token_in_index]`.",
-        "* `token_in_index`     — index in `pool.token_mints`.",
-        "* `minimum_bpt_amount` — final slippage guard on BPT received by the",
-        "user (> 0). This single guard bounds the whole zap (internal swaps",
-        "+ surge fees + join); per-leg swaps use `min_out = 0`.",
-        "",
-        "# Used by",
-        "SDK `SingleTokenClient`, frontend `useSingleTokenDeposit` hook."
+        "Deprecated v5 ABI: always rejects before any token movement."
       ],
       "discriminator": [
         166,
@@ -83,6 +70,124 @@
         {
           "name": "minimum_bpt_amount",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit_single_token_direct",
+      "docs": [
+        "Deprecated unplanned direct ABI: always rejects before token movement."
+      ],
+      "discriminator": [
+        232,
+        26,
+        96,
+        26,
+        113,
+        140,
+        253,
+        131
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "bpt_mint",
+          "writable": true
+        },
+        {
+          "name": "user_bpt_account",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "cubic_pool_program"
+        },
+        {
+          "name": "bpt_token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "token_in_index",
+          "type": "u8"
+        },
+        {
+          "name": "minimum_bpt_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit_single_token_planned",
+      "docs": [
+        "V6 atomic zap with a curve-aware external allocation plan. The user's",
+        "old balances are protected and only the actual outputs of this call",
+        "fund the proportional join. Mint/epoch changes invalidate the quote."
+      ],
+      "discriminator": [
+        252,
+        10,
+        83,
+        238,
+        2,
+        238,
+        75,
+        26
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "bpt_mint",
+          "writable": true
+        },
+        {
+          "name": "user_bpt_account",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "cubic_pool_program"
+        },
+        {
+          "name": "bpt_token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "token_in_index",
+          "type": "u8"
+        },
+        {
+          "name": "minimum_bpt_amount",
+          "type": "u64"
+        },
+        {
+          "name": "plan",
+          "type": {
+            "defined": {
+              "name": "AllocationPlan"
+            }
+          }
         }
       ]
     },
@@ -210,6 +315,19 @@
         39,
         164,
         235
+      ]
+    },
+    {
+      "name": "SingleTokenDepositDirect",
+      "discriminator": [
+        78,
+        128,
+        118,
+        93,
+        148,
+        179,
+        216,
+        112
       ]
     },
     {
@@ -380,7 +498,7 @@
     {
       "code": 6030,
       "name": "TokenExtensionsUnsupported",
-      "msg": "Single-token deposit unsupported for pools with transfer-fee/hook tokens"
+      "msg": "Single-token deposit unsupported for pools with armed transfer-hook tokens"
     },
     {
       "code": 6031,
@@ -391,9 +509,79 @@
       "code": 6032,
       "name": "PoolTooLargeForZap",
       "msg": "Pool has too many tokens for a single-token deposit; use add_liquidity"
+    },
+    {
+      "code": 6033,
+      "name": "InsufficientInputBalance",
+      "msg": "User token account does not cover the complete input amount"
+    },
+    {
+      "code": 6034,
+      "name": "TokenBudgetExceeded",
+      "msg": "Single-token deposit exceeded its per-token spend budget"
+    },
+    {
+      "code": 6035,
+      "name": "ZapTokenExtensionsUnsupported",
+      "msg": "Direct zap requires plain mints and token accounts (ImmutableOwner is allowed)"
+    },
+    {
+      "code": 6036,
+      "name": "AllocationPlanRequired",
+      "msg": "V6 zap requires a curve-aware allocation plan; use deposit_single_token_planned"
+    },
+    {
+      "code": 6037,
+      "name": "InvalidAllocationPlan",
+      "msg": "Allocation plan does not exactly cover the signed input budget"
+    },
+    {
+      "code": 6038,
+      "name": "AllocationPlanExpired",
+      "msg": "Allocation plan is expired or its timestamp is invalid"
+    },
+    {
+      "code": 6039,
+      "name": "AllocationPlanStale",
+      "msg": "Pool, BPT supply, mint configuration or epoch changed since the quote"
     }
   ],
   "types": [
+    {
+      "name": "AllocationPlan",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "allocations",
+            "docs": [
+              "Gross input spent on each ordered swap; the input slot is the amount",
+              "reserved for joining. Sum must equal amount_in exactly."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "expected_state",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "quoted_at",
+            "type": "i64"
+          },
+          {
+            "name": "valid_until_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
     {
       "name": "AssetConfig",
       "docs": [
@@ -1050,6 +1238,61 @@
               "amounts across mints of different decimals — the previous `u64` —",
               "is not a meaningful quantity."
             ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SingleTokenDepositDirect",
+      "docs": [
+        "Receipt for the direct route. `deposited_amounts` are measured actual",
+        "token debits of the join (after both crops); `dust_remaining` contains",
+        "only this zap's unspent budget, excluding all prior wallet balances."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_in_index",
+            "type": "u8"
+          },
+          {
+            "name": "amount_in",
+            "type": "u64"
+          },
+          {
+            "name": "allocations",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "deposited_amounts",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "bpt_received",
+            "type": "u64"
+          },
+          {
+            "name": "dust_remaining",
             "type": {
               "vec": "u64"
             }

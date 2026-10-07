@@ -45,6 +45,22 @@ export function expFp(x: bigint): bigint {
     }
     return mulDivDown(product, sum, ONE);
 }
+/**
+ * Optional memo for `powFp`, scoped to one `withPowMemo` call. The zap
+ * planner evaluates the same `(base, exponent)` pairs many times while
+ * bisecting; `ln`/`exp` dominate its cost. Pure: results are identical.
+ */
+let powMemo: Map<string, bigint> | null = null;
+export function withPowMemo<T>(fn: () => T): T {
+    const previous = powMemo;
+    powMemo = new Map();
+    try {
+        return fn();
+    }
+    finally {
+        powMemo = previous;
+    }
+}
 export function powFp(base: bigint, exponent: bigint): bigint {
     assertU128(base);
     assertU128(exponent);
@@ -52,10 +68,16 @@ export function powFp(base: bigint, exponent: bigint): bigint {
         return ONE;
     if (base === 0n)
         return 0n;
+    const key = powMemo ? `${base}/${exponent}` : "";
+    const memo = powMemo?.get(key);
+    if (memo !== undefined)
+        return memo;
     const logarithm = lnFp(base);
     // Rust casts u128 to i128 here. Valid pool weights are far below i128::MAX.
     const y = BigInt.asIntN(128, exponent);
     const whole = assertI128((logarithm / ONE) * y);
     const fraction = assertI128((logarithm % ONE) * y) / ONE;
-    return expFp(assertI128(whole + fraction));
+    const result = expFp(assertI128(whole + fraction));
+    powMemo?.set(key, result);
+    return result;
 }

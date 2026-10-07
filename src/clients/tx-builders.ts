@@ -24,15 +24,14 @@ import {
   RemoveLiquidityParams,
   SetRangeManagerConfigParams,
   SetRangeManagerParams,
-  SingleTokenDepositParams,
   SwapParams,
   SelloffParams,
   TokenChange,
 } from "../types/tx";
-import { deriveAta, deriveBptMint, deriveHelperPda } from "../utils/pda";
+import { deriveAta, deriveBptMint } from "../utils/pda";
 import { buildContractInstruction } from "./contract-instructions";
 import { calcTokensOutGivenBptIn, calcBptOutGivenExactTokensIn } from "../math/cubicMath";
-import { divDown, mulDown } from "../math/fixedPoint";
+import { netOfTransferFee } from "../math/transferFee";
 import { assertTokensSupported } from "../utils/extensions";
 
 /**
@@ -61,7 +60,7 @@ const PINNED: Record<string, string> = {
   remove_liquidity: "5055d14818ceb16c",
   initialize_cubic_pool: "d79474cf79686f83",
   initialize_pool_alt: "fb874202f4490c90",
-  deposit_single_token: "a688a62fc7c056a9",
+  deposit_single_token_planned: "fc0a53ee02ee4b1a",
   initialize_config: "d07f1501c2bec446",
   set_range_manager: "6766ad7008022584",
   set_range_manager_config: "67d300c8a4bdf5cd",
@@ -110,10 +109,6 @@ const CUBIC_POOL_DISC = {
 
 const PROTOCOL_ADMIN_DISC = {
   poolInitializeConfig: computeDiscriminator("pool_initialize_config", "protocolAdmin"),
-};
-
-const STLD_DISC = {
-  depositSingleToken: computeDiscriminator("deposit_single_token", "stld"),
 };
 
 function bptProgram(pool: PoolInfo): PublicKey {
@@ -194,12 +189,28 @@ export function buildSwapIx(
     { pubkey: params.user, isSigner: true, isWritable: true },
     { pubkey: inTok.tokenProgram, isSigner: false, isWritable: false },
     { pubkey: outTok.tokenProgram, isSigner: false, isWritable: false },
+    ...tail(params.extraAccounts, "swap"),
   ];
 
   return new TransactionInstruction({
     programId: cfg.programs.cubicPool,
     keys,
     data,
+  });
+}
+
+/**
+ * v6 remaining-account tail: forwarded to every `transfer_checked` CPI of
+ * the instruction (hook extras, memo program). Never signers.
+ */
+function tail(extraAccounts: AccountMeta[] | undefined, ixName: string): AccountMeta[] {
+  if (!extraAccounts?.length) return [];
+  const seen = new Set<string>();
+  return extraAccounts.map((meta) => {
+    if (meta.isSigner) throw new Error(`${ixName}: extra accounts cannot be signers (${meta.pubkey.toBase58()})`);
+    if (seen.has(meta.pubkey.toBase58())) throw new Error(`${ixName}: duplicate extra account ${meta.pubkey.toBase58()}`);
+    seen.add(meta.pubkey.toBase58());
+    return { pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable };
   });
 }
 
@@ -251,20 +262,19 @@ export function buildAddLiquidityIx(
     );
   }
 
-  // Refuse joins whose integer-rounded basket has a zero live leg. Such a
-  // basket can mint positive BPT in this deployment despite moving no tokens.
+  // Mirror the program's early refusals: liveness mismatch, a ceiling fully
+  // consumed by its transfer fee, and a basket that rounds to zero BPT
+  // (`DepositTooSmall`). v6 credits live legs UP from the ratio, so a
+  // positive BPT amount never leaves a live leg unmoved.
   if (pool.bptTotalSupply.gt(new BN(0))) {
     const balances = pool.tokens.map(token => BigInt(token.actualBalance.toString()));
     const amounts = params.tokenAmounts.map(amount => BigInt(amount.toString()));
-    let ratio: bigint | null = null;
+    const net = amounts.map((amount, i) => netOfTransferFee(pool.tokens[i].transferFee, amount));
     balances.forEach((balance, i) => {
       if ((balance > 0n) !== (amounts[i] > 0n)) throw new Error("add_liquidity: token liveness mismatch");
-      if (balance === 0n) return;
-      const candidate = divDown(amounts[i], balance);
-      ratio = ratio === null || candidate < ratio ? candidate : ratio;
+      if (amounts[i] > 0n && net[i] === 0n) throw new Error(`add_liquidity: ceiling at token index ${i} is fully consumed by its transfer fee`);
     });
-    if (ratio === null || calcBptOutGivenExactTokensIn(balances, amounts, BigInt(pool.bptTotalSupply.toString())) === 0n ||
-        balances.some(balance => balance > 0n && mulDown(balance, ratio!) === 0n)) {
+    if (calcBptOutGivenExactTokensIn(balances, net, BigInt(pool.bptTotalSupply.toString())) === 0n) {
       throw new Error("add_liquidity: deposit too small after proportional rounding");
     }
   }
@@ -298,6 +308,7 @@ export function buildAddLiquidityIx(
     { pubkey: params.user, isSigner: true, isWritable: true },
     { pubkey: bptProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
+    ...tail(params.extraAccounts, "add_liquidity"),
   ];
 
   return new TransactionInstruction({
@@ -378,6 +389,7 @@ export function buildRemoveLiquidityIx(
     { pubkey: params.user, isSigner: true, isWritable: true },
     { pubkey: bptProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
+    ...tail(params.extraAccounts, "remove_liquidity"),
   ];
 
   return new TransactionInstruction({
@@ -417,233 +429,6 @@ export function buildRemoveLiquidityTx(
   return {
     instructions: ixs,
     suggestedCuLimit: cfg.defaults.cuLimit,
-  };
-}
-
-// ============================================================
-// Single-token deposit (helper program)
-// ============================================================
-
-/**
- * Largest pool the zap will accept, mirroring `STLD_MAX_TOKENS` in
- * `single-token-liquidity/src/constants.rs` (which is defined as
- * cubic-pool's `MAX_TOKENS`).
- *
- * Raised from 5 to 10 in v5.1 (audit SF-3): the old ceiling existed because
- * the per-leg allocations exhausted the 32 KiB bump heap. Above this the
- * program rejects with `PoolTooLargeForZap` (stld 6032).
- */
-export const STLD_MAX_TOKENS = 10;
-
-/**
- * Compute units to request for the zap.
- *
- * Measured on the v5.1 build at the worst case N=10: 1,073,206 CU for
- * classic SPL and 913,986 CU for Token-2022. 1.4M is the per-transaction
- * maximum and leaves headroom for the surge-fee path.
- */
-export const STLD_DEPOSIT_CU_LIMIT = 1_400_000;
-
-export function buildSingleTokenDepositIx(
-  cfg: CofferConfig,
-  pool: PoolInfo,
-  params: SingleTokenDepositParams
-): TransactionInstruction {
-  // v5 / new contract: deposit_single_token args are
-  // (amount_in: u64, token_in_index: u8, minimum_bpt_amount: u64).
-  // The old per-call `slippage_hundredths_bps: u32` was removed — the single
-  // `minimum_bpt_amount` floor now bounds the whole zap (internal swaps +
-  // surge fees + join); per-leg swaps use min_out = 0.
-  if (pool.tokenCount > STLD_MAX_TOKENS) {
-    throw new Error(
-      `deposit_single_token: pool has ${pool.tokenCount} tokens, the zap supports at most ` +
-        `${STLD_MAX_TOKENS} (PoolTooLargeForZap). Use add_liquidity instead.`
-    );
-  }
-  assertTokensSupported(pool, "all", "deposit_single_token");
-  const minBpt = requirePositiveMinimumBpt(params.minimumBptAmount, "deposit_single_token");
-  const [helper] = deriveHelperPda(cfg.programs.singleTokenLiquidity, pool.address);
-  const helperBpt = deriveAta(helper, pool.bptMint, bptProgram(pool));
-  const userBpt = deriveAta(params.user, pool.bptMint, bptProgram(pool));
-
-  const data = Buffer.concat([
-    STLD_DISC.depositSingleToken,
-    encodeU64(params.amountIn),
-    encodeU8(params.tokenInIndex),
-    encodeU64(minBpt),
-  ]);
-
-  // stld remaining_accounts: [mint_i, user_ata_i, helper_ata_i, vault_i, tp_i] × N
-  const remaining: AccountMeta[] = [];
-  for (let i = 0; i < pool.tokenCount; i++) {
-    const t = pool.tokens[i];
-    const userAta = deriveAta(params.user, t.mint, t.tokenProgram);
-    const helperAta = deriveAta(helper, t.mint, t.tokenProgram);
-    remaining.push({ pubkey: t.mint, isSigner: false, isWritable: false });
-    remaining.push({ pubkey: userAta, isSigner: false, isWritable: true });
-    remaining.push({ pubkey: helperAta, isSigner: false, isWritable: true });
-    remaining.push({ pubkey: t.vault, isSigner: false, isWritable: true });
-    remaining.push({ pubkey: t.tokenProgram, isSigner: false, isWritable: false });
-  }
-
-  const keys: AccountMeta[] = [
-    { pubkey: pool.address, isSigner: false, isWritable: true },
-    { pubkey: helper, isSigner: false, isWritable: false },
-    { pubkey: pool.bptMint, isSigner: false, isWritable: true },
-    { pubkey: helperBpt, isSigner: false, isWritable: true },
-    { pubkey: userBpt, isSigner: false, isWritable: true },
-    { pubkey: params.user, isSigner: true, isWritable: true },
-    { pubkey: cfg.programs.cubicPool, isSigner: false, isWritable: false },
-    { pubkey: bptProgram(pool), isSigner: false, isWritable: false },
-    ...remaining,
-  ];
-
-  return new TransactionInstruction({
-    programId: cfg.programs.singleTokenLiquidity,
-    keys,
-    data,
-  });
-}
-
-/**
- * The idempotent ATA creates a zap depends on: the user's and the helper's
- * ATA for every pool token, plus both BPT ATAs. `2N + 2` instructions.
- *
- * The helper validates every user ATA up front because it may refund dust
- * in any pool token, so these cannot be trimmed to just the input token.
- */
-export function buildSingleTokenDepositAtaIxs(
-  cfg: CofferConfig,
-  pool: PoolInfo,
-  user: PublicKey
-): TransactionInstruction[] {
-  const [helper] = deriveHelperPda(cfg.programs.singleTokenLiquidity, pool.address);
-  const helperBpt = deriveAta(helper, pool.bptMint, bptProgram(pool));
-  const userBpt = deriveAta(user, pool.bptMint, bptProgram(pool));
-
-  const ixs: TransactionInstruction[] = [];
-  // User + helper ATAs (helper has an off-curve owner). Idempotent — safe to
-  // include even when the accounts already exist.
-  for (const t of pool.tokens) {
-    ixs.push(
-      createAssociatedTokenAccountIdempotentInstruction(
-        user,
-        deriveAta(user, t.mint, t.tokenProgram),
-        user,
-        t.mint,
-        t.tokenProgram
-      )
-    );
-    ixs.push(
-      createAssociatedTokenAccountIdempotentInstruction(
-        user,
-        deriveAta(helper, t.mint, t.tokenProgram),
-        helper,
-        t.mint,
-        t.tokenProgram
-      )
-    );
-  }
-  ixs.push(
-    createAssociatedTokenAccountIdempotentInstruction(
-      user,
-      helperBpt,
-      helper,
-      pool.bptMint,
-      bptProgram(pool)
-    )
-  );
-  ixs.push(
-    createAssociatedTokenAccountIdempotentInstruction(
-      user,
-      userBpt,
-      user,
-      pool.bptMint,
-      bptProgram(pool)
-    )
-  );
-  return ixs;
-}
-
-/**
- * Full single-token deposit in ONE transaction: idempotent ATA setup
- * followed by the deposit itself.
- *
- * ⚠ **This only fits for small pools.** Two independent runtime ceilings
- * bite as `N` grows, and neither is a byte-size problem an ALT can fix:
- *
- *  - `MAX_INSTRUCTION_TRACE_LENGTH = 64` counts CPI frames across the whole
- *    transaction. One idempotent ATA create costs 5, and the v5.1 zap alone
- *    uses 52/64 at N=10. The `2N + 2` setup instructions cost `10N + 10`
- *    frames, so the combined transaction blows the limit well before N=10.
- *  - Raw size at N=10 is 1796 bytes (437 with the pool's ALT), over the
- *    1232-byte legacy ceiling.
- *
- * For anything but a small pool use {@link buildSingleTokenDepositTxs},
- * which splits setup and deposit into two transactions, and compile the
- * deposit leg through the pool's ALT via `compileBuiltTx`.
- */
-export function buildSingleTokenDepositTx(
-  cfg: CofferConfig,
-  pool: PoolInfo,
-  params: SingleTokenDepositParams
-): BuiltTx {
-  const cuLimit = cfg.defaults.cuLimit ?? STLD_DEPOSIT_CU_LIMIT;
-  return {
-    instructions: [
-      ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
-      ...buildSingleTokenDepositAtaIxs(cfg, pool, params.user),
-      buildSingleTokenDepositIx(cfg, pool, params),
-    ],
-    suggestedCuLimit: cuLimit,
-  };
-}
-
-/**
- * Single-token deposit split into the two transactions large pools need.
- *
- * Send `setup` first and let it confirm, then send `deposit`. They are
- * separated because the ATA creates and the zap compete for the same
- * 64-frame instruction-trace budget (see {@link buildSingleTokenDepositTx}).
- *
- * `setup` is `null` when there is nothing to create — the caller can check
- * ATA existence itself and skip the leg. Otherwise it is always safe to
- * send: every instruction in it is idempotent.
- *
- * The `deposit` leg should be compiled as a v0 transaction against the
- * pool's Address Lookup Table (`compileBuiltTx(conn, user, deposit, pool)`).
- * At N=10 it is 1796 bytes raw and 437 with the ALT — the ALT is mandatory,
- * not an optimisation. Note that an ALT cannot be referenced in the same
- * slot it was extended, so a freshly-created table needs a slot to settle.
- */
-export function buildSingleTokenDepositTxs(
-  cfg: CofferConfig,
-  pool: PoolInfo,
-  params: SingleTokenDepositParams
-): { setup: BuiltTx | null; deposit: BuiltTx } {
-  const ataIxs = buildSingleTokenDepositAtaIxs(cfg, pool, params.user);
-  const cuLimit = cfg.defaults.cuLimit ?? STLD_DEPOSIT_CU_LIMIT;
-  // ~30k CU per idempotent create, with headroom.
-  const setupCu = Math.min(1_400_000, 50_000 * ataIxs.length);
-
-  return {
-    setup:
-      ataIxs.length === 0
-        ? null
-        : {
-            instructions: [
-              ComputeBudgetProgram.setComputeUnitLimit({ units: setupCu }),
-              ...ataIxs,
-            ],
-            suggestedCuLimit: setupCu,
-          },
-    deposit: {
-      instructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
-        buildSingleTokenDepositIx(cfg, pool, params),
-      ],
-      suggestedCuLimit: cuLimit,
-    },
   };
 }
 

@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
+import type { TransferFee } from "@solana/spl-token";
 import { TokenInfo } from "../config/tokens";
 
 /**
@@ -59,11 +60,34 @@ export interface PoolTokenInfo {
    */
   extensions?: number[];
   /**
-   * Subset of `extensions` the AMM cannot move (transfer fee, transfer
-   * hook, non-transferable, pausable, or unknown types). Non-empty ⇒ every quote / build that touches
-   * this token is refused with `unsupported_token_extension`.
+   * Subset of `extensions` the v6 program can never move (`NonTransferable`
+   * or an extension type newer than the program knows). Non-empty ⇒ every
+   * quote / build that touches this token is refused with
+   * `unsupported_token_extension`. Transfer fees, hooks and memo
+   * requirements are supported and are NOT listed here.
    */
   unsupportedExtensions?: number[];
+  /**
+   * Token-2022 transfer-fee schedule in force at `PoolInfo.chainEpoch`
+   * (`selectEpochFee` of the mint's `TransferFeeConfig`); `null` for mints
+   * without the extension. Quotes net this fee on every leg that moves the
+   * token: the vault credits `amount − fee` on the way in and the user
+   * receives `amount − fee` on the way out.
+   */
+  transferFee?: TransferFee | null;
+  /**
+   * Program of an ARMED transfer hook (`TransferHook.program_id`), or
+   * `null` when the mint has no hook or the hook is disarmed
+   * (`PublicKey.default`). An armed hook needs its extra-account tail
+   * resolved before building (`resolve*ExtraAccounts`).
+   */
+  transferHookProgram?: PublicKey | null;
+  /**
+   * `true` while the mint's `Pausable` extension is paused. The program
+   * refuses every transfer of a paused mint (`UnsupportedExtension`), so
+   * quotes and builders that would move this token are refused.
+   */
+  paused?: boolean;
 }
 
 /**
@@ -73,9 +97,11 @@ export interface PoolTokenInfo {
  */
 export interface PoolInfo {
   /**
-   * Indices of tokens with a non-empty `unsupportedExtensions`. Empty for a
-   * pool without runtime-incompatible mints. Swap/add/remove guards check
-   * affected transfer legs; the STLD instruction builder checks all mints.
+   * Indices of tokens the program cannot transfer right now: a non-empty
+   * `unsupportedExtensions`, a paused mint, or the Token-2022 native mint
+   * (see `tokenTransferBlockers`). Empty for a pool without
+   * runtime-incompatible mints. Swap/add/remove guards check affected
+   * transfer legs; the zap builder checks all mints.
    */
   unsupportedTokenIndices?: number[];
   /** Pool PDA address. */
@@ -101,6 +127,21 @@ export interface PoolInfo {
   rangeManagerLastUpdated?: BN;
   /** Solana Clock timestamp at sync, used for time-dependent selloff quotes. */
   chainTimestamp?: number;
+  /** Solana Clock slot at sync (`Clock.slot`); the planned zap's `valid_until_slot` counts from it. */
+  chainSlot?: number;
+  /**
+   * Solana Clock epoch at sync (`Clock.epoch`). Transfer-fee schedules are
+   * epoch-gated, and the planned zap's state commitment includes the epoch:
+   * a plan quoted in one epoch is `AllocationPlanStale` in the next.
+   */
+  chainEpoch?: number;
+  /**
+   * `true` once `migrate_to_v5` stamped the `"V5M1"` marker into the
+   * account's reserved bytes. A pool created by the v5/v6 program is marked
+   * at creation; an unmarked pool still needs the guarded migration before
+   * its per-token kill switches and leverage band are trustworthy.
+   */
+  v5Migrated?: boolean;
   /** Total supply of BPT tokens at snapshot time. */
   bptTotalSupply: BN;
   /** Hundredths-of-basis-point units (1_000_000 == 100 %). */

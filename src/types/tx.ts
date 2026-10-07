@@ -1,4 +1,4 @@
-import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import BN from "bn.js";
 
 export interface SwapParams {
@@ -10,22 +10,49 @@ export interface SwapParams {
   slippageHundredthsBps?: number;
   /** Optional explicit minimum; overrides slippage-derived value. */
   minAmountOut?: BN;
+  /**
+   * v6 remaining-account tail: transfer-hook extras and/or the memo program
+   * for Token-2022 legs (`resolveSwapExtraAccounts`). Omit for pools whose
+   * mints have no armed hook and no memo-requiring destinations.
+   */
+  extraAccounts?: AccountMeta[];
 }
 
 export interface SwapQuote {
   tokenInIndex: number;
   tokenOutIndex: number;
+  /** Gross input the user signs for. */
   amountIn: BN;
+  /**
+   * Token-2022 transfer fee withheld on the input leg (`0` for fee-less
+   * mints). The vault receives `amountInNet = amountIn − transferFeeIn`;
+   * fees, the sell-off window and the curve all work on the net.
+   */
+  transferFeeIn: BN;
+  amountInNet: BN;
+  /**
+   * What leaves the vault after the surge fee — the `Swap` event's
+   * `amount_out`. With an output-side transfer fee the user receives less:
+   * see `amountOutReceived`.
+   */
   amountOut: BN;
   /** Output before the sell-off surge fee (equals amountOut + surgeFeeAmount). */
   grossAmountOut?: BN;
+  /** Token-2022 transfer fee withheld on the output leg (`0` for fee-less mints). */
+  transferFeeOut: BN;
+  /** `amountOut − transferFeeOut`: what lands in the user's token account. */
+  amountOutReceived: BN;
   /** Spot-based upper bound on amountOut; useful for price-impact UI. */
   spotOut: BN;
   /** Absolute price impact in hundredths of basis point. */
   priceImpactHbps: number;
+  /** Swap fee, in the input token, charged on `amountInNet`. */
   feeAmount: BN;
   protocolFeeAmount: BN;
-  /** Minimum amount_out to pass to the swap ix given the quoted slippage. */
+  /**
+   * Minimum to pass to the swap ix given the quoted slippage. The program
+   * compares it to `amountOutReceived` (post-surge, post-transfer-fee).
+   */
   minAmountOut: BN;
   /** Variable sell-off surge fee taken from the output. `0` when no surge. */
   surgeFeeAmount: BN;
@@ -62,6 +89,8 @@ export interface AddLiquidityParams {
    * than a commitment.
    */
   minimumBptAmount?: BN;
+  /** v6 remaining-account tail (`resolveAddLiquidityExtraAccounts`); see `SwapParams.extraAccounts`. */
+  extraAccounts?: AccountMeta[];
 }
 
 /**
@@ -73,74 +102,81 @@ export interface AddLiquidityParams {
 export interface AddLiquidityQuote {
   /** The ceiling vector that was quoted (echo of the input). */
   tokenAmounts: BN[];
-  /** What the program will actually pull per token (proportional basket). */
+  /**
+   * What the program will actually debit per token (`charged_amounts`):
+   * the credited basket grossed up by each mint's transfer fee. Same as
+   * `chargedAmounts`.
+   */
   depositAmounts: BN[];
-  /** `tokenAmounts - depositAmounts`; stays in the user's wallet. */
+  /** `tokenAmounts − depositAmounts`; stays in the user's wallet. Same as `unspentAmounts`. */
   refundAmounts: BN[];
+  /** Alias of `depositAmounts` (the handler's name). */
+  chargedAmounts: BN[];
+  /**
+   * What the pool credits per token (`credited_amounts`): the net basket,
+   * rounded UP from the limiting ratio (`calc_deposit_credit`). Equals
+   * `chargedAmounts` for fee-less mints.
+   */
+  creditedAmounts: BN[];
+  /** Alias of `refundAmounts`. */
+  unspentAmounts: BN[];
+  /** Per-token Token-2022 transfer fee paid on top of the credit (`chargedAmounts − creditedAmounts`). */
+  transferFees: BN[];
+  /** Per-token virtual balance after the join (`virtual_balance_after_deposit`). */
+  virtualBalancesAfter: BN[];
   /** BPT the program will mint for this basket at the synced state. */
   bptOut: BN;
   /** `bptOut` after the quoted slippage; pass as `minimumBptAmount`. */
   minimumBptAmount: BN;
-  /** Index of the token that limits the basket (smallest amount/balance). */
+  /** Index of the token that limits the basket (smallest net amount / balance); `-1` for the seed deposit. */
   limitingTokenIndex: number;
 }
 
 export interface RemoveLiquidityParams {
   user: PublicKey;
   bptAmount: BN;
+  /** Floors on what the user RECEIVES per token (post transfer fee); derive from `quoteRemove().receivedAmounts`. */
   minimumTokenAmounts?: BN[];
+  /** v6 remaining-account tail (`resolveRemoveLiquidityExtraAccounts`); see `SwapParams.extraAccounts`. */
+  extraAccounts?: AccountMeta[];
+}
+
+/** Result of `CubicPoolClient.quoteRemove` (mirrors `remove_liquidity.rs`). */
+export interface RemoveLiquidityQuote {
+  /** Gross vault payouts per token (`calc_tokens_out_given_bpt_in`, floor). */
+  tokenOuts: BN[];
+  /** Token-2022 transfer fee withheld per token (`0` for fee-less mints). */
+  transferFees: BN[];
+  /**
+   * `tokenOuts − transferFees`: what lands in the user's accounts. The
+   * program compares `minimum_token_amounts` to these; derive the floors
+   * from them.
+   */
+  receivedAmounts: BN[];
+  /** Burn after the contract's `MINIMUM_INITIAL_BPT` clamp (`calc_effective_bpt_burn`). */
+  effectiveBptIn: BN;
+  /** Per-token virtual balance after the exit (`virtual_balance_after_withdrawal`). */
+  virtualBalancesAfter: BN[];
 }
 
 /**
- * Single-token deposit ("zap"): deposit one token, the helper swaps it into
- * the pool's proportions and joins on your behalf.
- *
- * Supported on pools of up to 10 tokens as of v5.1 (was 5 — the old cap was
- * a heap-exhaustion limit, audit SF-3). Beyond 10 the program rejects with
- * `PoolTooLargeForZap`.
- *
- * This deployed build does not account for Token-2022 transfer fees. The SDK
- * rejects transfer-fee mints and other runtime-incompatible extensions before
- * building a deposit. Plain Token-2022 mints and compatible extensions work.
+ * v6 planned zap (`deposit_single_token_planned`): deposit one token; the
+ * program executes the swaps and the proportional join of a plan the SDK
+ * computed off-chain (`PlannedZapClient.quote`). Supported on pools of 2..10
+ * tokens; the single `minimumBpt` floor is the only slippage guard on the
+ * whole route (internal swaps run with `min_out = 0`).
  */
-export interface SingleTokenDepositParams {
-  user: PublicKey;
-  tokenInIndex: number;
-  amountIn: BN;
-  /**
-   * Used only by the off-chain quote to derive `minimumBptAmount`. There is
-   * no per-call slippage argument on the instruction any more — the single
-   * `minimumBptAmount` floor bounds the entire zap, and per-leg swaps run
-   * with `min_out = 0` (which is what keeps the route correct under the
-   * path-dependent surge fee).
-   */
+export interface PlannedZapQuoteOptions {
+  /** Hundredths-bps slippage on the estimated BPT; omit to use the SDK default. */
   slippageHundredthsBps?: number;
+  /** Plan validity in slots from the snapshot slot (1..150, default 120 ≈ 48 s). */
+  validForSlots?: number;
   /**
-   * Required, must be > 0. The only slippage guard on the whole route:
-   * internal swaps + surge fees + the join.
+   * Clock seconds to simulate the route at (window decay only); defaults to
+   * the snapshot's `unix_timestamp`. The plan's `quotedAt` is ALWAYS the
+   * snapshot timestamp, so the program's 90 s age check is unaffected.
    */
-  minimumBptAmount?: BN;
-}
-
-/** Quote includes the helperBalances supplied to the quote call, or assumes
- * zero balances when omitted. Re-read helper ATAs and pool state before signing. */
-export interface SingleTokenDepositQuote {
-  tokenInIndex: number;
-  amountIn: BN;
-  /** Per-token allocations (sum = amountIn). */
-  allocations: BN[];
-  /** Per-leg expected swap out. `0` for sidelined tokens. */
-  expectedOuts: BN[];
-  /** Per-leg min_out derived from slippage. */
-  minOuts: BN[];
-  /** Estimated actual pool credits after both helper and pool proportional cropping. */
-  depositedAmounts: BN[];
-  /** Helper-held excess returned to the user after add_liquidity. */
-  refundAmounts: BN[];
-  /** Projected new BPT from the complete swap-and-join sequence at quoted state/time. */
-  estimatedBpt: BN;
-  /** Indices of tokens excluded from the deposit (actBal == 0). */
-  sidelinedTokenIndices: number[];
+  nowSeconds?: number;
 }
 
 export interface BuiltTx {

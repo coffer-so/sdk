@@ -44,3 +44,22 @@ backend deployment.
 Other backend guides describe SDK-declared interface shapes. For methods absent
 from this source revision, treat those shapes as the integration contract for a
 server that implements them, rather than evidence of current runtime support.
+
+## v6 indexing (separate backend task)
+
+The backend indexer was written against the v5 event set. v6 (this SDK) adds
+fields and one event the indexer must learn before v6 pools are indexed:
+
+- `Swap.transfer_fee_in` / `transfer_fee_out` — the vault received
+  `amount_in − transfer_fee_in`; the user received `amount_out − transfer_fee_out`.
+  Volume/TVL accounting that reads `amount_in`/`amount_out` as vault deltas is
+  off by the fees on Token-2022 fee mints.
+- `SingleTokenDepositDirect` (planned zap) replaces `SingleTokenDeposit`
+  (helper route): no helper PDA, `dust_remaining` stays in the user's accounts,
+  `deposited_amounts` are measured join debits. Both decoders ship in
+  `parseCubicPoolEvents`/`parseContractEvents`.
+- `PoolInitialized.pool_id`, `RangeManagerConfigSet.old/new_min_leverage_bps`.
+
+Pricing and APY code that replays `calc_out_given_in` must switch to the v6
+math (`simulateSwap`) once v6 is deployed: equal-weight swaps and join/exit
+rounding differ from v5 at the raw-unit level.

@@ -97,6 +97,33 @@ describe("tx-builders.removeLiquidity", () => {
   });
 });
 
+describe("tx-builders v6 remaining-account tail", () => {
+  test("swap, add and remove append extraAccounts after the fixed layout as non-signers", () => {
+    const cfg = getConfig("devnet");
+    const pool = mockPool(2);
+    const user = pk();
+    const extra = [{ pubkey: pk(), isSigner: false, isWritable: true }, { pubkey: pk(), isSigner: false, isWritable: false }];
+    const swap = buildSwapTx(cfg, pool, { user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(1000), minAmountOut: new BN(1), extraAccounts: extra }).instructions[1];
+    expect(swap.keys).toHaveLength(10 + 2);
+    expect(swap.keys.slice(10).map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual(extra.map((k) => [k.pubkey.toBase58(), false, k.isWritable]));
+    const add = buildAddLiquidityTx(cfg, pool, { user, tokenAmounts: [new BN(1000), new BN(1000)], minimumBptAmount: new BN(1), extraAccounts: extra }).instructions[2];
+    expect(add.keys).toHaveLength(5 + 4 * 2 + 2);
+    expect(add.keys.slice(-2).map((k) => k.pubkey.toBase58())).toEqual(extra.map((k) => k.pubkey.toBase58()));
+    const remove = buildRemoveLiquidityTx(cfg, pool, { user, bptAmount: new BN(1000), minimumTokenAmounts: [new BN(0), new BN(0)], extraAccounts: extra }).instructions.at(-1)!;
+    expect(remove.keys).toHaveLength(5 + 4 * 2 + 2);
+    expect(remove.keys.slice(-2).map((k) => k.pubkey.toBase58())).toEqual(extra.map((k) => k.pubkey.toBase58()));
+    // Without a tail the layout is unchanged.
+    expect(buildSwapTx(cfg, pool, { user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(1000), minAmountOut: new BN(1) }).instructions[1].keys).toHaveLength(10);
+  });
+
+  test("add_liquidity refuses a ceiling fully consumed by its transfer fee", () => {
+    const cfg = getConfig("devnet");
+    const pool = mockPool(2);
+    pool.tokens[0].transferFee = { epoch: 0n, maximumFee: 1_000_000n, transferFeeBasisPoints: 10_000 };
+    expect(() => buildAddLiquidityTx(cfg, pool, { user: pk(), tokenAmounts: [new BN(5), new BN(1000)], minimumBptAmount: new BN(1) })).toThrow(/fully consumed/);
+  });
+});
+
 describe("tx-builders discriminators", () => {
   test("matches current cubic-pool IDL for user-facing builders", () => {
     const cfg = getConfig("devnet");
