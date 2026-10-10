@@ -32,9 +32,13 @@ import { deriveBptMint } from "../src/utils/pda";
 import cubicPoolIdl from "../src/idl/cubic_pool.json";
 import { POOL_V3_LEN, POOL_LEN, decodePoolAccount } from "../src/parsers/poolAccount";
 
-const POOL_ADDRESS = "EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy";
-const KNOWN_BPT_MINT = "8XENvzVwvdHkYbhrvSaWuivs7pK1ZCwgGj5y3n1rij9B";
-const MAINNET_PROGRAM = "8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu";
+// v6 mainnet pool #2 (xStocks basket, Token-2022 mints, SPL BPT), created by
+// the contracts team 2026-10 on the SEPARATE v6 cubic_pool program.
+const POOL_ADDRESS = "HGbQ74sgfvyhyEBgPwtKBge2HFcnZbHXTCSA2QdBTHA3";
+const KNOWN_BPT_MINT = "8DqoXsgP3YuJDeq5e2u7VF3zSTX66bVHXYVKUFmecsQS";
+const MAINNET_PROGRAM = "6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9";
+const POOL_ADMIN = "HFtURAgrRudbyAzTDfVYKinbrYXXttqQGdoAys5JNu1F";
+const TOKEN_COUNT = 5;
 const RPC = process.env.SDK_MAINNET_RPC_URL ?? process.env.RPC_URL ?? getConfig("mainnet").defaults.rpcEndpoint;
 
 // SystemProgram transfer (used to wrap SOL → wSOL): 4-byte instruction tag = 2.
@@ -45,7 +49,7 @@ function isSystemTransfer(programId: PublicKey, data: Buffer): boolean {
 const skipMainnet = process.env.SKIP_MAINNET_TESTS === "1";
 const describeOnline = skipMainnet ? describe.skip : describe;
 
-describeOnline("mainnet integration: sdk against migrated v5 pool EFfVk…fyjy", () => {
+describeOnline("mainnet integration: sdk-v6 against v6 pool HGbQ…THA3", () => {
   jest.setTimeout(30_000);
 
   const cfg = getConfig("mainnet", { rpcEndpoint: RPC });
@@ -74,15 +78,15 @@ describeOnline("mainnet integration: sdk against migrated v5 pool EFfVk…fyjy",
     expect(derived.toBase58()).toBe(KNOWN_BPT_MINT);
   });
 
-  test("client.sync() loads pool with 4 tokens and BPT mint matches derivation", async () => {
+  test(`client.sync() loads pool with ${TOKEN_COUNT} tokens and BPT mint matches derivation`, async () => {
     const r = await client.sync();
     if (!r.ok) throw new Error(`sync failed: ${r.error.code} ${r.error.humanMessage}`);
 
-    expect(r.data.tokenCount).toBe(4);
+    expect(r.data.tokenCount).toBe(TOKEN_COUNT);
     expect(r.data.bptMint.toBase58()).toBe(KNOWN_BPT_MINT);
-    expect(r.data.tokens).toHaveLength(4);
+    expect(r.data.tokens).toHaveLength(TOKEN_COUNT);
     expect(r.data.bptTokenProgram?.toBase58()).toBe("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-    expect(r.data.poolAdmin?.toBase58()).toBe("F7JVJjeHwYndurrd5DBZoaUvqpsDCJnP1yVWMuFjxkoY");
+    expect(r.data.poolAdmin?.toBase58()).toBe(POOL_ADMIN);
     expect(r.data.pendingPoolAdmin).toBeInstanceOf(PublicKey);
     expect(r.data.rangeManager).toBeInstanceOf(PublicKey);
     expect(typeof r.data.rangeManagerEnabled).toBe("boolean");
@@ -101,12 +105,13 @@ describeOnline("mainnet integration: sdk against migrated v5 pool EFfVk…fyjy",
       expect(BN.isBN(token.selloffVbSnapshot)).toBe(true);
     }
 
-    // Spot-check the published mint set: JitoSOL / wSOL / USDC / USDT.
+    // The published mint set: five xStocks (Token-2022) wrappers.
     const wantedMints = new Set([
-      "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
-      "So11111111111111111111111111111111111111112",
-      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-      "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+      "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+      "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN",
+      "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+      "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
+      "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",
     ]);
     const onChain = new Set(r.data.tokens.map((t) => t.mint.toBase58()));
     expect(onChain).toEqual(wantedMints);

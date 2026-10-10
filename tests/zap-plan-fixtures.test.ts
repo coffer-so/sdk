@@ -22,7 +22,11 @@ import type { QuotePool } from "../src";
 import { ContractAccountMap } from "../src/types/contracts";
 
 type State = ContractAccountMap["cubicPool"]["CubicPool"];
-const cfg = getConfig("mainnet");
+// The fixtures were produced by the `zap_plan` binary built from contracts
+// v6 `7d753b3`, whose `declare_id` is the localnet table — snapshot keys
+// derived under it (BPT mint PDA, pool owner) must not drift when the
+// mainnet/devnet tables change.
+const cfg = getConfig("localnet");
 const key = (n: number) => new PublicKey(Buffer.alloc(32, n));
 const bn = (v: number | bigint | string) => new BN(v.toString());
 const fields = (name: string) => (IDLS.cubicPool.types.find((t) => t.name === name)!.type as any).fields as { name: string; type: any }[];

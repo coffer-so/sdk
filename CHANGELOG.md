@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.1 — program addresses of the real v6 deployments
+
+### Changed
+
+- `NETWORK_PROGRAMS.mainnet` now points at the separate v6 programs:
+  cubic_pool `6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9`, protocol_admin
+  `6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck`; single_token_liquidity
+  is the reserved (not yet deployed) `Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy`.
+- `NETWORK_PROGRAMS.devnet` now points at the v6 devnet deployment of
+  2026-10-10 (`Anqy91qJ…`, `FPwMrsxY…`, `4Rk88MtV…`); the v5 devnet copy
+  (`E6YAKuLA…`) belongs to `@coffer_so/sdk` 1.x.
+- Bundled IDL `address` fields updated to the mainnet v6 ids.
+
+0.1.0 users on mainnet/devnet were silently targeting the v5 programs
+unless they passed `programs` overrides to `getConfig`; those overrides
+remain supported and take precedence.
+
 ## 0.1.0 — first `@coffer_so/sdk-v6` release (pre-deployment)
 
 Forked from `@coffer_so/sdk` 1.3.2. Targets `contracts/v6` at `7d753b3`.

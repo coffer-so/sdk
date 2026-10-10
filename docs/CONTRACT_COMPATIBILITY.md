@@ -1,14 +1,22 @@
 # Contract compatibility: v6
 
 Target: `contracts/v6`, commit `7d753b3` (`feat: allow swap and protocol fee
-rates anywhere in 0..=100%`). Not deployed to mainnet yet; mainnet still runs
-v5 (`main` 0.5.1, rollout 2026-09-07), which `@coffer_so/sdk` 1.x tracks.
+rates anywhere in 0..=100%`). v6 is deployed as SEPARATE programs next to v5
+(mainnet since 2026-10; v5 `main` 0.5.1 keeps running and is tracked by
+`@coffer_so/sdk` 1.x). A pool belongs to the generation whose cubic_pool owns
+its account — drive it with that generation's SDK.
 
-| Program | Instructions | Events | Program id (declare_id, used on localnet / future mainnet) |
-| --- | ---: | ---: | --- |
-| cubic_pool | 28 | 30 | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` |
-| protocol_admin | 29 | 28 | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` |
-| single_token_liquidity | 4 | 3 | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` |
+| Program | Instructions | Events | mainnet | devnet (2026-10-10) | localnet (`anchor build` declare_id) |
+| --- | ---: | ---: | --- | --- | --- |
+| cubic_pool | 28 | 30 | `6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9` | `Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1` | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` |
+| protocol_admin | 29 | 28 | `6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck` | `FPwMrsxYpgJsZRCTKJadP97AsNX1WwFBZwBbzTDcYmjU` | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` |
+| single_token_liquidity | 4 | 3 | not deployed (reserved `Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy`) | `4Rk88MtVT6CjB5e2EPbzQ4Qs6zKtSFgVZYE79SVenVko` | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` |
+
+Protocol accounts: mainnet treasury `BaUyw2zVZx8TGCMDZtQKQxq2S9LCCzNubg8tNKWqh9yv`,
+config `HkYKaa4ARjeqPZsVb7bHKuNLJHhM7Dntzh9oLWg8xvhb`; devnet treasury
+`HLpyYUeWmz7VfNgJG5ZMj4vnpqiJXYUSY9SNwy3u1NVW`, config
+`5GTgLMeodBEovfDnwYjpt8ndw8hUcifQJVMVnGRwWEYp`. The mainnet binaries were
+built from a state with re-declared ids that `origin/v6` does not carry yet.
 
 The v6 IDLs still declare `metadata.version = "0.5.1"`; the SDK pins the
 revision by commit, not by that field. (Contracts: please bump it to 0.6.0.)

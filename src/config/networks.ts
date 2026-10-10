@@ -9,39 +9,37 @@ export interface NetworkPrograms {
 }
 
 export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
+  // v6 programs are SEPARATE deployments next to v5 (`@coffer_so/sdk` 1.x
+  // keeps the v5 table). Pool accounts are owned by their generation's
+  // cubic_pool, so a v5 pool must be driven with the v5 SDK and vice versa.
   mainnet: {
-    cubicPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
-    // TODO(mainnet): single_token_liquidity is NOT deployed on mainnet — this
-    // is the devnet program ID as a placeholder. Single-token deposit is
-    // disabled in the frontend. If/when stld ships on mainnet, replace this
-    // with the real mainnet program ID.
+    cubicPool: new PublicKey("6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9"),
+    // TODO(mainnet): single_token_liquidity v6 is NOT deployed on mainnet
+    // yet; this is the id reserved for it (protocol_admin v6 already pins
+    // it). Planned zap stays disabled until the program is live.
     singleTokenLiquidity: new PublicKey(
-      "7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2",
+      "Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy",
     ),
     protocolAdmin: new PublicKey(
-      "3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81",
+      "6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck",
     ),
   },
   devnet: {
-    // v5.1 (post-audit) copy deployed on devnet under our wallet. The original
-    // devnet CVKx/HJEi IDs are unusable: cubic_pool's was closed permanently
-    // and protocol_admin's has a non-ours upgrade authority.
-    //
-    // These binaries are built with devnet `declare_id`s AND a devnet
-    // `PROTOCOL_ADMIN_PROGRAM_ID` — cubic_pool pins that constant at compile
-    // time to derive the Treasury PDA, so a mainnet build would look for a
-    // Treasury that does not exist here.
-    cubicPool: new PublicKey("E6YAKuLAd8vBgJnXsVdPCFCdgUef6ZinfDst3JMxuhJJ"),
-    // stld IS deployed on devnet and shares its ID with mainnet, because its
-    // `declare_id` needed no devnet override.
+    // v6 built from `contracts` v6 `7d753b3` with devnet `declare_id`s and a
+    // devnet `PROTOCOL_ADMIN_PROGRAM_ID`, deployed 2026-10-10. Treasury PDA
+    // HLpyYUeWmz7VfNgJG5ZMj4vnpqiJXYUSY9SNwy3u1NVW, CubicPoolConfig
+    // 5GTgLMeodBEovfDnwYjpt8ndw8hUcifQJVMVnGRwWEYp. The v5 devnet copy
+    // (E6YA… / 6bFD…) is a different program; use `@coffer_so/sdk` for it.
+    cubicPool: new PublicKey("Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1"),
     singleTokenLiquidity: new PublicKey(
-      "7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2",
+      "4Rk88MtVT6CjB5e2EPbzQ4Qs6zKtSFgVZYE79SVenVko",
     ),
     protocolAdmin: new PublicKey(
-      "6bFDi7RrLJSbhBpJ2AjHAQfbzBiHGXQXND7no8gv8gux",
+      "FPwMrsxYpgJsZRCTKJadP97AsNX1WwFBZwBbzTDcYmjU",
     ),
   },
   localnet: {
+    // `anchor build` of contracts/v6 keeps the historical declare_ids.
     cubicPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
     singleTokenLiquidity: new PublicKey(
       "7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2",
