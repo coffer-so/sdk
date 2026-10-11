@@ -37,7 +37,7 @@ import { POOL_V3_LEN, POOL_LEN, decodePoolAccount } from "../src/parsers/poolAcc
 const POOL_ADDRESS = "HGbQ74sgfvyhyEBgPwtKBge2HFcnZbHXTCSA2QdBTHA3";
 const KNOWN_BPT_MINT = "8DqoXsgP3YuJDeq5e2u7VF3zSTX66bVHXYVKUFmecsQS";
 const MAINNET_PROGRAM = "6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9";
-const POOL_ADMIN = "HFtURAgrRudbyAzTDfVYKinbrYXXttqQGdoAys5JNu1F";
+const POOL_ADMIN = "4vPXU53SbsgsDjcpS4T2UQvsZShZcEEMTSvjxoTHUKRn"; // handed over from the stand deployer on 2026-10-10
 const TOKEN_COUNT = 5;
 const RPC = process.env.SDK_MAINNET_RPC_URL ?? process.env.RPC_URL ?? getConfig("mainnet").defaults.rpcEndpoint;
 

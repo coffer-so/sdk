@@ -233,6 +233,12 @@ describe("PlannedZapClient.quote", () => {
     const tail = await m.client.resolveExtraAccounts(q, key(9));
     if (!tail.ok) throw new Error(tail.error.humanMessage);
     expect(tail.data).toEqual([]);
+    // The user's output ATA may not exist yet (first zap into this mint): ensureUserTokenAccountIxs creates it in the same tx, so the tail still resolves.
+    m.infos.delete(deriveAta(key(9), key(101), TOKEN_2022_PROGRAM_ID).toBase58());
+    const firstTime = await m.client.resolveExtraAccounts(q, key(9));
+    if (!firstTime.ok) throw new Error(firstTime.error.humanMessage);
+    expect(firstTime.data).toEqual([]);
+    m.infos.set(deriveAta(key(9), key(101), TOKEN_2022_PROGRAM_ID).toBase58(), tokenAccount(key(101), key(9)));
     // Without a Token-2022 destination (here the fee mint's vault) the resolver reports a build failure rather than guessing.
     m.infos.delete(deriveAta(m.address, key(101), TOKEN_2022_PROGRAM_ID).toBase58());
     const missing = await m.client.resolveExtraAccounts(q, key(9));

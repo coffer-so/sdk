@@ -53,6 +53,14 @@ export interface TransferLeg {
   authority: PublicKeyType;
   /** Gross amount passed to `transfer_checked` (what a hook's instruction-data seeds see). */
   amount: bigint;
+  /**
+   * The transaction itself creates `destination` when it does not exist yet
+   * (the user's ATA, via `createAssociatedTokenAccountIdempotent` ahead of
+   * the instruction). Such a destination may be absent at resolution time:
+   * a fresh account cannot have `MemoTransfer` enabled, so it needs no memo.
+   * Pool vaults never set this — a missing vault is an error.
+   */
+  destinationCreatedInTx?: boolean;
 }
 
 /** Mint account bytes as fetched (the same snapshot a quote was computed on). */
@@ -167,7 +175,7 @@ export async function resolveTransferExtraAccounts(
     return unpacked;
   };
 
-  const destinations = new Map<string, { key: PublicKeyType; program: PublicKeyType }>();
+  const destinations = new Map<string, { key: PublicKeyType; program: PublicKeyType; createdInTx: boolean }>();
   const registries = new Map<string, { info: AccountInfo<Buffer>; metas: ExtraAccountMeta[] }>();
   // SPL's seed resolver only reads `getAccountInfo`. Serve a registry from
   // its checked snapshot so account-data seeds cannot race a second fetch,
@@ -181,7 +189,15 @@ export async function resolveTransferExtraAccounts(
 
   for (const transfer of transfers) {
     if (!transfer.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) continue;
-    destinations.set(transfer.destination.toBase58(), { key: transfer.destination, program: transfer.tokenProgram });
+    const destinationKey = transfer.destination.toBase58();
+    // The same account may be a vault for one leg and a user ATA for another
+    // in theory; strictness wins when any leg needs the account to exist.
+    const existing = destinations.get(destinationKey);
+    destinations.set(destinationKey, {
+      key: transfer.destination,
+      program: transfer.tokenProgram,
+      createdInTx: (existing?.createdInTx ?? true) && !!transfer.destinationCreatedInTx,
+    });
     const hook = getTransferHook(mintOf(transfer));
     if (!hook || hook.programId.equals(PublicKey.default)) continue;
     const registry = getExtraAccountMetaAddress(transfer.mint, hook.programId);
@@ -225,8 +241,16 @@ export async function resolveTransferExtraAccounts(
     const infos = await reader.getMultipleAccountsInfo(destinationList.map((item) => item.key), commitment);
     for (let i = 0; i < destinationList.length; i++) {
       const item = destinationList[i];
-      if (!infos[i]) throw new Error(`Missing transfer destination ${item.key.toBase58()}`);
-      if (getMemoTransfer(unpackAccount(item.key, infos[i], item.program))?.requireIncomingTransferMemos) {
+      const info = infos[i];
+      if (!info) {
+        // A user ATA the transaction creates itself may not exist yet (first
+        // swap/remove into a mint the user never held): a fresh account cannot
+        // have `MemoTransfer` enabled, so it needs no memo in the tail. Any
+        // other destination (a pool vault) must exist.
+        if (item.createdInTx) continue;
+        throw new Error(`Missing transfer destination ${item.key.toBase58()}`);
+      }
+      if (getMemoTransfer(unpackAccount(item.key, info, item.program))?.requireIncomingTransferMemos) {
         add({ pubkey: MEMO_PROGRAM_ID, isSigner: false, isWritable: false });
       }
     }

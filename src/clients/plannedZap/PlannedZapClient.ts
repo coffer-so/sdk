@@ -280,7 +280,8 @@ export class PlannedZapClient {
     const legs: TransferLeg[] = [];
     for (const swap of quote.economics.swaps) {
       legs.push({ mint: accounts.mints[swap.input], tokenProgram: accounts.tokenPrograms[swap.input], source: accounts.userTokenAccounts[swap.input], destination: accounts.vaults[swap.input], authority: user, amount: swap.grossInput });
-      legs.push({ mint: accounts.mints[swap.output], tokenProgram: accounts.tokenPrograms[swap.output], source: accounts.vaults[swap.output], destination: accounts.userTokenAccounts[swap.output], authority: accounts.pool, amount: swap.grossOutput });
+      // `ensureUserTokenAccountIxs` creates the user's output ATA in the same transaction; it may not exist yet.
+      legs.push({ mint: accounts.mints[swap.output], tokenProgram: accounts.tokenPrograms[swap.output], source: accounts.vaults[swap.output], destination: accounts.userTokenAccounts[swap.output], authority: accounts.pool, amount: swap.grossOutput, destinationCreatedInTx: true });
     }
     quote.economics.depositedGross.forEach((gross, i) => {
       if (gross > 0n) legs.push({ mint: accounts.mints[i], tokenProgram: accounts.tokenPrograms[i], source: accounts.userTokenAccounts[i], destination: accounts.vaults[i], authority: user, amount: gross });

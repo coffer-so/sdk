@@ -242,6 +242,31 @@ describe("resolveTransferExtraAccounts", () => {
     expect(f.reads.size).toBe(0);
   });
 
+  test("a destination token account that does not exist yet (ATA created in the same tx) resolves without memo", async () => {
+    // First swap INTO a Token-2022 mint the user has never held: the frontend
+    // prepends createAssociatedTokenAccountIdempotent, so at resolution time
+    // the output ATA is absent. That is not an error and never needs a memo.
+    const f = fixture();
+    f.infos.delete(f.userTokenAccounts[1].toBase58());
+    // Without the flag the resolver still refuses to guess.
+    await expect(f.resolve()).rejects.toThrow(/Missing transfer destination/);
+    f.transfers[1].destinationCreatedInTx = true;
+    expect(rows(await f.resolve())).toEqual(simpleExpected(f.registryKey));
+    expect(rows(await f.resolve())).not.toContainEqual(expect.objectContaining({ key: MEMO_PROGRAM_ID.toBase58() }));
+  });
+
+  test("a missing pool vault is still an error even when another leg marks the account as created in-tx", async () => {
+    const f = fixture();
+    f.infos.delete(f.vaults[1].toBase58());
+    f.transfers[1].destinationCreatedInTx = true; // user ATA leg; the vault leg (transfers[2]) stays strict
+    await expect(f.resolve()).rejects.toThrow(new RegExp(`Missing transfer destination ${f.vaults[1].toBase58()}`));
+  });
+
+  test("an existing destination with MemoTransfer still adds the memo program", async () => {
+    const f = fixture(registry(), true);
+    expect(rows(await f.resolve())).toContainEqual({ key: MEMO_PROGRAM_ID.toBase58(), signer: false, writable: false });
+  });
+
   test("a missing mint snapshot is an error", async () => {
     const f = fixture();
     await expect(resolveTransferExtraAccounts(f.reader, f.transfers, [f.snapshots[0]], [])).rejects.toThrow(/Mint snapshot missing/);
