@@ -107,9 +107,9 @@ if (res.ok) {
 ## Key Concepts
 
 ### Fees Earned
-LP fees auto-reinvest into the pool (no claim needed). BPT becomes more
-valuable as swap fees accumulate. Fees are tracked precisely using BPT Value
-Growth — how much `actualBalance / bptSupply` grew during each holding period.
+LP fees auto-reinvest into the pool (no claim needed). LP becomes more
+valuable as swap fees accumulate. Fees are tracked precisely using LP Value
+Growth — how much `actualBalance / lpSupply` grew during each holding period.
 
 ### Impermanent Loss (IL)
 IL measures how much LP underperforms simply holding (HODL). Calculated using

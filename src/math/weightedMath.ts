@@ -49,7 +49,7 @@ export function calcSpotPrice(params: {
   return numer / denom;
 }
 
-/** Exact seed-deposit invariant from weighted_math.rs; returns raw BPT before u64/minimum-supply checks. */
+/** Exact seed-deposit invariant from weighted_math.rs; returns raw LP before u64/minimum-supply checks. */
 export function calculateInvariant(balances:bigint[], normalizedWeights:number[], decimals:number[]):bigint {
   if(balances.length!==normalizedWeights.length||balances.length!==decimals.length||balances.length<2)throw new Error("invariant: invalid vector lengths");
   let invariant=ONE;

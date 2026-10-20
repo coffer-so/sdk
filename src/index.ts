@@ -3,15 +3,15 @@
 // See LICENSE at the repository root.
 
 /**
- * @coffer_so/sdk — client library for the Cubic Pool AMM on Solana.
+ * @coffer_so/sdk — client library for the Coffer Pool AMM on Solana.
  *
  * Entry point barrel. Most consumers will want to import from this root:
  *
  * ```ts
- * import { CubicPoolClient, CofferBackendClient, getConfig } from "@coffer_so/sdk";
+ * import { CofferPoolClient, CofferBackendClient, getConfig } from "@coffer_so/sdk";
  *
  * const cfg = getConfig("mainnet", { backendEndpoint: "https://api.coffer.so" });
- * const pool = new CubicPoolClient({ config: cfg, poolAddress });
+ * const pool = new CofferPoolClient({ config: cfg, poolAddress });
  * const info = await pool.sync();
  * if (info.ok) console.log(info.data.tokens.map(t => t.metadata?.symbol));
  * ```
@@ -30,8 +30,8 @@ export * from "./idl";
 export {
   getConfig,
   programId,
-  CUBIC_POOL_SEED,
-  BPT_MINT_SEED,
+  POOL_SEED,
+  LP_MINT_SEED,
   STLD_HELPER_SEED,
   TREASURY_SEED,
   WEIGHT_SCALE,
@@ -39,13 +39,13 @@ export {
   MAX_WEIGHT,
   MIN_TOKENS,
   MAX_TOKENS,
-  BPT_DECIMALS,
+  LP_DECIMALS,
   SWAP_FEE_PRECISION,
   PROTOCOL_FEE_PRECISION,
   PERCENT_SCALE,
   MAX_SWAP_FEE_RATE,
   MAX_PROTOCOL_FEE_RATE,
-  MINIMUM_INITIAL_BPT,
+  MIN_LP_SUPPLY,
   SLIPPAGE_PRECISION,
   MIN_SLIPPAGE_HBPS,
 } from "./config";
@@ -69,15 +69,15 @@ export {
 export { lnFp, expFp, powFp } from "./math/logExp";
 export {
   calcOutGivenIn,
-  calcBptOutGivenExactTokensIn,
-  calcJoinRatioAndBpt,
-  calcTokensOutGivenBptIn,
+  calcLpOutGivenExactTokensIn,
+  calcJoinRatioAndLp,
+  calcTokensOutGivenLpIn,
   calcSpotOut,
   calcDepositCredit,
   virtualBalanceAfterDeposit,
   virtualBalanceAfterWithdrawal,
-  calcEffectiveBptBurn,
-} from "./math/cubicMath";
+  calcEffectiveLpBurn,
+} from "./math/poolMath";
 export { ceilDiv, MathError } from "./math/fixedPoint";
 export { selectEpochFee, transferFeeOf, netOfTransferFee, inverseTransferFee, grossOfTransferFee, MAX_FEE_BASIS_POINTS } from "./math/transferFee";
 export type { TransferFee, TransferFeeConfig } from "./math/transferFee";
@@ -91,7 +91,7 @@ export { calcSurgeFeeRate, calcSurgeFeePct, calcSurgeFeeAmount, SURGE_FEE_SEGMEN
 export type { SurgeFeeAmountParams } from "./math/surgeFee";
 export { RpcClient } from "./clients/RpcClient";
 export { CofferBackendClient } from "./clients/CofferBackendClient";
-export { CubicPoolClient } from "./clients/CubicPoolClient";
+export { CofferPoolClient } from "./clients/CofferPoolClient";
 export { PlannedZapClient } from "./clients/plannedZap/PlannedZapClient";
 export type { PlannedZapClientParams, PlannedZapQuote } from "./clients/plannedZap/PlannedZapClient";
 export { buildPlannedZapIx, plannedZapAccounts, encodeAllocationPlan, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS, PLANNED_ZAP_DISCRIMINATOR_HEX } from "./clients/plannedZap/instruction";
@@ -111,7 +111,7 @@ export {
   buildRemoveLiquidityTx,
   buildInitializeConfigIx,
   buildPoolInitializeConfigIx,
-  buildInitializeCubicPoolIx,
+  buildInitializePoolIx,
   buildDeployPoolTx,
   buildInitializePoolAltIx,
   buildInitializePoolAltTx,
@@ -129,7 +129,7 @@ export type { InitializePoolAltParams } from "./clients/tx-builders";
 export { decodePoolAccount, POOL_DISCRIMINATOR_LEN, POOL_LEN, POOL_V4_LEN, V5_MIGRATION_MARKER } from "./parsers/poolAccount";
 export { toSdkError, describeProgramError } from "./utils/errors";
 export { decodeMintAccount } from "./parsers/mintAccount";
-export { parseCubicPoolEvents } from "./parsers/events";
+export { parseCofferPoolEvents } from "./parsers/events";
 export { BorshReader } from "./parsers/borsh";
 
 export type {
@@ -154,7 +154,7 @@ export type {
   PlannedZapQuoteOptions,
   BuiltTx,
   DeployPoolParams,
-  CubicPoolEvent,
+  CofferPoolEvent,
   PoolInitializedEvent,
   SwapEvent,
   LiquidityAddedEvent,
@@ -165,7 +165,6 @@ export type {
   SingleTokenDepositEvent,
   PoolStateLogEvent,
   MaxSelloffWindowAdvancedEvent,
-  BannedExtensionsUpdatedEvent,
   UnknownEvent,
   TokenChange,
   RangeManagerUpdateParams,
@@ -245,7 +244,7 @@ export type {
   AuthTokens,
   SwapRouteEntry,
   SwapRouteResponse,
-  CubicPoolClientParams,
+  CofferPoolClientParams,
   PoolFactoryClientParams,
   InitializeConfigParams,
 } from "./clients";
@@ -265,4 +264,4 @@ export type { SelloffState, SelloffResult } from "./math/maxSelloff";
 export type { SurgeCurve } from "./math/surgeFee";
 export { calculateInvariant } from "./math/weightedMath";
 
-export { MintExtension, MAX_KNOWN_MINT_EXTENSION, HARD_UNSUPPORTED_MINT_EXTENSIONS, HARD_BANNED_EXTENSIONS, DEFAULT_BANNED_EXTENSIONS, MINT_TLV_OFFSET, mintExtensionName, parseMintExtensions, unsupportedMintExtensions, bannedMintExtensions, tokenTransferBlockers, isTokenTransferable, describeUnsupportedToken, assertTokensSupported } from "./utils/extensions";
+export { MintExtension, MAX_KNOWN_MINT_EXTENSION, HARD_UNSUPPORTED_MINT_EXTENSIONS, MINT_TLV_OFFSET, mintExtensionName, parseMintExtensions, unsupportedMintExtensions, tokenTransferBlockers, isTokenTransferable, describeUnsupportedToken, assertTokensSupported } from "./utils/extensions";

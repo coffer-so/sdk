@@ -1,8 +1,8 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
-import cubicPoolIdl from "../src/idl/cubic_pool.json";
+import cofferPoolIdl from "../src/idl/coffer_pool.json";
 import stldIdl from "../src/idl/single_token_liquidity.json";
-import { parseCubicPoolEvents } from "../src/parsers/events";
+import { parseCofferPoolEvents } from "../src/parsers/events";
 import { decodePoolAccount, POOL_V4_LEN } from "../src/parsers/poolAccount";
 import {
   buildPoolInitializeConfigIx,
@@ -53,7 +53,7 @@ describe("Swap event field order (v6)", () => {
   // intuitive order returns the unix timestamp as the surge fee. v6 appends
   // the two Token-2022 transfer-fee legs after it.
   test("IDL declares timestamp, surge_fee_amount, then the v6 transfer-fee tail", () => {
-    expect(idlFields(cubicPoolIdl as any, "Swap")).toEqual([
+    expect(idlFields(cofferPoolIdl as any, "Swap")).toEqual([
       "pool",
       "user",
       "token_in",
@@ -91,8 +91,8 @@ describe("Swap event field order (v6)", () => {
       u64(7_000), // transfer_fee_out
     ]);
 
-    const [ev] = parseCubicPoolEvents([
-      programDataLog(discriminatorOf(cubicPoolIdl as any, "Swap"), payload),
+    const [ev] = parseCofferPoolEvents([
+      programDataLog(discriminatorOf(cofferPoolIdl as any, "Swap"), payload),
     ]);
 
     expect(ev.kind).toBe("Swap");
@@ -123,8 +123,8 @@ describe("Swap event field order (v6)", () => {
       u64(5),
       // no transfer_fee_in / transfer_fee_out
     ]);
-    const [ev] = parseCubicPoolEvents([
-      programDataLog(discriminatorOf(cubicPoolIdl as any, "Swap"), payload),
+    const [ev] = parseCofferPoolEvents([
+      programDataLog(discriminatorOf(cofferPoolIdl as any, "Swap"), payload),
     ]);
     if (ev.kind !== "Swap") throw new Error(`expected Swap, got ${ev.kind}`);
     expect(ev.timestamp).toBe(1_700_000_000);
@@ -137,7 +137,7 @@ describe("Swap event field order (v6)", () => {
 describe("SingleTokenDepositDirect event (v6 planned zap)", () => {
   test("IDL field order: no helper, dust_remaining is a vec", () => {
     expect(idlFields(stldIdl as any, "SingleTokenDepositDirect")).toEqual([
-      "pool", "user", "token_in_index", "amount_in", "allocations", "deposited_amounts", "bpt_received", "dust_remaining", "timestamp",
+      "pool", "user", "token_in_index", "amount_in", "allocations", "deposited_amounts", "lp_received", "dust_remaining", "timestamp",
     ]);
   });
 
@@ -150,11 +150,11 @@ describe("SingleTokenDepositDirect event (v6 planned zap)", () => {
       u64(300), // amount_in
       vecU64([200, 100, 0]), // allocations (sum = amount_in)
       vecU64([200, 87, 0]), // deposited_amounts
-      u64(95), // bpt_received
+      u64(95), // lp_received
       vecU64([0, 3, 0]), // dust_remaining
       i64(1_700_000_321), // timestamp
     ]);
-    const [ev] = parseCubicPoolEvents([
+    const [ev] = parseCofferPoolEvents([
       programDataLog(discriminatorOf(stldIdl as any, "SingleTokenDepositDirect"), payload),
     ]);
     if (ev.kind !== "SingleTokenDepositDirect") throw new Error(`got ${ev.kind}`);
@@ -162,7 +162,7 @@ describe("SingleTokenDepositDirect event (v6 planned zap)", () => {
     expect(ev.amountIn.toNumber()).toBe(300);
     expect(ev.allocations.map((b) => b.toNumber())).toEqual([200, 100, 0]);
     expect(ev.depositedAmounts.map((b) => b.toNumber())).toEqual([200, 87, 0]);
-    expect(ev.bptReceived.toNumber()).toBe(95);
+    expect(ev.lpReceived.toNumber()).toBe(95);
     expect(ev.dustRemaining.map((b) => b.toNumber())).toEqual([0, 3, 0]);
     expect(ev.timestamp).toBe(1_700_000_321);
   });
@@ -179,7 +179,7 @@ describe("SingleTokenDeposit event (legacy v5 helper route, kept for history)", 
       "amount_in",
       "allocations",
       "deposited_amounts",
-      "bpt_received",
+      "lp_received",
       "dust_refunded",
       "timestamp",
     ]);
@@ -198,11 +198,11 @@ describe("SingleTokenDeposit event (legacy v5 helper route, kept for history)", 
       u64(9_999), // amount_in
       vecU64([10, 20, 30]), // allocations
       vecU64([11, 21, 31]), // deposited_amounts
-      u64(4_242), // bpt_received
+      u64(4_242), // lp_received
       vecU64([1, 2, 3]), // dust_refunded — Vec, not scalar
       i64(1_700_000_123), // timestamp
     ]);
-    const [ev] = parseCubicPoolEvents([
+    const [ev] = parseCofferPoolEvents([
       programDataLog(discriminatorOf(stldIdl as any, "SingleTokenDeposit"), payload),
     ]);
     if (ev.kind !== "SingleTokenDeposit") throw new Error(`got ${ev.kind}`);
@@ -210,7 +210,7 @@ describe("SingleTokenDeposit event (legacy v5 helper route, kept for history)", 
     expect(ev.amountIn.toNumber()).toBe(9_999);
     expect(ev.allocations.map((b) => b.toNumber())).toEqual([10, 20, 30]);
     expect(ev.depositedAmounts.map((b) => b.toNumber())).toEqual([11, 21, 31]);
-    expect(ev.bptReceived.toNumber()).toBe(4_242);
+    expect(ev.lpReceived.toNumber()).toBe(4_242);
     expect(ev.dustRefunded.map((b) => b.toNumber())).toEqual([1, 2, 3]);
     // If the phantom u32 slippage read came back, everything after amount_in
     // shifts by 4 bytes and this timestamp is wrong.
@@ -220,7 +220,7 @@ describe("SingleTokenDeposit event (legacy v5 helper route, kept for history)", 
 
 describe("TokenChange encoding (v5.1 compare-and-swap)", () => {
   test("IDL puts expected_current between index and new_value", () => {
-    expect(idlFields(cubicPoolIdl as any, "TokenChange")).toEqual([
+    expect(idlFields(cofferPoolIdl as any, "TokenChange")).toEqual([
       "index",
       "expected_current",
       "new_value",
@@ -239,7 +239,7 @@ describe("TokenChange encoding (v5.1 compare-and-swap)", () => {
     });
 
     const disc = Buffer.from(
-      (cubicPoolIdl.instructions as any[]).find((i) => i.name === "range_manager_update")
+      (cofferPoolIdl.instructions as any[]).find((i) => i.name === "range_manager_update")
         .discriminator,
     );
     expect(ix.data.slice(0, 8).equals(disc)).toBe(true);
@@ -284,22 +284,22 @@ describe("TokenChange encoding (v5.1 compare-and-swap)", () => {
   });
 });
 
-describe("CubicPool account layout (v5.1)", () => {
+describe("CofferPool account layout (v5.1)", () => {
   test("IDL tail is leverage bounds then reserved[16]", () => {
-    const fields = idlFields(cubicPoolIdl as any, "CubicPool");
+    const fields = idlFields(cofferPoolIdl as any, "CofferPool");
     expect(fields.slice(-4)).toEqual([
-      "banned_extensions",
+      "_deprecated_banned_extensions",
       "range_manager_max_leverage_bps",
       "range_manager_min_leverage_bps",
       "reserved",
     ]);
-    const t = (cubicPoolIdl as any).types.find((c: any) => c.name === "CubicPool");
+    const t = (cofferPoolIdl as any).types.find((c: any) => c.name === "CofferPool");
     const reserved = t.type.fields.find((f: any) => f.name === "reserved");
     expect(reserved.type).toEqual({ array: ["u8", 16] });
   });
 
   test("AssetConfig replaced reserved[3] with slope_mid + kink, slot still 88", () => {
-    const fields = idlFields(cubicPoolIdl as any, "AssetConfig");
+    const fields = idlFields(cofferPoolIdl as any, "AssetConfig");
     expect(fields).toEqual([
       "mint",
       "token_program",
@@ -354,7 +354,7 @@ describe("CubicPool account layout (v5.1)", () => {
     }
 
     const buf = Buffer.concat([
-      Buffer.from([137, 210, 42, 22, 209, 156, 43, 78]), // CubicPool discriminator
+      Buffer.from([137, 210, 42, 22, 209, 156, 43, 78]), // CofferPool discriminator
       Keypair.generate().publicKey.toBuffer(), // config
       Buffer.from([255]), // bump
       Buffer.from([1]), // token_count
@@ -374,7 +374,7 @@ describe("CubicPool account layout (v5.1)", () => {
       i64(1_650_000_000), // range_manager_last_updated
       ...slots,
       PublicKey.default.toBuffer(), // lookup_table
-      u64(6), // banned_extensions
+      u64(6), // _deprecated_banned_extensions (policy removed in v6.1/T19; bytes kept)
       u32(30_000), // range_manager_max_leverage_bps  ← new
       u32(5_000), // range_manager_min_leverage_bps   ← new
       Buffer.alloc(16), // reserved[16] (was [24])
@@ -397,42 +397,42 @@ describe("CubicPool account layout (v5.1)", () => {
     // exactly 144 bytes — a wrong AssetConfig size would slide them.
     expect(raw.virtualBalances[0].toNumber()).toBe(111);
     expect(raw.actualBalances[0].toNumber()).toBe(222);
-    expect(raw.bannedExtensions.toNumber()).toBe(6);
+    expect(raw.deprecatedBannedExtensions.toNumber()).toBe(6);
     expect(raw.rangeManagerMaxLeverageBps).toBe(30_000);
     expect(raw.rangeManagerMinLeverageBps).toBe(5_000);
   });
 });
 
-describe("CubicPoolConfig layout (v5.1)", () => {
-  test("hard_banned_extensions precedes a reserved[112]", () => {
-    const fields = idlFields(cubicPoolIdl as any, "CubicPoolConfig");
+describe("CofferPoolConfig layout (v6.1)", () => {
+  test("the two former policy bitmaps are a 16-byte deprecated blob before reserved[112]", () => {
+    const fields = idlFields(cofferPoolIdl as any, "CofferPoolConfig");
     expect(fields).toEqual([
       "protocol_admin",
       "pending_protocol_admin",
       "default_protocol_fee_rate",
-      "banned_extensions",
-      "hard_banned_extensions",
+      "_deprecated_extension_policy",
       "reserved",
     ]);
-    const t = (cubicPoolIdl as any).types.find((c: any) => c.name === "CubicPoolConfig");
+    const t = (cofferPoolIdl as any).types.find((c: any) => c.name === "CofferPoolConfig");
+    const deprecated = t.type.fields.find((f: any) => f.name === "_deprecated_extension_policy");
+    expect(deprecated.type).toEqual({ array: ["u8", 16] });
     const reserved = t.type.fields.find((f: any) => f.name === "reserved");
     expect(reserved.type).toEqual({ array: ["u8", 112] });
-    // 8 disc + 32 + 32 + 2 + 8 + 8 + 112 = 202, unchanged.
-    expect(8 + 32 + 32 + 2 + 8 + 8 + 112).toBe(202);
+    // 8 disc + 32 + 32 + 2 + 16 + 112 = 202, unchanged.
+    expect(8 + 32 + 32 + 2 + 16 + 112).toBe(202);
   });
 });
 
 describe("instruction signatures the SDK encodes by hand", () => {
   const ix = (name: string) =>
-    (cubicPoolIdl.instructions as any[]).find((candidate) => candidate.name === name);
+    (cofferPoolIdl.instructions as any[]).find((candidate) => candidate.name === name);
 
-  test("initialize_cubic_pool has no tokens arg", () => {
-    expect(ix("initialize_cubic_pool").args.map((a: any) => a.name)).toEqual([
+  test("initialize_pool has no tokens arg and (v6.1/T19) no banned_extensions_override", () => {
+    expect(ix("initialize_pool").args.map((a: any) => a.name)).toEqual([
       "normalized_weights",
       "initial_virtual_balances",
       "swap_fee_rate",
       "pool_id",
-      "banned_extensions_override",
     ]);
   });
 
@@ -466,7 +466,7 @@ describe("instruction signatures the SDK encodes by hand", () => {
 });
 
 describe("pool_initialize_config is reachable from a wallet", () => {
-  // `cubic_pool::initialize_config` takes the Treasury PDA as a Signer after
+  // `coffer_pool::initialize_config` takes the Treasury PDA as a Signer after
   // H-01, so it can only be reached through protocol-admin's CPI. The SDK must
   // build the WRAPPER, or the create-pool flow produces a transaction that can
   // never be signed.
@@ -478,7 +478,7 @@ describe("pool_initialize_config is reachable from a wallet", () => {
     (i: any) => i.name === "pool_initialize_config",
   );
 
-  it("targets protocol_admin, not cubic_pool", () => {
+  it("targets protocol_admin, not coffer_pool", () => {
     const ix = buildPoolInitializeConfigIx(CFG, {
       config: CONFIG_KEY,
       admin: ADMIN,

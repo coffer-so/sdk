@@ -1,10 +1,10 @@
-import cubicPoolIdl from "../src/idl/cubic_pool.json";
+import cofferPoolIdl from "../src/idl/coffer_pool.json";
 import { contractErrorMapForTests, toSdkError } from "../src/utils/errors";
 
 describe("CONTRACT_ERROR_MAP", () => {
-  test("covers every cubic-pool IDL error code", () => {
+  test("covers every coffer-pool IDL error code", () => {
     const map = contractErrorMapForTests();
-    for (const anchorError of cubicPoolIdl.errors) {
+    for (const anchorError of cofferPoolIdl.errors) {
       expect(map[anchorError.code]).toBeDefined();
       expect(map[anchorError.code].message).toBe(anchorError.msg);
     }

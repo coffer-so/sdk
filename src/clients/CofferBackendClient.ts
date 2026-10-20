@@ -724,7 +724,7 @@ export interface PortfolioPositionItem {
     bptMint: string | null;
     tokens: ActivityTokenInfo[];
   };
-  /** Position value from the 30s-fresh wallet BPT balance. */
+  /** Position value from the 30s-fresh wallet LP balance. */
   valueUsd: number;
   /** Lifetime LP fees earned in this pool. */
   feesEarned: number;
@@ -1462,7 +1462,7 @@ export class CofferBackendClient {
 
   /**
    * Position Pools: the user's ACTIVE LP positions with per-pool money
-   * metrics — value (from the fresh wallet BPT balance), fees earned,
+   * metrics — value (from the fresh wallet LP balance), fees earned,
    * unrealized + realized IL, net PnL and personal compounded APY.
    * A freshly received (transferred) position appears immediately with
    * its value and zeroed metrics until the background snapshot builds.

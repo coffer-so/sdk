@@ -2,14 +2,14 @@
   "contractBranch": "v6",
   "contractCommit": "7d753b32e5cfcbbc42933261f22e72f70093b098",
   "sourceHashes": {
-    "programs/cubic-pool/src/math/log_exp_math.rs": "e165bff5e254c49b78d15980dd7d53947d3e468b0d9b1ea802636c3880beb720",
-    "programs/cubic-pool/src/math/fixed_point.rs": "7b4635e03c89ba9460a694690f94817495f62cfc501d02148d2e53235891f29d",
-    "programs/cubic-pool/src/math/cubic_math.rs": "8a944f5a0c2166c4df59da38f4e511ab128ec3c3e63833abb04fa4b878bd947f",
-    "programs/cubic-pool/src/math/weighted_math.rs": "6281be567992136a080b1be1f36dde13456ac01144afab6330624d79fa414740",
-    "programs/cubic-pool/src/math/max_selloff.rs": "c6ef87f5ba45491695ead9c80effc5ebd48c960a605c033a7f787f1fecff74bc",
-    "programs/cubic-pool/src/math/surge_fee.rs": "3da7bf4f0e51fc64f223464bcf8edfcf3ee36553daff3533094b3725cd50a045",
+    "programs/coffer-pool/src/math/log_exp_math.rs": "e165bff5e254c49b78d15980dd7d53947d3e468b0d9b1ea802636c3880beb720",
+    "programs/coffer-pool/src/math/fixed_point.rs": "7b4635e03c89ba9460a694690f94817495f62cfc501d02148d2e53235891f29d",
+    "programs/coffer-pool/src/math/pool_math.rs": "8a944f5a0c2166c4df59da38f4e511ab128ec3c3e63833abb04fa4b878bd947f",
+    "programs/coffer-pool/src/math/weighted_math.rs": "6281be567992136a080b1be1f36dde13456ac01144afab6330624d79fa414740",
+    "programs/coffer-pool/src/math/max_selloff.rs": "c6ef87f5ba45491695ead9c80effc5ebd48c960a605c033a7f787f1fecff74bc",
+    "programs/coffer-pool/src/math/surge_fee.rs": "3da7bf4f0e51fc64f223464bcf8edfcf3ee36553daff3533094b3725cd50a045",
     "programs/single-token-liquidity/src/math.rs": "5ae7d8214cd26791130c36ae3df5cc78e811984c09f7aed898ee95a235c5d1d6",
-    "programs/cubic-pool/src/instructions/user/swap.rs": "b3c96111d6b47790264c3054ef0fec8bf70915b480b2ddb220cf27a200789c69"
+    "programs/coffer-pool/src/instructions/user/swap.rs": "b3c96111d6b47790264c3054ef0fec8bf70915b480b2ddb220cf27a200789c69"
   },
   "vectors": [
     {
@@ -7163,7 +7163,7 @@
       "credit": "1",
       "minted": "1",
       "supply": "0",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "vbAfterDeposit",
@@ -7262,7 +7262,7 @@
       "payout": "0",
       "burned": "1000",
       "supply": "1000",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "vbAfterWithdrawal",
@@ -7289,7 +7289,7 @@
       "payout": "1",
       "burned": "0",
       "supply": "0",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "vbAfterWithdrawal",
@@ -7331,7 +7331,7 @@
       "kind": "effectiveBurn",
       "requested": "1",
       "supply": "1000",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "effectiveBurn",
@@ -7343,7 +7343,7 @@
       "kind": "effectiveBurn",
       "requested": "5000",
       "supply": "1001",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "effectiveBurn",
@@ -7361,7 +7361,7 @@
       "kind": "effectiveBurn",
       "requested": "0",
       "supply": "2000",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "effectiveBurn",
@@ -7373,19 +7373,19 @@
       "kind": "effectiveBurn",
       "requested": "1",
       "supply": "0",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "effectiveBurn",
       "requested": "1000",
       "supply": "1000",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "effectiveBurn",
       "requested": "999",
       "supply": "1000",
-      "expected": "error:InvalidBptAmount"
+      "expected": "error:InvalidLpAmount"
     },
     {
       "kind": "swapFee",

@@ -1,6 +1,6 @@
 export * from "./RpcClient";
 export * from "./CofferBackendClient";
-export * from "./CubicPoolClient";
+export * from "./CofferPoolClient";
 export * from "./tx-builders";
 export * from "./versioned";
 export * from "./plannedZap";

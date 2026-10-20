@@ -1,13 +1,13 @@
 import {
-  calcBptOutGivenExactTokensIn,
+  calcLpOutGivenExactTokensIn,
   calcOutGivenIn,
   calcSpotOut,
-  calcTokensOutGivenBptIn,
-} from "../../src/math/cubicMath";
+  calcTokensOutGivenLpIn,
+} from "../../src/math/poolMath";
 
 const BN_BILLION = 1_000_000_000n;
 
-describe("cubicMath.calcOutGivenIn", () => {
+describe("poolMath.calcOutGivenIn", () => {
   test("balanced 50/50 pool, 10% swap returns < balance", () => {
     const out = calcOutGivenIn({
       virtualBalanceIn: BN_BILLION,
@@ -57,7 +57,7 @@ describe("cubicMath.calcOutGivenIn", () => {
   });
 });
 
-describe("cubicMath.calcSpotOut", () => {
+describe("poolMath.calcSpotOut", () => {
   test("upper-bound: spot ≥ actual calcOutGivenIn", () => {
     const inputs = {
       virtualBalanceIn: BN_BILLION,
@@ -84,11 +84,11 @@ describe("cubicMath.calcSpotOut", () => {
   });
 });
 
-describe("cubicMath.calcBptOutGivenExactTokensIn", () => {
+describe("poolMath.calcLpOutGivenExactTokensIn", () => {
   test("proportional add returns exact ratio", () => {
-    // Pool has 1B of each, supply = 1M BPT. User adds 100M of each (10%).
-    // BPT out should be 100k (10% of supply).
-    const out = calcBptOutGivenExactTokensIn(
+    // Pool has 1B of each, supply = 1M LP. User adds 100M of each (10%).
+    // LP out should be 100k (10% of supply).
+    const out = calcLpOutGivenExactTokensIn(
       [BN_BILLION, BN_BILLION],
       [BN_BILLION / 10n, BN_BILLION / 10n],
       1_000_000n
@@ -97,8 +97,8 @@ describe("cubicMath.calcBptOutGivenExactTokensIn", () => {
   });
 
   test("min-ratio wins across uneven deposit", () => {
-    // Adding 10% to token 0 but 20% to token 1 — BPT follows token 0's ratio
-    const out = calcBptOutGivenExactTokensIn(
+    // Adding 10% to token 0 but 20% to token 1 — LP follows token 0's ratio
+    const out = calcLpOutGivenExactTokensIn(
       [BN_BILLION, BN_BILLION],
       [BN_BILLION / 10n, BN_BILLION / 5n],
       1_000_000n
@@ -108,7 +108,7 @@ describe("cubicMath.calcBptOutGivenExactTokensIn", () => {
 
   test("skips zero-actual tokens (sidelined)", () => {
     // Token 1 is sidelined; ratio is determined by token 0 only.
-    const out = calcBptOutGivenExactTokensIn(
+    const out = calcLpOutGivenExactTokensIn(
       [BN_BILLION, 0n],
       [BN_BILLION / 10n, 0n],
       1_000_000n
@@ -117,15 +117,15 @@ describe("cubicMath.calcBptOutGivenExactTokensIn", () => {
   });
 });
 
-describe("cubicMath.calcTokensOutGivenBptIn", () => {
+describe("poolMath.calcTokensOutGivenLpIn", () => {
   test("proportional burn returns matching slice", () => {
-    const outs = calcTokensOutGivenBptIn([BN_BILLION, BN_BILLION], 100_000n, 1_000_000n);
+    const outs = calcTokensOutGivenLpIn([BN_BILLION, BN_BILLION], 100_000n, 1_000_000n);
     expect(outs[0]).toBe(BN_BILLION / 10n);
     expect(outs[1]).toBe(BN_BILLION / 10n);
   });
 
   test("burn of 0 returns all zeros", () => {
-    const outs = calcTokensOutGivenBptIn([BN_BILLION, BN_BILLION], 0n, 1_000_000n);
+    const outs = calcTokensOutGivenLpIn([BN_BILLION, BN_BILLION], 0n, 1_000_000n);
     expect(outs).toEqual([0n, 0n]);
   });
 });

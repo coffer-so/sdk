@@ -17,19 +17,19 @@ import { join } from "path";
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
-import { IDLS, getConfig, deriveBptMint, decodePoolAccount, decodeMintAccount, selectEpochFee, quoteZap, replay } from "../src";
+import { IDLS, getConfig, deriveLpMint, decodePoolAccount, decodeMintAccount, selectEpochFee, quoteZap, replay } from "../src";
 import type { QuotePool } from "../src";
 import { ContractAccountMap } from "../src/types/contracts";
 
-type State = ContractAccountMap["cubicPool"]["CubicPool"];
+type State = ContractAccountMap["cofferPool"]["CofferPool"];
 // The fixtures were produced by the `zap_plan` binary built from contracts
 // v6 `7d753b3`, whose `declare_id` is the localnet table — snapshot keys
-// derived under it (BPT mint PDA, pool owner) must not drift when the
+// derived under it (LP mint PDA, pool owner) must not drift when the
 // mainnet/devnet tables change.
 const cfg = getConfig("localnet");
 const key = (n: number) => new PublicKey(Buffer.alloc(32, n));
 const bn = (v: number | bigint | string) => new BN(v.toString());
-const fields = (name: string) => (IDLS.cubicPool.types.find((t) => t.name === name)!.type as any).fields as { name: string; type: any }[];
+const fields = (name: string) => (IDLS.cofferPool.types.find((t) => t.name === name)!.type as any).fields as { name: string; type: any }[];
 function encode(value: any, type: any): Buffer {
   if (type === "pubkey") return value.toBuffer();
   if (type === "bool") return Buffer.from([Number(value)]);
@@ -41,7 +41,7 @@ function encode(value: any, type: any): Buffer {
   if (type.defined) return Buffer.concat(fields(type.defined.name).map((f) => encode(value[f.name], f.type)));
   throw new Error("Unknown fixture type");
 }
-const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cubicPool.accounts[0].discriminator), ...fields("CubicPool").map((f) => encode((state as any)[f.name], f.type))]);
+const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...fields("CofferPool").map((f) => encode((state as any)[f.name], f.type))]);
 function plainMint(decimals: number, supply: bigint): Buffer {
   const b = Buffer.alloc(82); b[44] = decimals; b[45] = 1; b.writeBigUInt64LE(supply, 36); return b;
 }
@@ -76,7 +76,7 @@ const SCENARIOS: Scenario[] = [
 
 function snapshot(sc: Scenario) {
   const address = key(1);
-  const [bptMint] = deriveBptMint(cfg.programs.cubicPool, address);
+  const [lpMint] = deriveLpMint(cfg.programs.cofferPool, address);
   const programs = Array.from({ length: sc.tokenCount }, (_, i) => (sc.feeMints[i] ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID));
   const slot = (i: number) => {
     const w = sc.windows?.[i];
@@ -92,16 +92,16 @@ function snapshot(sc: Scenario) {
     pool_enabled: true, swaps_enabled: true, pool_admin: key(3), pending_pool_admin: PublicKey.default, range_manager: PublicKey.default,
     range_manager_enabled: false, range_manager_max_vb_change_pct: 0, range_manager_max_weight_change_pct: 0, range_manager_min_update_interval_secs: 0,
     range_manager_last_updated: bn(0), tokens: Array.from({ length: 10 }, (_, i) => (i < sc.tokenCount ? slot(i) : empty())),
-    lookup_table: PublicKey.default, banned_extensions: bn(0), range_manager_max_leverage_bps: 0, range_manager_min_leverage_bps: 0,
+    lookup_table: PublicKey.default, _deprecated_banned_extensions: bn(0), range_manager_max_leverage_bps: 0, range_manager_min_leverage_bps: 0,
     reserved: [0x56, 0x35, 0x4d, 0x31, ...Array(12).fill(0)],
   } as unknown as State;
   const mints = Array.from({ length: sc.tokenCount }, (_, i) => ({ key: key(100 + i), owner: programs[i], data: sc.feeMints[i] ? feeMint(6, sc.feeMints[i][0], sc.feeMints[i][1]) : plainMint(6, 0n) }));
-  return { pool: { key: address, owner: cfg.programs.cubicPool, data: poolBytes(state) }, bptMint: { key: bptMint, owner: TOKEN_PROGRAM_ID, data: plainMint(9, 3_000_000_000n) }, mints, epoch: 1030n, now: 1_788_799_999n };
+  return { pool: { key: address, owner: cfg.programs.cofferPool, data: poolBytes(state) }, lpMint: { key: lpMint, owner: TOKEN_PROGRAM_ID, data: plainMint(9, 3_000_000_000n) }, mints, epoch: 1030n, now: 1_788_799_999n };
 }
 
 function quotePoolOf(s: ReturnType<typeof snapshot>): QuotePool {
   const raw = decodePoolAccount(s.pool.data);
-  const supply = BigInt(decodeMintAccount(s.bptMint.data).supply.toString());
+  const supply = BigInt(decodeMintAccount(s.lpMint.data).supply.toString());
   return {
     tokens: Array.from({ length: raw.tokenCount }, (_, i) => {
       const mint = decodeMintAccount(s.mints[i].data);
@@ -113,7 +113,7 @@ function quotePoolOf(s: ReturnType<typeof snapshot>): QuotePool {
         transferFee: mint.transferFeeConfig ? selectEpochFee(mint.transferFeeConfig, s.epoch) : null,
       };
     }),
-    bptSupply: supply, swapFeeRate: raw.swapFeeRate, protocolFeeRate: raw.protocolFeeRate, now: s.now,
+    lpSupply: supply, swapFeeRate: raw.swapFeeRate, protocolFeeRate: raw.protocolFeeRate, now: s.now,
   };
 }
 
@@ -129,7 +129,7 @@ describe("TypeScript planner vs canonical zap_plan fixtures", () => {
         const s = snapshot(sc);
         const request = {
           pool: { key: s.pool.key.toBase58(), owner: s.pool.owner.toBase58(), data: hex(s.pool.data) },
-          bptMint: { key: s.bptMint.key.toBase58(), owner: s.bptMint.owner.toBase58(), data: hex(s.bptMint.data) },
+          lpMint: { key: s.lpMint.key.toBase58(), owner: s.lpMint.owner.toBase58(), data: hex(s.lpMint.data) },
           mints: s.mints.map((m) => ({ key: m.key.toBase58(), owner: m.owner.toBase58(), data: hex(m.data) })),
           epoch: s.epoch.toString(), now: s.now.toString(), amountIn: amount.toString(), inputIndex: input.toString(),
         };
@@ -146,7 +146,7 @@ describe("TypeScript planner vs canonical zap_plan fixtures", () => {
         const pool = quotePoolOf(s);
         const q = quoteZap(pool, input, amount);
         expect(q.allocations.map(String)).toEqual(expected.allocations);
-        expect(q.bpt.toString()).toBe(expected.estimatedBpt);
+        expect(q.lp.toString()).toBe(expected.estimatedLp);
         expect(q.ratio.toString()).toBe(expected.ratio);
         expect(q.available.map(String)).toEqual(expected.available);
         expect(q.depositedGross.map(String)).toEqual(expected.depositedGross);
@@ -154,9 +154,9 @@ describe("TypeScript planner vs canonical zap_plan fixtures", () => {
         expect(q.dust.map(String)).toEqual(expected.dust);
         expect(q.swaps.map((sw) => ({ input: sw.input, output: sw.output, grossInput: sw.grossInput.toString(), netInput: sw.netInput.toString(), baseFee: sw.baseFee.toString(), protocolFee: sw.protocolFee.toString(), rawOutput: sw.rawOutput.toString(), surgeFee: sw.surgeFee.toString(), grossOutput: sw.grossOutput.toString(), netOutput: sw.netOutput.toString() }))).toEqual(expected.swaps);
         expect(q.stateAfter.tokens.map((t) => ({ actualBalance: t.actualBalance.toString(), virtualBalance: t.virtualBalance.toString(), protocolFeesOwed: t.protocolFeesOwed.toString(), previousSelloff: t.window.previousSelloff.toString(), currentSelloff: t.window.currentSelloff.toString(), windowStartTimestamp: t.window.windowStartTimestamp.toString(), selloffVbSnapshot: t.window.selloffVbSnapshot.toString() }))).toEqual(expected.stateAfter);
-        expect(q.stateAfter.bptSupply.toString()).toBe(expected.bptSupplyAfter);
+        expect(q.stateAfter.lpSupply.toString()).toBe(expected.lpSupplyAfter);
         // The fixture's own plan replays to the same economics.
-        expect(replay(pool, input, amount, expected.allocations.map(BigInt)).bpt.toString()).toBe(expected.estimatedBpt);
+        expect(replay(pool, input, amount, expected.allocations.map(BigInt)).lp.toString()).toBe(expected.estimatedLp);
       });
     }
   }

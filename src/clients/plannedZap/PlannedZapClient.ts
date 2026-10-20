@@ -2,15 +2,15 @@
  * v6 planned single-token deposit: one bank snapshot → local plan → signed
  * `deposit_single_token_planned`.
  *
- * Flow: `quote()` (one `getMultipleAccountsInfoAndContext` of pool, BPT
+ * Flow: `quote()` (one `getMultipleAccountsInfoAndContext` of pool, LP
  * mint, every token mint and Clock) → `ensureUserTokenAccountIxs()` (sent
  * first if any account is missing; the program needs every `user_token_i`
- * and the BPT account to exist) → `resolveExtraAccounts()` (hook/memo tail,
+ * and the LP account to exist) → `resolveExtraAccounts()` (hook/memo tail,
  * `[]` for classic pools) → `buildIx()`/`buildTx()` → optional wallet ALT
  * (`prepareWalletLookupTable`/`waitForWalletLookupTable`) →
  * `compileTransaction()` → simulate → sign within the plan's validity
  * (≤ 90 s and ≤ `validForSlots` after the snapshot; any change to the pool,
- * BPT supply, a mint or the epoch makes it `AllocationPlanStale`).
+ * LP supply, a mint or the epoch makes it `AllocationPlanStale`).
  */
 import { AccountMeta, AddressLookupTableAccount, Commitment, ComputeBudgetProgram, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction } from "@solana/web3.js";
 import { createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID } from "@solana/spl-token";
@@ -21,7 +21,7 @@ import { BuiltTx, PlannedZapQuoteOptions } from "../../types/tx";
 import { RpcClient } from "../RpcClient";
 import { decodePoolAccount, RawPoolAccount } from "../../parsers/poolAccount";
 import { decodeMintAccount } from "../../parsers/mintAccount";
-import { deriveAta, deriveBptMint } from "../../utils/pda";
+import { deriveAta, deriveLpMint } from "../../utils/pda";
 import { tokenTransferBlockers, unsupportedMintExtensions } from "../../utils/extensions";
 import { selectEpochFee } from "../../math/transferFee";
 import { applySlippage } from "../../math/slippage";
@@ -51,10 +51,10 @@ export interface PlannedZapQuote {
   plan: AllocationPlan;
   /** Exact replay of the plan on the snapshot (bigint). */
   economics: ZapQuote;
-  /** `economics.bpt` as BN. */
-  estimatedBpt: BN;
-  /** `estimatedBpt` after slippage — the instruction's only floor. */
-  minimumBpt: BN;
+  /** `economics.lp` as BN. */
+  estimatedLp: BN;
+  /** `estimatedLp` after slippage — the instruction's only floor. */
+  minimumLp: BN;
   /** Plan allocations as BN (sum = `amountIn`). */
   allocations: BN[];
   /** Per-slot net swap output credited to the user's accounts before the join (`0` for the input slot and sidelined slots). */
@@ -65,7 +65,7 @@ export interface PlannedZapQuote {
   dustAmounts: BN[];
   sidelinedTokenIndices: number[];
   /** Snapshot the plan was hashed on; feed it to the tail resolver and to any re-pricing. */
-  snapshots: { pool: SnapshotAccount; bptMint: SnapshotAccount; mints: SnapshotAccount[] };
+  snapshots: { pool: SnapshotAccount; lpMint: SnapshotAccount; mints: SnapshotAccount[] };
   /** RPC context slot of the snapshot (equals Clock.slot in the same bank). */
   contextSlot: number;
   chainSlot: bigint;
@@ -73,7 +73,7 @@ export interface PlannedZapQuote {
   /** Clock `unix_timestamp` of the snapshot (= `plan.quotedAt`). */
   chainTimestamp: bigint;
   /** Account set for the instruction, without the user-specific accounts (see `accountsFor`). */
-  layout: Omit<PlannedZapAccounts, "user" | "userTokenAccounts" | "userBptAccount" | "extraAccounts">;
+  layout: Omit<PlannedZapAccounts, "user" | "userTokenAccounts" | "userLpAccount" | "extraAccounts">;
   /** The planner's pool snapshot (for callers that want to re-run `replay`). */
   quotePool: QuotePool;
 }
@@ -102,7 +102,7 @@ export class PlannedZapClient {
   /**
    * Snapshot, plan and price a single-token deposit. Two RPC calls at most:
    * the pool account (to learn its mints), then one atomic
-   * `getMultipleAccountsInfoAndContext` of pool + BPT mint + mints + Clock
+   * `getMultipleAccountsInfoAndContext` of pool + LP mint + mints + Clock
    * that every byte of the plan, its hash and its timestamps comes from.
    */
   async quote(tokenInIndex: number, amountIn: BN | bigint, options: PlannedZapQuoteOptions = {}): Promise<SdkResult<PlannedZapQuote>> {
@@ -118,14 +118,14 @@ export class PlannedZapClient {
     try {
       const first = await conn.getAccountInfo(this.poolAddress, "confirmed");
       if (!first) return err("account_not_found", `Pool ${this.poolAddress.toBase58()} does not exist on-chain`);
-      if (!first.owner.equals(this.config.programs.cubicPool)) return err("parse_failure", "Pool account has an unexpected owner");
+      if (!first.owner.equals(this.config.programs.cofferPool)) return err("parse_failure", "Pool account has an unexpected owner");
       const raw = decodePoolAccount(first.data);
       mints = raw.tokenMints.slice(0, raw.tokenCount);
     } catch (e) {
       return err(e instanceof Error && /decodePoolAccount/.test(e.message) ? "parse_failure" : "rpc_unavailable", "Could not read the pool account", e);
     }
-    const [bptMint] = deriveBptMint(this.config.programs.cubicPool, this.poolAddress);
-    const keys = [this.poolAddress, bptMint, ...mints, SYSVAR_CLOCK_PUBKEY];
+    const [lpMint] = deriveLpMint(this.config.programs.cofferPool, this.poolAddress);
+    const keys = [this.poolAddress, lpMint, ...mints, SYSVAR_CLOCK_PUBKEY];
     let response: Awaited<ReturnType<typeof conn.getMultipleAccountsInfoAndContext>>;
     try {
       response = await conn.getMultipleAccountsInfoAndContext(keys, { commitment: "confirmed" });
@@ -138,13 +138,13 @@ export class PlannedZapClient {
       if (!account) return err("account_not_found", `Missing quote account ${keys[i].toBase58()}`);
       accounts.push({ key: keys[i], owner: account.owner, data: Buffer.from(account.data) });
     }
-    const snapshots = { pool: accounts[0], bptMint: accounts[1], mints: accounts.slice(2, -1) };
+    const snapshots = { pool: accounts[0], lpMint: accounts[1], mints: accounts.slice(2, -1) };
     const clock = Buffer.from(accounts[accounts.length - 1].data);
     if (clock.length !== 40) return err("parse_failure", "Invalid Clock sysvar layout");
     const chainSlot = clock.readBigUInt64LE(0), chainEpoch = clock.readBigUInt64LE(16), chainTimestamp = clock.readBigInt64LE(32);
 
     // Decode the snapshot into the planner's pool.
-    if (!snapshots.pool.owner.equals(this.config.programs.cubicPool)) return err("parse_failure", "Pool account has an unexpected owner");
+    if (!snapshots.pool.owner.equals(this.config.programs.cofferPool)) return err("parse_failure", "Pool account has an unexpected owner");
     let raw: RawPoolAccount;
     try { raw = decodePoolAccount(Buffer.from(snapshots.pool.data)); } catch (e) { return err("parse_failure", "Could not decode pool account", e); }
     const n = raw.tokenCount;
@@ -153,17 +153,17 @@ export class PlannedZapClient {
     if (!raw.swapsEnabled) return err("swaps_disabled", "Swaps are disabled");
     if (!Number.isInteger(tokenInIndex) || tokenInIndex < 0 || tokenInIndex >= n) return err("invalid_input", "Invalid tokenInIndex");
     if (raw.actualBalances[tokenInIndex].isZero()) return err("invalid_input", "Input token is sidelined (zero actual balance)");
-    if (snapshots.bptMint.data.length !== MINT_LEN) return err("unsupported_token_extension", "The BPT mint carries extensions; the planned zap requires a plain mint (ZapTokenExtensionsUnsupported)");
-    let bptSupply: bigint;
-    try { bptSupply = BigInt(decodeMintAccount(Buffer.from(snapshots.bptMint.data)).supply.toString()); } catch (e) { return err("parse_failure", "Could not decode the BPT mint", e); }
-    if (bptSupply === 0n) return err("invalid_input", "PoolNotSeeded");
+    if (snapshots.lpMint.data.length !== MINT_LEN) return err("unsupported_token_extension", "The LP mint carries extensions; the planned zap requires a plain mint (ZapTokenExtensionsUnsupported)");
+    let lpSupply: bigint;
+    try { lpSupply = BigInt(decodeMintAccount(Buffer.from(snapshots.lpMint.data)).supply.toString()); } catch (e) { return err("parse_failure", "Could not decode the LP mint", e); }
+    if (lpSupply === 0n) return err("invalid_input", "PoolNotSeeded");
     const tokens: SwapLeg[] = [];
     const tokenPrograms: PublicKey[] = [];
     for (let i = 0; i < n; i++) {
       const snapshot = snapshots.mints[i];
       if (!snapshot.key.equals(raw.tokenMints[i])) return err("parse_failure", `Mint order mismatch at index ${i}`);
       if (!snapshot.owner.equals(raw.tokenPrograms[i])) return err("parse_failure", `Mint token program mismatch at index ${i}`);
-      if (snapshot.key.equals(bptMint)) return err("unsupported_pool_state", "A pool mint equals the BPT mint");
+      if (snapshot.key.equals(lpMint)) return err("unsupported_pool_state", "A pool mint equals the LP mint");
       let mint;
       try { mint = decodeMintAccount(Buffer.from(snapshot.data)); } catch (e) { return err("parse_failure", `Could not decode mint ${snapshot.key.toBase58()}`, e); }
       const blockers = tokenTransferBlockers({ index: i, mint: snapshot.key, tokenProgram: snapshot.owner, unsupportedExtensions: unsupportedMintExtensions(mint.extensions), paused: mint.pausableConfig?.paused ?? false });
@@ -183,7 +183,7 @@ export class PlannedZapClient {
       tokenPrograms.push(raw.tokenPrograms[i]);
     }
     const quotePool: QuotePool = {
-      tokens, bptSupply, swapFeeRate: raw.swapFeeRate, protocolFeeRate: raw.protocolFeeRate,
+      tokens, lpSupply, swapFeeRate: raw.swapFeeRate, protocolFeeRate: raw.protocolFeeRate,
       now: options.nowSeconds !== undefined ? BigInt(options.nowSeconds) : chainTimestamp,
     };
 
@@ -194,11 +194,11 @@ export class PlannedZapClient {
       if (e instanceof SimError || e instanceof MathError) return err(e instanceof SimError && e.code === "AmountTooSmall" ? "amount_too_small" : "invalid_input", `Planned zap quote failed: ${e.message}`, e);
       throw e;
     }
-    const minimumBpt = applySlippage(economics.bpt, slip);
-    if (minimumBpt <= 0n) return err("amount_too_small", "Quote is too small for a positive BPT floor");
+    const minimumLp = applySlippage(economics.lp, slip);
+    if (minimumLp <= 0n) return err("amount_too_small", "Quote is too small for a positive LP floor");
     const plan: AllocationPlan = {
       allocations: economics.allocations.slice(),
-      expectedState: stateCommitment(snapshots.pool, snapshots.bptMint, snapshots.mints, chainEpoch),
+      expectedState: stateCommitment(snapshots.pool, snapshots.lpMint, snapshots.mints, chainEpoch),
       quotedAt: chainTimestamp,
       validUntilSlot: chainSlot + BigInt(validForSlots),
     };
@@ -208,8 +208,8 @@ export class PlannedZapClient {
       amountIn: bn(amount),
       plan,
       economics,
-      estimatedBpt: bn(economics.bpt),
-      minimumBpt: bn(minimumBpt),
+      estimatedLp: bn(economics.lp),
+      minimumLp: bn(minimumLp),
       allocations: economics.allocations.map(bn),
       expectedOuts: expectedOuts.map(bn),
       depositedAmounts: economics.depositedGross.map(bn),
@@ -222,9 +222,9 @@ export class PlannedZapClient {
       chainTimestamp,
       layout: {
         pool: this.poolAddress,
-        bptMint,
-        cubicPoolProgram: this.config.programs.cubicPool,
-        bptTokenProgram: snapshots.bptMint.owner,
+        lpMint,
+        cofferPoolProgram: this.config.programs.cofferPool,
+        lpTokenProgram: snapshots.lpMint.owner,
         mints: mints.slice(),
         vaults: mints.map((mint, i) => deriveAta(this.poolAddress, mint, tokenPrograms[i])),
         tokenPrograms,
@@ -243,20 +243,20 @@ export class PlannedZapClient {
     }
   }
 
-  /** Full account set for `user` (ATAs for every slot and the BPT mint). */
+  /** Full account set for `user` (ATAs for every slot and the LP mint). */
   accountsFor(quote: PlannedZapQuote, user: PublicKey, extraAccounts?: AccountMeta[]): PlannedZapAccounts {
     const { layout } = quote;
     return {
       ...layout,
       user,
-      userBptAccount: deriveAta(user, layout.bptMint, layout.bptTokenProgram),
+      userLpAccount: deriveAta(user, layout.lpMint, layout.lpTokenProgram),
       userTokenAccounts: layout.mints.map((mint, i) => deriveAta(user, mint, layout.tokenPrograms[i])),
       extraAccounts,
     };
   }
 
   /**
-   * Idempotent ATA creates for every pool token and the BPT mint. The
+   * Idempotent ATA creates for every pool token and the LP mint. The
    * program requires all of them to exist (writable, even for sidelined
    * slots). Send them in a separate, earlier transaction: together with the
    * zap they do not fit the 1232-byte packet on larger pools.
@@ -266,7 +266,7 @@ export class PlannedZapClient {
     const ixs = accounts.mints.map((mint, i) =>
       createAssociatedTokenAccountIdempotentInstruction(payer, accounts.userTokenAccounts[i], user, mint, accounts.tokenPrograms[i])
     );
-    ixs.push(createAssociatedTokenAccountIdempotentInstruction(payer, accounts.userBptAccount, user, accounts.bptMint, accounts.bptTokenProgram));
+    ixs.push(createAssociatedTokenAccountIdempotentInstruction(payer, accounts.userLpAccount, user, accounts.lpMint, accounts.lpTokenProgram));
     return ixs;
   }
 
@@ -288,7 +288,7 @@ export class PlannedZapClient {
     });
     try {
       const mints = quote.snapshots.mints.map((m) => ({ address: m.key, owner: m.owner, data: m.data }));
-      return ok(await resolveTransferExtraAccounts(this.rpc.connection, legs, mints, [user, accounts.pool, accounts.bptMint, accounts.userBptAccount]));
+      return ok(await resolveTransferExtraAccounts(this.rpc.connection, legs, mints, [user, accounts.pool, accounts.lpMint, accounts.userLpAccount]));
     } catch (e) {
       if (e instanceof UnsupportedTransferProfileError) return err("unsupported_token_extension", e.message, e);
       return err("tx_build_failed", `Could not resolve the transfer-hook/memo tail: ${e instanceof Error ? e.message : String(e)}`, e);
@@ -300,7 +300,7 @@ export class PlannedZapClient {
     return buildPlannedZapIx(this.config, this.accountsFor(quote, user, extraAccounts), {
       amountIn: BigInt(quote.amountIn.toString()),
       tokenInIndex: quote.tokenInIndex,
-      minimumBpt: BigInt(quote.minimumBpt.toString()),
+      minimumLp: BigInt(quote.minimumLp.toString()),
       plan: quote.plan,
     });
   }
@@ -317,10 +317,10 @@ export class PlannedZapClient {
     }
   }
 
-  /** Addresses the pool's own ALT does not cover: the user's token accounts, BPT account and the tail. */
+  /** Addresses the pool's own ALT does not cover: the user's token accounts, LP account and the tail. */
   walletLookupAddresses(quote: PlannedZapQuote, user: PublicKey, extraAccounts: AccountMeta[] = []): PublicKey[] {
     const accounts = this.accountsFor(quote, user);
-    return [...accounts.userTokenAccounts, accounts.userBptAccount, ...extraAccounts.map((m) => m.pubkey)];
+    return [...accounts.userTokenAccounts, accounts.userLpAccount, ...extraAccounts.map((m) => m.pubkey)];
   }
 
   /** Plan the wallet-owned ALT setup (create/extend batches); see `walletAlt.ts`. */
@@ -362,5 +362,5 @@ export class PlannedZapClient {
   }
 }
 
-/** Convenience for callers holding a classic-token-only pool: a plain Token BPT program. */
-export const DEFAULT_BPT_TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
+/** Convenience for callers holding a classic-token-only pool: a plain Token LP program. */
+export const DEFAULT_LP_TOKEN_PROGRAM = TOKEN_PROGRAM_ID;

@@ -1,10 +1,10 @@
 /**
- * Example 08 — Fetch statistics from the Cube backend.
+ * Example 08 — Fetch statistics from the Coffer backend.
  */
-import { CubeBackendClient } from "../src";
+import { CofferBackendClient } from "../src";
 
 async function main() {
-  const backend = new CubeBackendClient({ apiEndpoint: "https://api-devnet.cube.fi" });
+  const backend = new CofferBackendClient({ apiEndpoint: "https://api.coffer.so" });
 
   const pools = await backend.listPools();
   if (!pools.ok) {

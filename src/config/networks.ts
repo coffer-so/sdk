@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 export type Network = "mainnet" | "devnet" | "localnet";
 
 export interface NetworkPrograms {
-  cubicPool: PublicKey;
+  cofferPool: PublicKey;
   singleTokenLiquidity: PublicKey;
   protocolAdmin: PublicKey;
 }
@@ -11,9 +11,9 @@ export interface NetworkPrograms {
 export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
   // v6 programs are SEPARATE deployments next to v5 (`@coffer_so/sdk` 1.x
   // keeps the v5 table). Pool accounts are owned by their generation's
-  // cubic_pool, so a v5 pool must be driven with the v5 SDK and vice versa.
+  // coffer_pool, so a v5 pool must be driven with the v5 SDK and vice versa.
   mainnet: {
-    cubicPool: new PublicKey("6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9"),
+    cofferPool: new PublicKey("6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9"),
     // TODO(mainnet): single_token_liquidity v6 is NOT deployed on mainnet
     // yet; this is the id reserved for it (protocol_admin v6 already pins
     // it). Planned zap stays disabled until the program is live.
@@ -27,10 +27,10 @@ export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
   devnet: {
     // v6 built from `contracts` v6 `7d753b3` with devnet `declare_id`s and a
     // devnet `PROTOCOL_ADMIN_PROGRAM_ID`, deployed 2026-10-10. Treasury PDA
-    // HLpyYUeWmz7VfNgJG5ZMj4vnpqiJXYUSY9SNwy3u1NVW, CubicPoolConfig
+    // HLpyYUeWmz7VfNgJG5ZMj4vnpqiJXYUSY9SNwy3u1NVW, CofferPoolConfig
     // 5GTgLMeodBEovfDnwYjpt8ndw8hUcifQJVMVnGRwWEYp. The v5 devnet copy
     // (E6YA… / 6bFD…) is a different program; use `@coffer_so/sdk` for it.
-    cubicPool: new PublicKey("Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1"),
+    cofferPool: new PublicKey("Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1"),
     singleTokenLiquidity: new PublicKey(
       "4Rk88MtVT6CjB5e2EPbzQ4Qs6zKtSFgVZYE79SVenVko",
     ),
@@ -40,7 +40,7 @@ export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
   },
   localnet: {
     // `anchor build` of contracts/v6 keeps the historical declare_ids.
-    cubicPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
+    cofferPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
     singleTokenLiquidity: new PublicKey(
       "7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2",
     ),

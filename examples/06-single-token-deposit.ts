@@ -6,13 +6,13 @@
  * compiled wire size.
  */
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { CubicPoolClient, getConfig } from "../src";
+import { CofferPoolClient, getConfig } from "../src";
 
 async function main() {
   const [poolArg, indexArg, amountArg, rpc] = process.argv.slice(2);
   if (!poolArg || !indexArg || !amountArg) throw new Error("usage: <pool> <tokenInIndex> <amountInRaw> [rpc]");
   const config = getConfig("mainnet", rpc ? { rpcEndpoints: [rpc] } : {});
-  const pool = new CubicPoolClient({ config, poolAddress: new PublicKey(poolArg) });
+  const pool = new CofferPoolClient({ config, poolAddress: new PublicKey(poolArg) });
   const user = Keypair.generate().publicKey; // stand-in wallet
 
   const synced = await pool.sync();
@@ -23,7 +23,7 @@ async function main() {
   if (!quote.ok) throw new Error(quote.error.humanMessage);
   const q = quote.data;
   console.log("plan allocations:", q.plan.allocations.map(String));
-  console.log("estimated BPT:", q.estimatedBpt.toString(), "minimum:", q.minimumBpt.toString());
+  console.log("estimated LP:", q.estimatedLp.toString(), "minimum:", q.minimumLp.toString());
   console.log("swap legs:", q.economics.swaps.map((s) => `${s.input}->${s.output} gross ${s.grossInput} net out ${s.netOutput} surge ${s.surgeFee}`));
   console.log("dust left in wallet:", q.dustAmounts.map(String));
   console.log(`quotedAt ${q.plan.quotedAt}, valid until slot ${q.plan.validUntilSlot}, epoch ${q.chainEpoch}`);

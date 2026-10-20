@@ -15,14 +15,14 @@ math, so quotes run in the browser with no Rust and no planner service.
 ## Flow
 
 ```ts
-const pool = new CubicPoolClient({ config, poolAddress });
+const pool = new CofferPoolClient({ config, poolAddress });
 const zap = pool.plannedZap;                       // or new PlannedZapClient({ config, poolAddress })
 
-// 1. One bank snapshot (pool + BPT mint + every mint + Clock), plan, price.
+// 1. One bank snapshot (pool + LP mint + every mint + Clock), plan, price.
 const q = await zap.quote(tokenInIndex, amountIn, { slippageHundredthsBps: 5_000, validForSlots: 120 });
 if (!q.ok) throw q.error;
 
-// 2. Every user_token_i and the user's BPT account must exist (writable, even
+// 2. Every user_token_i and the user's LP account must exist (writable, even
 //    sidelined slots). Send these first when any is missing; with the zap they
 //    do not fit the packet on larger pools.
 const setup = zap.ensureUserTokenAccountIxs(q.data, user);
@@ -49,8 +49,8 @@ const tx = zap.compileTransaction({ payer: user, blockhash, instructions: built.
 `PlannedZapQuote` carries the plan (`plan.allocations`, `plan.expectedState`,
 `plan.quotedAt`, `plan.validUntilSlot`), the exact replay (`economics`: swap
 legs with both transfer fees, `available`, `depositedGross`, `creditedNet`,
-`dust`, `bpt`, `ratio`, `stateAfter`), BN conveniences (`estimatedBpt`,
-`minimumBpt`, `allocations`, `expectedOuts`, `depositedAmounts`,
+`dust`, `lp`, `ratio`, `stateAfter`), BN conveniences (`estimatedLp`,
+`minimumLp`, `allocations`, `expectedOuts`, `depositedAmounts`,
 `dustAmounts`), the snapshot bytes, `chainSlot`/`chainEpoch`/`chainTimestamp`
 and the account layout.
 
@@ -61,11 +61,11 @@ and the account layout.
   window in the simulator and never changes `quotedAt`.
 - `validUntilSlot = snapshot slot + validForSlots` (1..150, default 120).
 - `expectedState` is `sha256` chained over `"coffer-stld-v6-plan-v1"`, the
-  epoch, then `(key, owner, data)` of the pool, the BPT mint and every pool
-  mint. Any trade, join, exit, admin or range-manager update, a BPT supply
+  epoch, then `(key, owner, data)` of the pool, the LP mint and every pool
+  mint. Any trade, join, exit, admin or range-manager update, a LP supply
   change, a mint change or an **epoch rollover** makes the plan
   `AllocationPlanStale`: quote again.
-- `minimumBpt` is the only slippage guard on the route; internal swaps run
+- `minimumLp` is the only slippage guard on the route; internal swaps run
   with `min_out = 0`.
 - The plan's budget must sum to `amountIn`, with zero allocations exactly on
   sidelined slots (`InvalidAllocationPlan` otherwise).
@@ -78,11 +78,11 @@ the extras with the SPL resolver against the quote's own mint snapshots and a
 pinned `confirmed` commitment, de-escalates duplicates like SPL, unions the
 metas with writable-OR and adds the memo program for destinations that
 require memos. Hooks that need an extra signer or one of the instruction's
-core accounts (user, pool, BPT mint, user BPT account) are outside the v6
+core accounts (user, pool, LP mint, user LP account) are outside the v6
 profile and are refused (`unsupported_token_extension`). Hook state is
 external mutable state: always simulate the compiled transaction.
 
-The BPT mint must be a plain 82-byte mint (`ZapTokenExtensionsUnsupported`
+The LP mint must be a plain 82-byte mint (`ZapTokenExtensionsUnsupported`
 otherwise); pool mints may carry fees, hooks and memo requirements.
 
 ## Planner
@@ -95,13 +95,13 @@ order, the smallest gross input whose net output joins at that ratio
 the remainder for the input slot, and `replay` executes the whole basket with
 the exact program math (swaps → join with `calc_deposit_credit`, inverse
 transfer fees, `virtual_balance_after_deposit`, window rebases). The best
-candidate by BPT, then by ratio, wins. Program-equivalent failures are
+candidate by LP, then by ratio, wins. Program-equivalent failures are
 `MathError`/`SimError` and are the search's control flow.
 
 Parity: ports of the Rust unit tests (`tests/math/planner.test.ts`), the
 state-commitment known-answer vector, and six `zap_plan` snapshots
 (`tests/fixtures/zap-plan/`, `tests/zap-plan-fixtures.test.ts`) that match
-allocations, BPT, dust, every swap leg and the post-state bit for bit.
+allocations, LP, dust, every swap leg and the post-state bit for bit.
 
 Benchmark (`tests/math/planner.test.ts`, "benchmark"): N = 10, unequal
 weights, three active windows with surge curves, fee mints on half the

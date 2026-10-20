@@ -70,12 +70,12 @@ function tokenAccount(mintKey: PublicKey, authority: PublicKey, memo = false) {
 const rows = (metas: AccountMeta[]) => metas.map((item) => ({ key: item.pubkey.toBase58(), signer: item.isSigner, writable: item.isWritable }));
 
 interface Fixture {
-  user: PublicKey; pool: PublicKey; bptMint: PublicKey; mints: PublicKey[]; userTokenAccounts: PublicKey[]; vaults: PublicKey[];
+  user: PublicKey; pool: PublicKey; lpMint: PublicKey; mints: PublicKey[]; userTokenAccounts: PublicKey[]; vaults: PublicKey[];
   tokenPrograms: PublicKey[]; snapshots: MintSnapshot[]; registryKey: PublicKey; infos: Map<string, AccountInfo<Buffer>>;
   reads: Map<string, number>; reader: AccountReader; transfers: TransferLeg[]; resolve: () => Promise<AccountMeta[]>;
 }
 function fixture(data: Buffer = registry(), memo = false): Fixture {
-  const user = key(4), pool = key(1), bptMint = key(2);
+  const user = key(4), pool = key(1), lpMint = key(2);
   const mints = [key(6), key(7)], userTokenAccounts = [key(8), key(9)], vaults = [key(10), key(11)];
   const tokenPrograms = [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID];
   const snapshots: MintSnapshot[] = mints.map((address, i) => ({ address, owner: tokenPrograms[i], data: mint(i === 1) }));
@@ -100,8 +100,8 @@ function fixture(data: Buffer = registry(), memo = false): Fixture {
     { mint: mints[1], tokenProgram: tokenPrograms[1], source: vaults[1], destination: userTokenAccounts[1], authority: pool, amount: 80n },
     { mint: mints[1], tokenProgram: tokenPrograms[1], source: userTokenAccounts[1], destination: vaults[1], authority: user, amount: 80n },
   ];
-  return { user, pool, bptMint, mints, userTokenAccounts, vaults, tokenPrograms, snapshots, registryKey, infos, reads, reader, transfers,
-    resolve: () => resolveTransferExtraAccounts(reader, transfers, snapshots, [user, pool, bptMint, key(3)]) };
+  return { user, pool, lpMint, mints, userTokenAccounts, vaults, tokenPrograms, snapshots, registryKey, infos, reads, reader, transfers,
+    resolve: () => resolveTransferExtraAccounts(reader, transfers, snapshots, [user, pool, lpMint, key(3)]) };
 }
 const simpleExpected = (registryKey: PublicKey, extra = state, writable = true) => rows([
   { pubkey: extra, isSigner: false, isWritable: writable },
@@ -211,7 +211,7 @@ describe("resolveTransferExtraAccounts", () => {
 
   test("a duplicate core account stays forbidden even when nonsigning and readonly", async () => {
     const f = fixture();
-    for (const core of [f.user, f.pool, f.bptMint, key(3)]) {
+    for (const core of [f.user, f.pool, f.lpMint, key(3)]) {
       f.infos.get(f.registryKey.toBase58())!.data = registry([meta(core, false, false)]);
       await expect(f.resolve()).rejects.toThrow(/core account/);
     }
@@ -283,8 +283,8 @@ describe("per-instruction resolvers", () => {
         vault: f.vaults[index], concentration: 1, isActive: true, maxSelloffPct: 0, extensions: index === 1 ? [ExtensionType.TransferHook] : [], unsupportedExtensions: [],
         transferHookProgram: index === 1 ? hook : null, transferFee: null, paused: false,
       })),
-      bptMint: f.bptMint, bptTokenProgram: TOKEN_PROGRAM_ID, bptTotalSupply: new BN(1_000_000), swapFeeRate: 0, protocolFeeRate: 0,
-      poolEnabled: true, swapsEnabled: true, createdAt: 0, lookupTable: PublicKey.default, bannedExtensions: new BN(0), syncedAt: 0, unsupportedTokenIndices: [],
+      lpMint: f.lpMint, lpTokenProgram: TOKEN_PROGRAM_ID, lpTotalSupply: new BN(1_000_000), swapFeeRate: 0, protocolFeeRate: 0,
+      poolEnabled: true, swapsEnabled: true, createdAt: 0, lookupTable: PublicKey.default, syncedAt: 0, unsupportedTokenIndices: [],
     };
   }
   /** The fixture's fixed token accounts are the user's ATAs in the resolver; rebind them. */
@@ -317,10 +317,10 @@ describe("per-instruction resolvers", () => {
     const join = await resolveAddLiquidityExtraAccounts(f.reader, pool, { user: f.user, tokenAmounts: [new BN(10), new BN(10)] }, { mintSnapshots: f.snapshots });
     expect(rows(join)).toEqual(simpleExpected(f.registryKey));
     expect(await resolveAddLiquidityExtraAccounts(f.reader, pool, { user: f.user, tokenAmounts: [new BN(10), new BN(0)] }, { mintSnapshots: f.snapshots })).toEqual([]);
-    const exit = await resolveRemoveLiquidityExtraAccounts(f.reader, pool, { user: f.user, bptAmount: new BN(10_000) }, { mintSnapshots: f.snapshots });
+    const exit = await resolveRemoveLiquidityExtraAccounts(f.reader, pool, { user: f.user, lpAmount: new BN(10_000) }, { mintSnapshots: f.snapshots });
     expect(rows(exit)).toEqual(simpleExpected(f.registryKey));
     const sidelined = poolOf(f); sidelined.tokens[1].actualBalance = new BN(0);
-    expect(await resolveRemoveLiquidityExtraAccounts(f.reader, sidelined, { user: f.user, bptAmount: new BN(10_000) }, { mintSnapshots: f.snapshots })).toEqual([]);
+    expect(await resolveRemoveLiquidityExtraAccounts(f.reader, sidelined, { user: f.user, lpAmount: new BN(10_000) }, { mintSnapshots: f.snapshots })).toEqual([]);
   });
 
   test("builders append the tail after the fixed layout and refuse signers/duplicates", async () => {

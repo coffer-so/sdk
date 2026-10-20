@@ -1,13 +1,13 @@
-import cubicPoolIdl from "./cubic_pool.json";
+import cofferPoolIdl from "./coffer_pool.json";
 import protocolAdminIdl from "./protocol_admin.json";
 import singleTokenLiquidityIdl from "./single_token_liquidity.json";
 
-export const CUBIC_POOL_IDL = cubicPoolIdl;
+export const COFFER_POOL_IDL = cofferPoolIdl;
 export const PROTOCOL_ADMIN_IDL = protocolAdminIdl;
 export const SINGLE_TOKEN_LIQUIDITY_IDL = singleTokenLiquidityIdl;
 
 export const IDLS = {
-  cubicPool: CUBIC_POOL_IDL,
+  cofferPool: COFFER_POOL_IDL,
   protocolAdmin: PROTOCOL_ADMIN_IDL,
   singleTokenLiquidity: SINGLE_TOKEN_LIQUIDITY_IDL,
 } as const;

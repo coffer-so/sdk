@@ -11,7 +11,7 @@ export interface PredictLpLossParams {
   /** LP-accessible balances: actual − protocolFeesOwed. */
   lpActualBalances: bigint[];
   decimals: number[];
-  bptTotalSupply: bigint;
+  lpTotalSupply: bigint;
   swapFeeRate: number;
   protocolFeeRate: number;
   tokenInIndex: number;
@@ -24,7 +24,7 @@ export interface PredictLpLossParams {
   depositedAmounts: bigint[];
   /** Helper-held excess refunded to the user. */
   refundAmounts: bigint[];
-  estimatedBpt: bigint;
+  estimatedLp: bigint;
   /**
    * External per-token prices in any common unit. When omitted or incomplete
    * the pool-spot-implied prices (w_i / V_i) are used instead.
@@ -56,7 +56,7 @@ export function predictLpLoss(params: PredictLpLossParams): number | null {
     virtualBalances,
     lpActualBalances,
     decimals,
-    bptTotalSupply,
+    lpTotalSupply,
     swapFeeRate,
     protocolFeeRate,
     tokenInIndex,
@@ -65,7 +65,7 @@ export function predictLpLoss(params: PredictLpLossParams): number | null {
     expectedOuts,
     depositedAmounts,
     refundAmounts,
-    estimatedBpt,
+    estimatedLp,
     prices: externalPrices,
   } = params;
 
@@ -81,10 +81,10 @@ export function predictLpLoss(params: PredictLpLossParams): number | null {
     throw new Error("predictLpLoss: tokenInIndex out of range");
   }
 
-  const supply = Number(bptTotalSupply);
-  const estBpt = Number(estimatedBpt);
+  const supply = Number(lpTotalSupply);
+  const estLp = Number(estimatedLp);
   const amountInWhole = toWhole(amountIn, decimals[tokenInIndex]);
-  if (supply <= 0 || estBpt <= 0 || amountInWhole <= 0) return null;
+  if (supply <= 0 || estLp <= 0 || amountInWhole <= 0) return null;
 
   const weights: number[] = [];
   const virtuals: number[] = [];
@@ -122,7 +122,7 @@ export function predictLpLoss(params: PredictLpLossParams): number | null {
     actuals[i] -= out;
   }
 
-  const mintRatio = estBpt / supply;
+  const mintRatio = estLp / supply;
   for (let i = 0; i < n; i++) {
     actuals[i] += toWhole(depositedAmounts[i] ?? 0n, decimals[i]);
     virtuals[i] *= 1 + mintRatio;

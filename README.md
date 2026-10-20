@@ -1,7 +1,15 @@
 # @coffer_so/sdk-v6
 
-Client library for the **v6** Cubic Pool AMM contracts on Solana. Targeted
+Client library for the **v6** Coffer Pool AMM contracts on Solana. Targeted
 at both frontend and backend consumers; no bundler-specific code.
+
+Glossary: **LP token** (formerly "BPT") is the pool's liquidity-provider
+mint; **Coffer Pool** / `coffer_pool` (formerly "Cubic Pool" / `cubic_pool`)
+is the AMM program. 0.2.0 renamed the whole TypeScript surface accordingly,
+with no deprecated aliases — see the [changelog](CHANGELOG.md#020--rename-bpt--lp-cubic--coffer-drop-the-extension-policy)
+for the migration table. The on-chain PDA seed bytes (`"cubic_pool"`,
+`"bpt_mint"`) are unchanged; only the constants' names are (`POOL_SEED`,
+`LP_MINT_SEED`).
 
 This is a separate package from [`@coffer_so/sdk`](https://www.npmjs.com/package/@coffer_so/sdk)
 (the 1.x line), which keeps tracking the v5 contracts deployed on mainnet.
@@ -14,10 +22,12 @@ Pick by the program version you talk to:
 
 ## Contract compatibility
 
-This release targets `contracts/v6` at `7d753b3` (`feat: allow swap and protocol
-fee rates anywhere in 0..=100%`). All three IDLs match that revision. Typed
-`buildContractInstruction` covers all 61 instructions, `parseContractEvents`
-covers all 61 events, and `decodeContractAccount` decodes their declared
+This release targets `contracts` **v6.1** — `contracts/v6` at `7d753b3`
+(`feat: allow swap and protocol fee rates anywhere in 0..=100%`) plus T19
+(extension policy removed) and T18 (rename). All three IDLs match the v6.1
+rename sweep; `address` fields carry the v6 deployment ids. Typed
+`buildContractInstruction` covers all 59 instructions, `parseContractEvents`
+covers all 59 events, and `decodeContractAccount` decodes their declared
 accounts. See [the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for
 usage and limits, and [the exact state-field mapping](docs/STATE_FIELDS.md)
 for decoded account data.
@@ -51,14 +61,14 @@ From sibling packages:
 ## Quick start
 
 ```ts
-import { getConfig, CubicPoolClient, CofferBackendClient } from "@coffer_so/sdk-v6";
+import { getConfig, CofferPoolClient, CofferBackendClient } from "@coffer_so/sdk-v6";
 import { PublicKey } from "@solana/web3.js";
 
 const config = getConfig("mainnet", {
   backendEndpoint: "https://api.coffer.so",
   // Optional: put your paid RPC first; SDK falls back to the defaults below.
   rpcEndpoints: [
-    process.env.CUBE_RPC_URL!,
+    process.env.COFFER_RPC_URL!,
     "https://api.mainnet-beta.solana.com",
     "https://solana-rpc.publicnode.com",
     "https://solana.api.pocket.network",
@@ -67,7 +77,7 @@ const config = getConfig("mainnet", {
   slippageHundredthsBps: 30_000, // 3 %
 });
 
-const pool = new CubicPoolClient({
+const pool = new CofferPoolClient({
   config,
   poolAddress: new PublicKey("..."),
 });
@@ -88,12 +98,12 @@ const info = res.data;
 ```
 config/       CofferConfig, program IDs per network, token registry
 types/        Result<T> shape, PoolInfo, SwapQuote, AddLiquidityQuote,
-              RemoveLiquidityQuote, CubicPoolEvent
+              RemoveLiquidityQuote, CofferPoolEvent
 utils/        Error mapping, retry wrapper (safeCall), PDA helpers
-math/         Pure math — ports of the v6 cubic-pool + stld Rust math, the
+math/         Pure math — ports of the v6 coffer-pool + stld Rust math, the
               swap simulator and the zap planner
-parsers/      Binary layout decoders for CubicPool / Mint / events
-clients/      RpcClient, CofferBackendClient, CubicPoolClient, PlannedZapClient,
+parsers/      Binary layout decoders for CofferPool / Mint / events
+clients/      RpcClient, CofferBackendClient, CofferPoolClient, PlannedZapClient,
               AdminClient, PoolFactoryClient
 idl/          Anchor IDL exports generated from the current contracts
 examples/     Runnable scripts demonstrating each capability
@@ -117,7 +127,7 @@ low-level instruction builders throw on invalid input.
 - All math (quote, allocations, slippage, price impact)
 - All transaction building (swap, add/remove liquidity, planned single-token deposit, pool deploy)
 - The off-chain zap planner and the Token-2022 hook/memo tail resolver
-- Current Anchor IDLs for `cubic_pool`, `single_token_liquidity`, and
+- Current Anchor IDLs for `coffer_pool`, `single_token_liquidity`, and
   `protocol_admin`
 - Retry + fallback for RPC and backend calls
 - Event log decoding
@@ -142,7 +152,7 @@ compile a v0 transaction. The wallet supplies signatures and the caller sends it
 ```ts
 import { compileBuiltTx } from "@coffer_so/sdk-v6";
 
-const built = client.buildRemoveLiquidityTx({ user, bptAmount, minimumTokenAmounts });
+const built = client.buildRemoveLiquidityTx({ user, lpAmount, minimumTokenAmounts });
 if (!built.ok) throw new Error(built.error.humanMessage);
 const compiled = await compileBuiltTx(connection, user, built.data, info);
 if (!compiled.ok) throw new Error(compiled.error.humanMessage);
@@ -167,8 +177,8 @@ const { instructions, lookupTable } = buildInitializePoolAltTx(config, {
 ```
 
 **Account fields:**
-- `pool` — `CubicPool` account
-- `config` — the `CubicPoolConfig` the pool is pinned to (read for the
+- `pool` — `CofferPool` account
+- `config` — the `CofferPoolConfig` the pool is pinned to (read for the
   alternative-authority check). Always required.
 - `authority` — signs the create+extend+freeze CPIs. Either
   `pool.pool_admin` or `config.protocol_admin` (Treasury PDA, only
@@ -202,10 +212,16 @@ memo program. The SDK:
   (`unsupported_token_extension`). Hooks that need an extra signer or a core
   account are outside the supported profile.
 
-The BPT mint defaults to classic SPL Token; `bptTokenProgram` can select
-Token-2022 for joins/exits, but the planned zap requires a plain BPT mint.
-`bannedMintExtensions()` reports the pool's creation-policy bitmap; a bit in
-that bitmap does not by itself make an existing token non-transferable.
+The LP mint defaults to classic SPL Token; `lpTokenProgram` can select
+Token-2022 for joins/exits, but the planned zap requires a plain LP mint.
+
+There is no Token-2022 extension *policy* any more (v6.1, T19): the pool
+creator decides which mints go into a pool, and consumers disclose what the
+mints carry — `PoolTokenInfo.extensions` / `parseMintExtensions` /
+`mintExtensionName` are the data source for such an alert. The former
+`banned_extensions` bytes stay in the account layouts as
+`RawPoolAccount.deprecatedBannedExtensions` / `_deprecated_extension_policy`
+and must not be interpreted.
 
 ## Examples
 
@@ -240,11 +256,11 @@ insufficient funds) short-circuit.
 
 | Client / helpers | Public operations |
 | --- | --- |
-| `CubicPoolClient` | `sync`, `getCached`, `quoteSwap`, `quoteSeedDeposit`, `quoteAddLiquidity`, `quoteRemove`, `resolve*ExtraAccounts`, swap/add/remove transaction builders, `plannedZap` getter, `quotePlannedZap`, `parseEventsFromLogs` |
+| `CofferPoolClient` | `sync`, `getCached`, `quoteSwap`, `quoteSeedDeposit`, `quoteAddLiquidity`, `quoteRemove`, `resolve*ExtraAccounts`, swap/add/remove transaction builders, `plannedZap` getter, `quotePlannedZap`, `parseEventsFromLogs` |
 | `PlannedZapClient` | `quote`, `replayAt`, `ensureUserTokenAccountIxs`, `resolveExtraAccounts`, `buildIx`, `buildTx`, `walletLookupAddresses`, `prepareWalletLookupTable`, `waitForWalletLookupTable`, `poolLookupTable`, `compileTransaction`; see [PLANNED_ZAP.md](docs/PLANNED_ZAP.md) |
-| `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializeCubicPoolIx` |
+| `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializePoolIx` |
 | `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 29 protocol-admin instructions |
-| Generic ABI | `buildContractInstruction` for all 61 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 61 events |
+| Generic ABI | `buildContractInstruction` for all 59 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 59 events |
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation; `buildPlannedZapIx`, `stateCommitment`, `compilePlannedZapTransaction`; `resolveTransferExtraAccounts` |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 | XP snapshots | Frozen results of finished epochs and campaigns — `getLeaderboardEpochSnapshot`, `getCampaignSnapshotTop`, …; see [XP snapshots guide](docs/XP_SNAPSHOTS.md) |
@@ -263,7 +279,7 @@ submit an initialization through the supplied Anchor provider.
 const swap = pool.quoteSwap(inIndex, outIndex, amountIn, slippageHbps, nowSeconds);
 const seed = pool.quoteSeedDeposit(user, tokenAmounts, slippageHbps);
 const join = pool.quoteAddLiquidity(tokenAmounts, slippageHbps);
-const exit = pool.quoteRemove(bptIn);
+const exit = pool.quoteRemove(lpIn);
 const zap = await pool.plannedZap.quote(inIndex, amountIn, { slippageHundredthsBps, validForSlots, nowSeconds });
 ```
 
@@ -276,24 +292,24 @@ const zap = await pool.plannedZap.quote(inIndex, amountIn, { slippageHundredthsB
 - Join `tokenAmounts` are spend ceilings. Display `creditedAmounts` as the pool
   credit, `chargedAmounts` as the wallet debit (credit + transfer fee) and
   `unspentAmounts` as what stays. Seed uses exact amounts.
-- Exit `effectiveBptIn` may be smaller than requested to preserve 1,000 raw BPT;
+- Exit `effectiveLpIn` may be smaller than requested to preserve 1,000 raw LP;
   `receivedAmounts` is what lands in the wallet. Derive `minimumTokenAmounts`
   from it.
-- Add/zap builders require a **positive** BPT floor at runtime, even though the
+- Add/zap builders require a **positive** LP floor at runtime, even though the
   compatibility interfaces retain it as optional. Remove builders require an
   explicit `minimumTokenAmounts` vector.
 - Token-2022 hooks/memos: pass the resolved tail as `extraAccounts`.
 
-`buildDeployPoolTx` initializes the pool and BPT mint without seeding or creating
-reserve vault ATAs. `buildAddLiquidityTx` creates the user's BPT ATA, but the
+`buildDeployPoolTx` initializes the pool and LP mint without seeding or creating
+reserve vault ATAs. `buildAddLiquidityTx` creates the user's LP ATA, but the
 user's input-token accounts and pool reserve vaults must already exist. The
-planned zap needs every user token account and the BPT account to exist:
+planned zap needs every user token account and the LP account to exist:
 `ensureUserTokenAccountIxs` returns the idempotent creates to send first.
 For 7+-token pools compile the zap with the pool ALT plus a wallet-owned ALT
 (`prepareWalletLookupTable`); neither quoting nor compiling creates an ALT.
 
 The complete typed event API keeps snake_case fields and full-width BN values.
-The camelCase `parseCubicPoolEvents` compatibility API also recognizes all 60
+The camelCase `parseCofferPoolEvents` compatibility API also recognizes all 58
 current events, but uses numeric timestamps and some legacy default fields.
 Malformed/truncated events become `Unknown`; it is not proof of program
 provenance or transaction success.

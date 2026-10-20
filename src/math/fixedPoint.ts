@@ -1,4 +1,4 @@
-/** Fixed-point primitives matching cubic-pool's checked u128 operations. */
+/** Fixed-point primitives matching coffer-pool's checked u128 operations. */
 /**
  * Thrown by every checked-arithmetic guard in `src/math`. The v6 zap
  * planner treats these the way the program treats `checked_*` failures:

@@ -1,5 +1,60 @@
 # Changelog
 
+Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
+`cubic_pool`); they were not rewritten.
+
+## 0.2.0 — rename BPT → LP, Cubic → Coffer; drop the extension policy
+
+Targets `contracts` v6.1 after T18 (rename) and T19 (banned-extension policy
+removed). **Breaking**: the whole TypeScript surface is renamed and there are
+no deprecated aliases. Wire-level facts are unchanged except where noted.
+
+### Changed (rename, no behaviour change)
+
+| 0.1.x | 0.2.0 |
+| --- | --- |
+| `CubicPoolClient`, `CubicPoolClientParams` | `CofferPoolClient`, `CofferPoolClientParams` |
+| `CubicPoolEvent`, `parseCubicPoolEvents` | `CofferPoolEvent`, `parseCofferPoolEvents` |
+| `NetworkPrograms.cubicPool`, `ProgramIdKind "cubicPool"`, `ContractProgram "cubicPool"`, `IDLS.cubicPool`, `CUBIC_POOL_IDL`, `src/idl/cubic_pool.json` | `cofferPool`, `COFFER_POOL_IDL`, `src/idl/coffer_pool.json` |
+| `CUBIC_POOL_SEED`, `BPT_MINT_SEED` | `POOL_SEED`, `LP_MINT_SEED` (bytes `"cubic_pool"` / `"bpt_mint"` unchanged) |
+| `deriveBptMint` | `deriveLpMint` |
+| `BPT_DECIMALS`, `MINIMUM_INITIAL_BPT` | `LP_DECIMALS`, `MIN_LP_SUPPLY` |
+| `calcBptOutGivenExactTokensIn`, `calcTokensOutGivenBptIn`, `calcJoinRatioAndBpt`, `calcEffectiveBptBurn` (`math/cubicMath`) | `calcLpOutGivenExactTokensIn`, `calcTokensOutGivenLpIn`, `calcJoinRatioAndLp`, `calcEffectiveLpBurn` (`math/poolMath`) |
+| `PoolInfo.bptMint`, `.bptTokenProgram`, `.bptTotalSupply` | `lpMint`, `lpTokenProgram`, `lpTotalSupply` |
+| `AddLiquidityParams.minimumBptAmount`, `AddLiquidityQuote.bptOut` / `.minimumBptAmount`, `RemoveLiquidityParams.bptAmount`, `RemoveLiquidityQuote.effectiveBptIn` | `minimumLpAmount`, `lpOut` / `minimumLpAmount`, `lpAmount`, `effectiveLpIn` |
+| `DeployPoolParams.bptTokenProgram`; `PoolFactoryClient.buildDeployPoolTx()` result `.bptMint`; `initializeCubicPoolIx`, `buildInitializeCubicPoolIx` | `lpTokenProgram`; `.lpMint`; `initializePoolIx`, `buildInitializePoolIx` |
+| `PlannedZapQuote.estimatedBpt` / `.minimumBpt`, `PlannedZapArgs.minimumBptAmount`, `PlannedZapAccounts.bptMint` / `.userBptAccount` | `estimatedLp` / `minimumLp`, `minimumLpAmount`, `lpMint` / `userLpAccount` |
+| Event fields `bptMint`, `bptAmount`, `bptReceived` (camelCase API) and IDL names `bpt_mint`, `bpt_amount`, `bpt_received`, `minimum_bpt_amount`, `user_bpt_account`, `bpt_token_program`, `helper_bpt_account`, `cubic_pool_program` | `lpMint`, `lpAmount`, `lpReceived`; `lp_mint`, `lp_amount`, `lp_received`, `minimum_lp_amount`, `user_lp_account`, `lp_token_program`, `helper_lp_account`, `coffer_pool_program` |
+| IDL types `CubicPool`, `CubicPoolConfig`; errors `InsufficientBptOut`, `InvalidBptAmount`, STLD `InsufficientBpt`, `InvalidBptMint`, `InvalidCubicPoolProgram`, `InvalidUserBptAccount`, `InvalidHelperBptAccount` | `CofferPool`, `CofferPoolConfig`; `InsufficientLpOut`, `InvalidLpAmount`, `InsufficientLp`, `InvalidLpMint`, `InvalidCofferPoolProgram`, `InvalidUserLpAccount`, `InvalidHelperLpAccount` (numeric codes unchanged) |
+| Contract instruction `initialize_cubic_pool` | `initialize_pool` — **new discriminator** `5fb40aac54aee828` (was `d79474cf79686f83`). A 0.1.x SDK sending the old bytes to a v6.1 program gets `InstructionFallbackNotFound`. |
+
+Account discriminators (`CofferPool` `89d22a16d19c2b4e`, `CofferPoolConfig`
+`041df30a8e40e876`, `Treasury` `eeef7bee5901a8fd`), event discriminators,
+Borsh field order and error codes are unchanged, so 0.1.x-era accounts and
+logs decode with 0.2.0.
+
+### Removed (T19 — Token-2022 extension policy)
+
+- `DeployPoolParams.bannedExtensions` and the `Option<u64>` the deploy
+  builder appended after `pool_id`; `initialize_pool` takes four args.
+- `AdminClient.setBannedExtensionsIx`; IDL instructions
+  `set_banned_extensions` / `pool_set_banned_extensions`; events
+  `BannedExtensionsUpdated` / `PoolBannedExtensionsSet` and the
+  `BannedExtensionsUpdatedEvent` type (59 instructions / 59 events now).
+- `PoolInfo.bannedExtensions`; `DEFAULT_BANNED_EXTENSIONS`,
+  `HARD_BANNED_EXTENSIONS`, `bannedMintExtensions`; the second argument of
+  `unsupportedMintExtensions`.
+- `RawPoolAccount.bannedExtensions` → `deprecatedBannedExtensions` (the 8
+  bytes at offset 1651 are still read so later offsets hold; never interpret
+  them). `CofferPoolConfig` IDL: `banned_extensions` + `hard_banned_extensions`
+  → `_deprecated_extension_policy: [u8; 16]`. `PoolInitializedEvent.bannedExtensions`
+  → `deprecatedBannedExtensions` (a v6.1 program emits `0`).
+- `ContractTypes`/`ContractInstructionMap`/`ContractEventMap` regenerated.
+
+The mint TLV parser (`parseMintExtensions`, `MintExtension`,
+`mintExtensionName`, `PoolTokenInfo.extensions`) is unchanged and is the data
+source for the frontend's per-token extension disclosure.
+
 ## 0.1.1 — program addresses of the real v6 deployments
 
 ### Changed

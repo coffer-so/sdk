@@ -28,7 +28,7 @@ export interface CofferConfig {
     cuLimit: number;
     /**
      * Default slippage budget when the caller doesn't pass one. Units:
-     * hundredths of a basis point (matches cubic-pool's `swap_fee_rate`
+     * hundredths of a basis point (matches coffer-pool's `swap_fee_rate`
      * scale). 50_000 = 5%.
      */
     slippageHundredthsBps: number;
@@ -89,8 +89,8 @@ function dedupe(values: string[]): string[] {
   return Array.from(new Set(values));
 }
 
-export const CUBIC_POOL_SEED = Buffer.from("cubic_pool");
-export const BPT_MINT_SEED = Buffer.from("bpt_mint");
+export const POOL_SEED = Buffer.from("cubic_pool");
+export const LP_MINT_SEED = Buffer.from("bpt_mint");
 export const STLD_HELPER_SEED = Buffer.from("stld_helper");
 export const TREASURY_SEED = Buffer.from("treasury");
 
@@ -100,18 +100,18 @@ export const MIN_WEIGHT = 100; // 1 %
 export const MAX_WEIGHT = 9_900; // 99 %
 export const MIN_TOKENS = 2;
 export const MAX_TOKENS = 10;
-export const BPT_DECIMALS = 9;
+export const LP_DECIMALS = 9;
 export const SWAP_FEE_PRECISION = 1_000_000; // 100 %
 export const PROTOCOL_FEE_PRECISION = 10_000; // 100 %
 export const PERCENT_SCALE = 10_000; // 100 % (max-selloff / surge-fee scale)
 /** v6: any rate in 0..=100 % is a legal pool configuration (v5 capped at 10 % / 50 %). */
 export const MAX_SWAP_FEE_RATE = SWAP_FEE_PRECISION; // 100 %
 export const MAX_PROTOCOL_FEE_RATE = PROTOCOL_FEE_PRECISION; // 100 %
-export const MINIMUM_INITIAL_BPT = 1_000n;
+export const MIN_LP_SUPPLY = 1_000n;
 export const SLIPPAGE_PRECISION = 1_000_000;
 export const MIN_SLIPPAGE_HBPS = 10; // 0.001 %
 
-export type ProgramIdKind = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin";
+export type ProgramIdKind = "cofferPool" | "singleTokenLiquidity" | "protocolAdmin";
 
 export function programId(cfg: CofferConfig, kind: ProgramIdKind): PublicKey {
   return cfg.programs[kind];

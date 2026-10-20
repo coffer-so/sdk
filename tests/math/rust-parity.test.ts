@@ -1,7 +1,7 @@
 /**
  * Bit-for-bit parity with the contracts `v6` Rust math. The fixture is
  * produced by `tests/math/generate-rust-reference.py` from a v6 checkout:
- * the program's own `cubic_math.rs`, `surge_fee.rs`, `max_selloff.rs`,
+ * the program's own `pool_math.rs`, `surge_fee.rs`, `max_selloff.rs`,
  * `log_exp_math.rs`, the STLD `compute_allocations` and the swap handler's
  * fee helpers plus its verbatim surge-charge block, compiled natively.
  */
@@ -9,13 +9,13 @@ import fixtures from "./fixtures/deployed-v6-math.json";
 import { lnFp, expFp, powFp } from "../../src/math/logExp";
 import {
   calcOutGivenIn,
-  calcTokensOutGivenBptIn,
-  calcJoinRatioAndBpt,
+  calcTokensOutGivenLpIn,
+  calcJoinRatioAndLp,
   calcDepositCredit,
   virtualBalanceAfterDeposit,
   virtualBalanceAfterWithdrawal,
-  calcEffectiveBptBurn,
-} from "../../src/math/cubicMath";
+  calcEffectiveLpBurn,
+} from "../../src/math/poolMath";
 import { computeAllocations } from "../../src/math/singleToken";
 import { calcSurgeFeeRate, calcSurgeFeePct, calcSurgeFeeAmount, SurgeCurve } from "../../src/math/surgeFee";
 import { checkAndAdvanceSelloff, rebaseSnapshot, rescaleWindowOnVbChange } from "../../src/math/maxSelloff";
@@ -70,25 +70,25 @@ function evaluate(v: Vector): bigint | bigint[] {
     case "depositCredit": return calcDepositCredit(b("actual"), b("ratio"));
     case "vbAfterDeposit": return virtualBalanceAfterDeposit(b("vb"), b("actual"), b("credit"), b("minted"), b("supply"));
     case "vbAfterWithdrawal": return virtualBalanceAfterWithdrawal(b("vb"), b("actual"), b("payout"), b("burned"), b("supply"));
-    case "effectiveBurn": return calcEffectiveBptBurn(b("requested"), b("supply"));
+    case "effectiveBurn": return calcEffectiveLpBurn(b("requested"), b("supply"));
     case "swapFee": return calculateSwapFee(b("amount"), n("rate"));
     case "protocolFee": return calculateProtocolFee(b("fee"), n("rate"));
     case "invariant": return calculateInvariant([1000000000n, 2000000000n], [5000, 5000], [n("decimals"), n("decimals")]);
     case "joinRounding": {
-      const { bpt, ratio } = calcJoinRatioAndBpt([3n, 3n], [1n, 1n], b("supply"));
-      return [ratio, bpt, calcDepositCredit(3n, ratio)];
+      const { lp, ratio } = calcJoinRatioAndLp([3n, 3n], [1n, 1n], b("supply"));
+      return [ratio, lp, calcDepositCredit(3n, ratio)];
     }
-    case "joinRoundingExit": return calcTokensOutGivenBptIn([3n, 3n], b("acquired"), b("supply"));
+    case "joinRoundingExit": return calcTokensOutGivenLpIn([3n, 3n], b("acquired"), b("supply"));
     case "joinLegV6": {
-      // One v6 join per leg (ratio → bpt floor → credit ceil → V ceil) and
+      // One v6 join per leg (ratio → lp floor → credit ceil → V ceil) and
       // the exact exit of the same basket (V floor): the round trip returns V.
       const actual = list("actual"), vb = list("vb"), supply = b("supply");
-      const { bpt, ratio } = calcJoinRatioAndBpt(actual, list("amount"), supply);
-      const out = [bpt, ratio / ONE, ratio % ONE];
+      const { lp, ratio } = calcJoinRatioAndLp(actual, list("amount"), supply);
+      const out = [lp, ratio / ONE, ratio % ONE];
       for (let i = 0; i < 2; i++) {
         const credit = actual[i] > 0n ? calcDepositCredit(actual[i], ratio) : 0n;
-        const next = virtualBalanceAfterDeposit(vb[i], actual[i], credit, bpt, supply);
-        out.push(credit, next, virtualBalanceAfterWithdrawal(next, actual[i] + credit, actual[i] > 0n ? credit : 0n, bpt, supply + bpt));
+        const next = virtualBalanceAfterDeposit(vb[i], actual[i], credit, lp, supply);
+        out.push(credit, next, virtualBalanceAfterWithdrawal(next, actual[i] + credit, actual[i] > 0n ? credit : 0n, lp, supply + lp));
       }
       return out;
     }
@@ -97,12 +97,12 @@ function evaluate(v: Vector): bigint | bigint[] {
 }
 
 /** Rust error names the SDK reproduces verbatim; the rest surface as range guards. */
-const NAMED_ERRORS = new Set(["MaxSelloffExceeded", "InvalidVirtualBalances", "TokenLivenessMismatch", "InvalidAmounts", "InvalidBptAmount", "PoolNotSeeded", "AmountOutExceedsBalance", "MaxSelloffInvalidConfig"]);
+const NAMED_ERRORS = new Set(["MaxSelloffExceeded", "InvalidVirtualBalances", "TokenLivenessMismatch", "InvalidAmounts", "InvalidLpAmount", "PoolNotSeeded", "AmountOutExceedsBalance", "MaxSelloffInvalidConfig"]);
 
 describe(`native Rust arithmetic parity (contracts ${fixtures.contractBranch} ${fixtures.contractCommit.slice(0, 7)})`, () => {
   test("fixture was generated from the v6 branch", () => {
     expect(fixtures.contractBranch).toBe("v6");
-    expect(Object.keys(fixtures.sourceHashes)).toContain("programs/cubic-pool/src/instructions/user/swap.rs");
+    expect(Object.keys(fixtures.sourceHashes)).toContain("programs/coffer-pool/src/instructions/user/swap.rs");
   });
 
   test.each(vectors.map((v, i) => [`${i} ${v.kind}`, v] as const))("%s", (_name, v) => {
@@ -138,6 +138,6 @@ describe("selloff boundaries and checked arithmetic", () => {
     expect(mulDivDown(U128_MAX, 2n, 2n)).toBe(U128_MAX);
   });
   test("exit preserves Rust two-step rounding", () => {
-    expect(calcTokensOutGivenBptIn([1000000000000000000n], 1n, 3n)).toEqual([333333333333333333n]);
+    expect(calcTokensOutGivenLpIn([1000000000000000000n], 1n, 3n)).toEqual([333333333333333333n]);
   });
 });

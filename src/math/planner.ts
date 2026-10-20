@@ -9,19 +9,19 @@
  * The program only VERIFIES the plan (budget, hash, age ≤ 90 s, slot) and
  * executes swaps + one proportional join with the user's own accounts. This
  * module picks `allocations`: it replays candidates on the exact integer
- * math of the program (`swapSim`, `cubicMath`, `maxSelloff`, `surgeFee`,
+ * math of the program (`swapSim`, `poolMath`, `maxSelloff`, `surgeFee`,
  * `transferFee`) and bisects on the post-swap join ratio until every live
- * leg can be joined at the same ratio with the most BPT.
+ * leg can be joined at the same ratio with the most LP.
  *
  * Every function is pure; `QuotePool` is copied on write. Program-equivalent
- * failures are `MathError` (checked arithmetic / cubic-pool errors) or
+ * failures are `MathError` (checked arithmetic / coffer-pool errors) or
  * `SimError` (STLD errors) and are the search's control flow: a candidate
  * that fails is infeasible, never a bug. Anything else propagates.
  */
 import { ONE, MathError, assertU64 } from "./fixedPoint";
 import { withPowMemo } from "./logExp";
 import { simulateSwap, SwapLeg } from "./swapSim";
-import { calcDepositCredit, calcJoinRatioAndBpt, virtualBalanceAfterDeposit } from "./cubicMath";
+import { calcDepositCredit, calcJoinRatioAndLp, virtualBalanceAfterDeposit } from "./poolMath";
 import { rescaleWindowOnVbChange } from "./maxSelloff";
 import { grossOfTransferFee, netOfTransferFee } from "./transferFee";
 import { computeAllocations } from "./singleToken";
@@ -43,7 +43,7 @@ export function isSimFailure(e: unknown): boolean {
 export interface QuotePool {
   /** Live slots only (`token_count` entries), each with its epoch fee schedule. */
   tokens: SwapLeg[];
-  bptSupply: bigint;
+  lpSupply: bigint;
   swapFeeRate: number;
   protocolFeeRate: number;
   /** Clock seconds the route executes at (window decay). */
@@ -79,7 +79,7 @@ export interface ZapQuote {
   creditedNet: bigint[];
   /** `available − depositedGross`: left in the user's accounts. */
   dust: bigint[];
-  bpt: bigint;
+  lp: bigint;
   /** Limiting join ratio (18-decimal fixed point). */
   ratio: bigint;
   stateAfter: QuotePool;
@@ -91,7 +91,7 @@ const MIN_TOKENS = 2, MAX_TOKENS = 10;
 export function validateQuotePool(pool: QuotePool): void {
   const n = pool.tokens.length;
   if (n < MIN_TOKENS || n > MAX_TOKENS) throw new SimError("InvalidTokenCount");
-  if (pool.bptSupply <= 0n) throw new SimError("PoolNotSeeded");
+  if (pool.lpSupply <= 0n) throw new SimError("PoolNotSeeded");
 }
 
 const actualOf = (pool: QuotePool): bigint[] => pool.tokens.map((t) => t.actualBalance);
@@ -153,8 +153,8 @@ export function replay(pool: QuotePool, input: number, amount: bigint, allocatio
     net.push(netOfTransferFee(state.tokens[i].transferFee, available[i]));
     if (available[i] !== 0n && net[i] === 0n) throw new MathError("AmountFullyConsumedByTransferFee");
   }
-  const { bpt, ratio } = calcJoinRatioAndBpt(actual, net, state.bptSupply);
-  if (bpt <= 0n) throw new MathError("DepositTooSmall");
+  const { lp, ratio } = calcJoinRatioAndLp(actual, net, state.lpSupply);
+  if (lp <= 0n) throw new MathError("DepositTooSmall");
   const tokens = state.tokens.slice();
   const creditedNet: bigint[] = [], depositedGross: bigint[] = [], dust: bigint[] = [];
   for (let i = 0; i < n; i++) {
@@ -162,13 +162,13 @@ export function replay(pool: QuotePool, input: number, amount: bigint, allocatio
     const charged = grossOfTransferFee(tokens[i].transferFee, credit);
     if (credit > net[i] || charged > available[i]) throw new SimError("TokenBudgetExceeded");
     const oldVb = tokens[i].virtualBalance;
-    const newVb = virtualBalanceAfterDeposit(oldVb, actual[i], credit, bpt, state.bptSupply);
+    const newVb = virtualBalanceAfterDeposit(oldVb, actual[i], credit, lp, state.lpSupply);
     const window = rescaleWindowOnVbChange(tokens[i].window, oldVb, newVb);
     tokens[i] = { ...tokens[i], virtualBalance: newVb, actualBalance: assertU64(actual[i] + credit, "actual balance"), window };
     creditedNet.push(credit); depositedGross.push(charged); dust.push(available[i] - charged);
   }
-  const stateAfter: QuotePool = { ...state, tokens, bptSupply: assertU64(state.bptSupply + bpt, "bpt supply") };
-  return { allocations: allocations.slice(), swaps, available, depositedGross, creditedNet, dust, bpt, ratio, stateAfter };
+  const stateAfter: QuotePool = { ...state, tokens, lpSupply: assertU64(state.lpSupply + lp, "lp supply") };
+  return { allocations: allocations.slice(), swaps, available, depositedGross, creditedNet, dust, lp, ratio, stateAfter };
 }
 
 /**
@@ -229,7 +229,7 @@ function basketForRatio(pool: QuotePool, input: number, amount: bigint, ratio: b
 }
 
 function better(candidate: ZapQuote, best: ZapQuote | undefined): boolean {
-  return !best || candidate.bpt > best.bpt || (candidate.bpt === best.bpt && candidate.ratio > best.ratio);
+  return !best || candidate.lp > best.lp || (candidate.lp === best.lp && candidate.ratio > best.ratio);
 }
 
 /**

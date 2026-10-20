@@ -1,10 +1,10 @@
 {
   "name": "@coffer_so/sdk-v6",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "publishConfig": {
     "access": "public"
   },
-  "description": "Coffer DEX SDK for the v6 Cubic Pool contracts (Token-2022 transfer fees and hooks, planned single-token deposits) on Solana",
+  "description": "Coffer DEX SDK for the v6 Coffer Pool contracts (Token-2022 transfer fees and hooks, planned single-token deposits) on Solana",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [

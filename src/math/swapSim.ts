@@ -1,6 +1,6 @@
 /**
  * Pure bigint port of the v6 `swap::handler` accounting (contracts `v6`,
- * `programs/cubic-pool/src/instructions/user/swap.rs`), shared by the
+ * `programs/coffer-pool/src/instructions/user/swap.rs`), shared by the
  * client quotes (`clients/quote-math.ts`) and the planned-zap planner.
  *
  * Order of operations is the handler's, byte for byte:
@@ -19,7 +19,7 @@
  * error name so the planner can treat them as "candidate infeasible".
  */
 import type { TransferFee } from "@solana/spl-token";
-import { calcOutGivenIn, calcSpotOut } from "./cubicMath";
+import { calcOutGivenIn, calcSpotOut } from "./poolMath";
 import { MathError, assertU64 } from "./fixedPoint";
 import { checkAndAdvanceSelloff, rescaleWindowOnVbChange, SelloffResult, SelloffState } from "./maxSelloff";
 import { calculateProtocolFee, calculateSwapFee } from "./slippage";

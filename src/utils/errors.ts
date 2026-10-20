@@ -1,4 +1,4 @@
-import cubicPoolIdl from "../idl/cubic_pool.json";
+import cofferPoolIdl from "../idl/coffer_pool.json";
 import protocolAdminIdl from "../idl/protocol_admin.json";
 import singleTokenLiquidityIdl from "../idl/single_token_liquidity.json";
 import { SdkError, SdkErrorCode } from "../types/result";
@@ -8,13 +8,13 @@ import { SdkError, SdkErrorCode } from "../types/result";
  *
  * Anchor numbers every program's errors from 6000, so a bare custom-error
  * code is ambiguous across the three Coffer programs — `6030` is
- * `InvalidTokenProgram` in cubic-pool but `TokenExtensionsUnsupported` in
+ * `InvalidTokenProgram` in coffer-pool but `TokenExtensionsUnsupported` in
  * single-token-liquidity. Pass this to {@link toSdkError} when you know
  * which program the failing instruction belonged to; without it the
- * cubic-pool table is used, which is the right default for swap / add /
+ * coffer-pool table is used, which is the right default for swap / add /
  * remove but WRONG for a zap or an admin call.
  */
-export type CofferProgram = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin";
+export type CofferProgram = "cofferPool" | "singleTokenLiquidity" | "protocolAdmin";
 
 const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InvalidTokenCount: "invalid_input",
@@ -24,7 +24,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InsufficientLiquidity: "insufficient_funds",
   SlippageExceeded: "slippage_exceeded",
   InvalidAmounts: "invalid_input",
-  InsufficientBptOut: "slippage_exceeded",
+  InsufficientLpOut: "slippage_exceeded",
   InsufficientTokensOut: "slippage_exceeded",
   FeeRateMaxExceeded: "invalid_input",
   ProtocolFeeRateMaxExceeded: "invalid_input",
@@ -34,7 +34,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   TokenMintMismatch: "invalid_input",
   InvalidTokenDecimals: "invalid_input",
   AmountOutExceedsBalance: "invalid_input",
-  InvalidBptAmount: "invalid_input",
+  InvalidLpAmount: "invalid_input",
   Unauthorized: "invalid_input",
   InvalidMint: "invalid_input",
   PoolDisabled: "pool_disabled",
@@ -44,6 +44,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   PoolMustBeDisabled: "invalid_input",
   ZeroAmount: "invalid_input",
   ZeroFeeAmount: "invalid_input",
+  /** Deprecated in v6.1 (T19): code 6025 is kept for the append-only error table but never raised. */
   BannedExtension: "invalid_input",
   TokenProgramMismatch: "invalid_input",
   UserTokenAccountOwnerMismatch: "invalid_input",
@@ -59,7 +60,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InvalidPendingAdmin: "invalid_input",
   ProtocolAdminNotTreasury: "invalid_input",
 
-  // ── cubic-pool 6069, v6 ──────────────────────────────────────────────
+  // ── coffer-pool 6069, v6 ──────────────────────────────────────────────
   /** `migrate_to_v5` refused: the pool is not a verified unmarked legacy layout. */
   UnsafeLegacyMigration: "unsupported_pool_state",
 
@@ -75,8 +76,8 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   AllocationPlanExpired: "plan_expired",
   AllocationPlanStale: "plan_stale",
 
-  // ── cubic-pool 6055–6068, new in v5.1 ────────────────────────────────
-  /** Mint carries a Token-2022 extension this pool's policy forbids. */
+  // ── coffer-pool 6055–6068, new in v5.1 ────────────────────────────────
+  /** Mint carries a Token-2022 extension the program cannot move (structural; no policy since v6.1). */
   UnsupportedExtension: "invalid_input",
   /** Destination requires a memo — include the SPL Memo program account. */
   MemoProgramMissing: "invalid_input",
@@ -99,7 +100,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InvalidArrayLength: "invalid_input",
   FirstDepositRequiresNonzero: "invalid_input",
   TokenLivenessMismatch: "invalid_input",
-  /** Deposit too small to mint a single unit of BPT — increase the amount. */
+  /** Deposit too small to mint a single unit of LP — increase the amount. */
   DepositTooSmall: "amount_too_small",
   /** Pool holds no liquidity yet; the pool admin must seed it first. */
   PoolNotSeeded: "unsupported_pool_state",
@@ -133,12 +134,12 @@ function buildErrorTable(errors: AnchorIdlError[]): ErrorTable {
 }
 
 const ERROR_TABLES: Record<CofferProgram, ErrorTable> = {
-  cubicPool: buildErrorTable(cubicPoolIdl.errors as AnchorIdlError[]),
+  cofferPool: buildErrorTable(cofferPoolIdl.errors as AnchorIdlError[]),
   protocolAdmin: buildErrorTable(protocolAdminIdl.errors as AnchorIdlError[]),
   singleTokenLiquidity: buildErrorTable(singleTokenLiquidityIdl.errors as AnchorIdlError[]),
 };
 
-const CONTRACT_ERROR_MAP = ERROR_TABLES.cubicPool;
+const CONTRACT_ERROR_MAP = ERROR_TABLES.cofferPool;
 
 /**
  * Convert a raw error (possibly from Anchor, web3.js, or fetch) into a
@@ -148,11 +149,11 @@ const CONTRACT_ERROR_MAP = ERROR_TABLES.cubicPool;
  * @param program Which Coffer program the failing instruction belonged to.
  *   Anchor numbers each program's errors from 6000 independently, so the
  *   same code means different things in different programs. Defaults to
- *   `"cubicPool"` (correct for swap / add / remove liquidity). Pass
+ *   `"cofferPool"` (correct for swap / add / remove liquidity). Pass
  *   `"singleTokenLiquidity"` for zap failures and `"protocolAdmin"` for
  *   treasury-routed admin calls, or the message will be plausible and wrong.
  */
-export function toSdkError(cause: unknown, program: CofferProgram = "cubicPool"): SdkError {
+export function toSdkError(cause: unknown, program: CofferProgram = "cofferPool"): SdkError {
   // Anchor-encoded program errors
   const msg = extractMessage(cause);
   const code = extractErrorCode(msg);
@@ -208,7 +209,7 @@ function extractErrorCode(msg: string): number | null {
 }
 
 /** @internal Exported for tests */
-export function contractErrorMapForTests(program: CofferProgram = "cubicPool"): ErrorTable {
+export function contractErrorMapForTests(program: CofferProgram = "cofferPool"): ErrorTable {
   return ERROR_TABLES[program];
 }
 
@@ -218,7 +219,7 @@ export function contractErrorMapForTests(program: CofferProgram = "cubicPool"): 
  */
 export function describeProgramError(
   code: number,
-  program: CofferProgram = "cubicPool"
+  program: CofferProgram = "cofferPool"
 ): { name: string; message: string; sdkCode: SdkErrorCode } | undefined {
   const hit = ERROR_TABLES[program]?.[code];
   if (!hit) return undefined;

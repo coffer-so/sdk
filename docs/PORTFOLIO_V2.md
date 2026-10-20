@@ -243,7 +243,7 @@ if (res.ok) {
 ```
 
 **Notes:**
-- Only ACTIVE positions are listed (wallet BPT > 0). Past/closed
+- Only ACTIVE positions are listed (wallet LP > 0). Past/closed
   positions live in the v1 `getPortfolioPools()`.
 - `totalValueUsd` covers ALL active positions regardless of pagination —
   safe for the header.
@@ -265,7 +265,7 @@ if (res.ok) {
 | Price series behind networth/pnl | Shared across users, cached 10 min |
 | Activity feed | Cached 30 s per wallet |
 | Token holdings | Cached 30 s per wallet (wallet balances 30 s, pool state ≤5 min) |
-| Position pools | Cached 30 s per wallet (values from wallet BPT, IL live-priced) |
+| Position pools | Cached 30 s per wallet (values from wallet LP, IL live-priced) |
 | New indexed events (swap/liquidity/zap) | Appear seconds after the transaction (webhook) |
 | LP token transfers | Fetched from wallet history on demand |
 

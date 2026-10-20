@@ -2,19 +2,19 @@ import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { BorshReader } from "./borsh";
 import { decodeContractEvent, ContractEvent } from "./contracts";
-import { CubicPoolEvent, AdditionalContractEvent } from "../types/events";
+import { CofferPoolEvent, AdditionalContractEvent } from "../types/events";
 
 /**
  * Anchor event log format (base64-encoded after `Program data:`):
  *   [ 8-byte discriminator | borsh-encoded event struct ]
  *
- * Discriminators for cubic-pool and single-token-liquidity are hard-coded
+ * Discriminators for coffer-pool and single-token-liquidity are hard-coded
  * here from the generated IDL. Never guess from event name — the Anchor
  * macro actually uses `sha256("event:<Name>")[0..8]`, but for robustness
  * we pin the bytes.
  */
 
-// Cubic-pool event discriminators (from target/idl/cubic_pool.json):
+// Coffer-pool event discriminators (from target/idl/coffer_pool.json):
 const DISC = {
   PoolInitialized:          Buffer.from([100, 118, 173, 87, 12, 198, 254, 229]),
   Swap:                     Buffer.from([81, 108, 227, 190, 205, 208, 10, 196]),
@@ -28,7 +28,6 @@ const DISC = {
   DebugLiquidityWithdrawn:  Buffer.from([174, 59, 149, 22, 135, 129, 129, 83]),
   PoolStateLog:             Buffer.from([59, 254, 237, 111, 163, 10, 140, 224]),
   PoolInfo:                 Buffer.from([207, 20, 87, 97, 251, 212, 234, 45]),
-  BannedExtensionsUpdated:  Buffer.from([107, 126, 13, 149, 182, 108, 139, 202]),
   MaxSelloffWindowAdvanced: Buffer.from([229, 227, 163, 30, 22, 183, 78, 57]),
   // Stld:
   SingleTokenDeposit:       Buffer.from([215, 54, 137, 104, 219, 39, 164, 235]),
@@ -37,8 +36,8 @@ const DISC = {
 
 type DiscName = keyof typeof DISC;
 
-export function parseCubicPoolEvents(logs: string[]): CubicPoolEvent[] {
-  const out: CubicPoolEvent[] = [];
+export function parseCofferPoolEvents(logs: string[]): CofferPoolEvent[] {
+  const out: CofferPoolEvent[] = [];
   for (const line of logs) {
     const m = line.match(/^Program data:\s+(.+)$/);
     if (!m) continue;
@@ -78,7 +77,7 @@ function matchDiscriminator(d: Buffer): DiscName | null {
   return null;
 }
 
-function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
+function decodeEvent(name: DiscName, buf: Buffer): CofferPoolEvent | null {
   const r = new BorshReader(buf);
   switch (name) {
     case "Swap": {
@@ -118,17 +117,17 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       const pool = r.pubkey();
       const user = r.pubkey();
       const tokenAmounts = r.vecU64();
-      const bptAmount = r.u64();
+      const lpAmount = r.u64();
       const timestamp = r.i64().toNumber();
-      return { kind: "LiquidityAdded", pool, user, tokenAmounts, bptAmount, timestamp };
+      return { kind: "LiquidityAdded", pool, user, tokenAmounts, lpAmount, timestamp };
     }
     case "LiquidityRemoved": {
       const pool = r.pubkey();
       const user = r.pubkey();
-      const bptAmount = r.u64();
+      const lpAmount = r.u64();
       const tokenAmounts = r.vecU64();
       const timestamp = r.i64().toNumber();
-      return { kind: "LiquidityRemoved", pool, user, bptAmount, tokenAmounts, timestamp };
+      return { kind: "LiquidityRemoved", pool, user, lpAmount, tokenAmounts, timestamp };
     }
     case "ProtocolFeesCollected": {
       const pool = r.pubkey();
@@ -141,14 +140,15 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       const pool = r.pubkey();
       const config = r.pubkey();
       const tokenCount = r.u8();
-      const bptMint = r.pubkey();
+      const lpMint = r.pubkey();
       const timestamp = r.i64().toNumber();
-      // Appended: the effective banned-extensions bitmap the pool's tokens
-      // were vetted against at creation. Guarded for older logs.
-      const bannedExtensions = r.remaining() >= 8 ? r.u64() : new BN(0);
+      // Wire slot of the former `banned_extensions` bitmap (v5.1). The policy
+      // was removed in v6.1 (T19); the program keeps the slot and emits `0`.
+      // Old logs still carry the bitmap they were emitted with.
+      const deprecatedBannedExtensions = r.remaining() >= 8 ? r.u64() : new BN(0);
       // Appended in v6: the PDA salt. Guarded for pre-v6 logs (reads as 0).
       const poolId = r.remaining() >= 8 ? r.u64() : new BN(0);
-      return { kind: "PoolInitialized", pool, config, tokenCount, bptMint, timestamp, bannedExtensions, poolId };
+      return { kind: "PoolInitialized", pool, config, tokenCount, lpMint, timestamp, deprecatedBannedExtensions, poolId };
     }
     case "PoolEnabledUpdated": {
       const pool = r.pubkey();
@@ -170,12 +170,12 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       // Verified against `SingleTokenDeposit` in
       // src/idl/single_token_liquidity.json:
       //   helper, pool, user, token_in_index, amount_in, allocations,
-      //   deposited_amounts, bpt_received, dust_refunded, timestamp
+      //   deposited_amounts, lp_received, dust_refunded, timestamp
       //
       // Two fixes vs. the previous decoder:
       //  1. There is NO `slippage_hundredths_bps: u32` field. The per-call
       //     slippage argument was removed from `deposit_single_token` (the
-      //     single `minimum_bpt_amount` guard replaced it) and the event
+      //     single `minimum_lp_amount` guard replaced it) and the event
       //     field went with it. Reading a phantom u32 here shifted every
       //     later field by 4 bytes.
       //  2. `dust_refunded` is `Vec<u64>` (index-aligned with the pool's
@@ -187,7 +187,7 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       const amountIn = r.u64();
       const allocations = r.vecU64();
       const depositedAmounts = r.vecU64();
-      const bptReceived = r.u64();
+      const lpReceived = r.u64();
       const dustRefunded = r.vecU64();
       const timestamp = r.i64().toNumber();
       return {
@@ -199,7 +199,7 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
         amountIn,
         allocations,
         depositedAmounts,
-        bptReceived,
+        lpReceived,
         dustRefunded,
         timestamp,
       };
@@ -207,7 +207,7 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
     case "SingleTokenDepositDirect": {
       // v6 planned zap receipt (`SingleTokenDepositDirect` in
       // src/idl/single_token_liquidity.json): pool, user, token_in_index,
-      // amount_in, allocations, deposited_amounts, bpt_received,
+      // amount_in, allocations, deposited_amounts, lp_received,
       // dust_remaining, timestamp. No helper: swaps and the join run with
       // the user's own accounts, so `dust_remaining` is what stayed in them.
       const pool = r.pubkey();
@@ -216,10 +216,10 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
       const amountIn = r.u64();
       const allocations = r.vecU64();
       const depositedAmounts = r.vecU64();
-      const bptReceived = r.u64();
+      const lpReceived = r.u64();
       const dustRemaining = r.vecU64();
       const timestamp = r.i64().toNumber();
-      return { kind: "SingleTokenDepositDirect", pool, user, tokenInIndex, amountIn, allocations, depositedAmounts, bptReceived, dustRemaining, timestamp };
+      return { kind: "SingleTokenDepositDirect", pool, user, tokenInIndex, amountIn, allocations, depositedAmounts, lpReceived, dustRemaining, timestamp };
     }
     case "PoolStateLog": {
       const pool = r.pubkey();
@@ -250,27 +250,6 @@ function decodeEvent(name: DiscName, buf: Buffer): CubicPoolEvent | null {
         currentSelloff,
         windowStartTimestamp,
         timestamp,
-      };
-    }
-    case "BannedExtensionsUpdated": {
-      const config = r.pubkey();
-      const authority = r.pubkey();
-      const oldValue = r.u64();
-      const newValue = r.u64();
-      const timestamp = r.i64().toNumber();
-      // Appended in v5.1 alongside `set_banned_extensions`' new
-      // `hard_banned_extensions` argument. Guarded for older logs.
-      const oldHardValue = r.remaining() >= 8 ? r.u64() : new BN(0);
-      const newHardValue = r.remaining() >= 8 ? r.u64() : new BN(0);
-      return {
-        kind: "BannedExtensionsUpdated",
-        config,
-        authority,
-        oldValue,
-        newValue,
-        timestamp,
-        oldHardValue,
-        newHardValue,
       };
     }
     // Decode the remaining current events through the complete shipped ABI.

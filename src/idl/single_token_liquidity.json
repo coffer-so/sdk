@@ -4,7 +4,7 @@
     "name": "single_token_liquidity",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "1-token liquidity provisioning helper for Cubic Pool"
+    "description": "1-token liquidity provisioning helper for Coffer Pool"
   },
   "instructions": [
     {
@@ -31,19 +31,18 @@
           "name": "helper"
         },
         {
-          "name": "bpt_mint",
+          "name": "lp_mint",
           "writable": true
         },
         {
-          "name": "helper_bpt_account",
+          "name": "helper_lp_account",
           "docs": [
-            "Helper's BPT account (where the freshly-minted BPT lands before",
-            "being forwarded to the user)."
+            "Helper's LP account (v5 routed freshly minted LP through it)."
           ],
           "writable": true
         },
         {
-          "name": "user_bpt_account",
+          "name": "user_lp_account",
           "writable": true
         },
         {
@@ -52,10 +51,10 @@
           "signer": true
         },
         {
-          "name": "cubic_pool_program"
+          "name": "coffer_pool_program"
         },
         {
-          "name": "bpt_token_program"
+          "name": "lp_token_program"
         }
       ],
       "args": [
@@ -68,7 +67,7 @@
           "type": "u8"
         },
         {
-          "name": "minimum_bpt_amount",
+          "name": "minimum_lp_amount",
           "type": "u64"
         }
       ]
@@ -94,11 +93,11 @@
           "writable": true
         },
         {
-          "name": "bpt_mint",
+          "name": "lp_mint",
           "writable": true
         },
         {
-          "name": "user_bpt_account",
+          "name": "user_lp_account",
           "writable": true
         },
         {
@@ -106,10 +105,10 @@
           "signer": true
         },
         {
-          "name": "cubic_pool_program"
+          "name": "coffer_pool_program"
         },
         {
-          "name": "bpt_token_program"
+          "name": "lp_token_program"
         }
       ],
       "args": [
@@ -122,7 +121,7 @@
           "type": "u8"
         },
         {
-          "name": "minimum_bpt_amount",
+          "name": "minimum_lp_amount",
           "type": "u64"
         }
       ]
@@ -150,11 +149,11 @@
           "writable": true
         },
         {
-          "name": "bpt_mint",
+          "name": "lp_mint",
           "writable": true
         },
         {
-          "name": "user_bpt_account",
+          "name": "user_lp_account",
           "writable": true
         },
         {
@@ -162,10 +161,10 @@
           "signer": true
         },
         {
-          "name": "cubic_pool_program"
+          "name": "coffer_pool_program"
         },
         {
-          "name": "bpt_token_program"
+          "name": "lp_token_program"
         }
       ],
       "args": [
@@ -178,7 +177,7 @@
           "type": "u8"
         },
         {
-          "name": "minimum_bpt_amount",
+          "name": "minimum_lp_amount",
           "type": "u64"
         },
         {
@@ -225,7 +224,7 @@
         {
           "name": "config",
           "docs": [
-            "Cubic-pool config whose `protocol_admin` is the authority for this",
+            "Coffer-pool config whose `protocol_admin` is the authority for this",
             "drain. In production it's the Treasury PDA of the `protocol-admin`",
             "program."
           ]
@@ -240,7 +239,7 @@
             "the admin of config A could drain the helper of a pool governed by",
             "config B — the helper PDA signs on nothing but its seeds, and those",
             "seeds are derived from whichever pool the caller passes. That is the",
-            "same defect the audit raised as L-07 against cubic-pool's own",
+            "same defect the audit raised as L-07 against coffer-pool's own",
             "`withdraw_sol`, which binds `pool.config == config.key()`; this",
             "instruction was rewritten for L-08 without picking the binding up.",
             "",
@@ -277,7 +276,7 @@
   ],
   "accounts": [
     {
-      "name": "CubicPool",
+      "name": "CofferPool",
       "discriminator": [
         137,
         210,
@@ -290,7 +289,7 @@
       ]
     },
     {
-      "name": "CubicPoolConfig",
+      "name": "CofferPoolConfig",
       "discriminator": [
         4,
         29,
@@ -353,17 +352,17 @@
     {
       "code": 6001,
       "name": "ZeroFeeAmount",
-      "msg": "Deprecated: swap fees are enforced by cubic-pool, not here"
+      "msg": "Deprecated: swap fees are enforced by coffer-pool, not here"
     },
     {
       "code": 6002,
       "name": "SlippageTooLow",
-      "msg": "Deprecated: slippage is now the minimum_bpt_amount guard"
+      "msg": "Deprecated: slippage is now the minimum_lp_amount guard"
     },
     {
       "code": 6003,
       "name": "SlippageTooHigh",
-      "msg": "Deprecated: slippage is now the minimum_bpt_amount guard"
+      "msg": "Deprecated: slippage is now the minimum_lp_amount guard"
     },
     {
       "code": 6004,
@@ -442,28 +441,28 @@
     },
     {
       "code": 6019,
-      "name": "InsufficientBpt",
-      "msg": "Received BPT less than minimum_bpt_amount"
+      "name": "InsufficientLp",
+      "msg": "Received LP less than minimum_lp_amount"
     },
     {
       "code": 6020,
-      "name": "InvalidBptMint",
-      "msg": "Deprecated: enforced by the bpt_mint seeds constraint"
+      "name": "InvalidLpMint",
+      "msg": "Deprecated: enforced by the lp_mint seeds constraint"
     },
     {
       "code": 6021,
-      "name": "InvalidCubicPoolProgram",
-      "msg": "Invalid Cubic Pool program id"
+      "name": "InvalidCofferPoolProgram",
+      "msg": "Invalid Coffer Pool program id"
     },
     {
       "code": 6022,
-      "name": "InvalidUserBptAccount",
-      "msg": "User BPT account mismatch"
+      "name": "InvalidUserLpAccount",
+      "msg": "User LP account mismatch"
     },
     {
       "code": 6023,
-      "name": "InvalidHelperBptAccount",
-      "msg": "Helper BPT account mismatch"
+      "name": "InvalidHelperLpAccount",
+      "msg": "Helper LP account mismatch"
     },
     {
       "code": 6024,
@@ -543,7 +542,7 @@
     {
       "code": 6039,
       "name": "AllocationPlanStale",
-      "msg": "Pool, BPT supply, mint configuration or epoch changed since the quote"
+      "msg": "Pool, LP supply, mint configuration or epoch changed since the quote"
     }
   ],
   "types": [
@@ -585,7 +584,7 @@
     {
       "name": "AssetConfig",
       "docs": [
-        "`CubicPool` v4 — per-pool state for a weighted AMM with virtual liquidity.",
+        "`CofferPool` v4 — per-pool state for a weighted AMM with virtual liquidity.",
         "",
         "Storage layout: **Array-of-Structs (AoS)**. Per-token data lives in",
         "`tokens: [TokenSlot; MAX_TOKENS]`. Each `TokenSlot` carries TWO nested",
@@ -608,8 +607,8 @@
         "middle would require rewriting existing accounts.",
         "",
         "## Derived (not stored) state",
-        "- `bpt_mint`        — derived as `[BPT_MINT_SEED, pool]` PDA.",
-        "- `bpt_total_supply`— read from `bpt_mint.supply` at runtime.",
+        "- `lp_mint`        — derived as `[LP_MINT_SEED, pool]` PDA.",
+        "- `lp_total_supply`— read from `lp_mint.supply` at runtime.",
         "- `token_vaults[i]` — derived as ATA(pool, mint, tokens[i].config.token_program).",
         "- `token_decimals`  — read from each mint account at runtime."
       ],
@@ -746,7 +745,7 @@
           {
             "name": "virtual_balance",
             "docs": [
-              "Virtual balance (raw token units) used by the cubic invariant",
+              "Virtual balance (raw token units) used by the coffer invariant",
               "math. Decoupled from `actual_balance` to enable concentrated",
               "liquidity. Updated by swap / add_liquidity / remove_liquidity."
             ],
@@ -818,14 +817,14 @@
       }
     },
     {
-      "name": "CubicPool",
+      "name": "CofferPool",
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "config",
             "docs": [
-              "`CubicPoolConfig` this pool inherits governance from. Pinned at",
+              "`CofferPoolConfig` this pool inherits governance from. Pinned at",
               "init, used both as a PDA seed and at runtime in admin-instruction",
               "constraints (`pool.config == config.key()`)."
             ],
@@ -971,7 +970,7 @@
             "name": "lookup_table",
             "docs": [
               "Per-pool Address Lookup Table address. Holds pool-scoped accounts",
-              "(pool PDA, BPT mint, vaults, mints, token programs) so client SDKs",
+              "(pool PDA, LP mint, vaults, mints, token programs) so client SDKs",
               "can build VersionedTransactions for `add_liquidity` / `remove_liquidity`",
               "without hitting the 1232-byte legacy-tx ceiling on multi-token pools.",
               "",
@@ -982,28 +981,23 @@
             "type": "pubkey"
           },
           {
-            "name": "banned_extensions",
+            "name": "_deprecated_banned_extensions",
             "docs": [
-              "Token-2022 extension blocklist that was applied to THIS pool's tokens",
-              "at creation, in the same bit layout as",
-              "`CubicPoolConfig.banned_extensions` (bit `i` set ⇒ extension type `i`",
-              "is forbidden). Chosen by the pool **creator** at init: if they passed",
-              "an explicit override it is stored verbatim; otherwise the parent",
-              "config's default was copied here.",
+              "Bytes 1651..1659 of the account. Until v6.1 this held the per-pool",
+              "`banned_extensions` Token-2022 policy bitmap snapshot. The policy was",
+              "removed in v6.1 (T19): the pool creator alone decides which mints go",
+              "into a pool and the frontend discloses the extensions they carry.",
+              "Mint admission is now purely structural",
+              "(`util::token::validate_mint_for_admission`).",
               "",
-              "Recorded for transparency so indexers / depositors can see exactly",
-              "which extension policy a pool's tokens were vetted against. It is a",
-              "snapshot only — the pool's token set is fixed at creation, so changing",
-              "this value later would not re-validate anything.",
-              "",
-              "NOTE (security): the creator chooses this bitmap freely ABOVE the",
-              "protocol floor — `constants::HARD_BANNED_EXTENSIONS`",
-              "(`PermanentDelegate`, `TransferHook`) is OR-ed in at creation and",
-              "cannot be cleared, so no pool can admit a mint that reaches vault",
-              "custody. Everything else is the creator's call, so LPs should still",
-              "read this field and decide whether they trust the remaining policy",
-              "before depositing. Pre-existing (pre-upgrade) pools read `0` here",
-              "until `migrate_to_v5` backfills them from the parent config."
+              "Not trailing (it sits between `lookup_table` and",
+              "`range_manager_max_leverage_bps`), so it cannot be folded into",
+              "`reserved`. Existing pools still carry their old bitmap here; fresh",
+              "pools write `0`. No code path reads it. `migrate_to_v5` keeps its",
+              "`== 0` precondition on these bytes as part of the \"untouched legacy",
+              "layout\" proof (I-11). A later task may reuse these 8 bytes only",
+              "after an explicit migration instruction zeroes them — existing pools",
+              "hold non-zero values that would otherwise be misread."
             ],
             "type": "u64"
           },
@@ -1074,16 +1068,7 @@
       }
     },
     {
-      "name": "CubicPoolConfig",
-      "docs": [
-        "`CubicPoolConfig` — protocol-level governance for every pool created",
-        "against this account.",
-        "",
-        "One config can host many pools (each pool stores `config: Pubkey`).",
-        "Per-pool admin (level-1: rotates `swap_fee_rate`, toggles `swaps_enabled`)",
-        "lives on `CubicPool::pool_admin`. This config carries only the",
-        "protocol-level admin (level-2) plus protocol-wide defaults."
-      ],
+      "name": "CofferPoolConfig",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1092,8 +1077,8 @@
             "docs": [
               "Protocol-level admin. Allowed to: pause pools, change",
               "`protocol_fee_rate`, collect protocol fees, drain via",
-              "`debug_withdraw_liquidity`, update `banned_extensions`, withdraw",
-              "SOL from program-owned accounts, and rotate itself via the",
+              "`debug_withdraw_liquidity`, withdraw SOL from program-owned",
+              "accounts, and rotate itself via the",
               "pending/accept flow. Set to a designated authority (typically the",
               "Treasury PDA of the `protocol-admin` program) at config init."
             ],
@@ -1117,48 +1102,34 @@
             "type": "u16"
           },
           {
-            "name": "banned_extensions",
+            "name": "_deprecated_extension_policy",
             "docs": [
-              "Bitmap of banned Token-2022 extension types. Bit N set ⇒ extension",
-              "type N is rejected at pool init. Maintained by `protocol_admin` via",
-              "`set_banned_extensions`. Defaults to `DEFAULT_BANNED_EXTENSIONS`",
-              "(TransferFee, ConfidentialTransfer, NonTransferable, …)."
+              "Bytes 74..90 of the account (no discriminator offset: 66..82 of the",
+              "payload). Until v6.1 these held the `banned_extensions` /",
+              "`hard_banned_extensions` Token-2022 extension-policy bitmaps. The",
+              "policy was removed in v6.1 (T19): the pool admin alone decides which",
+              "mints go into a pool and the frontend discloses the extensions they",
+              "carry. Mint admission is now purely structural",
+              "(`util::token::validate_mint_for_admission`).",
+              "",
+              "Existing configs still carry non-zero bytes here. No code path reads",
+              "them; they are not part of the zero-check that `reserved` is subject",
+              "to. A later task may reuse these 16 bytes only after an explicit",
+              "migration instruction zeroes them."
             ],
-            "type": "u64"
-          },
-          {
-            "name": "hard_banned_extensions",
-            "docs": [
-              "Extension bits that **no pool creator may clear**, whatever",
-              "`banned_extensions_override` they pass to `initialize_cubic_pool`.",
-              "OR-ed into the effective bitmap at pool creation.",
-              "",
-              "`banned_extensions` above is only a *default* — a creator passing",
-              "`Some(0)` un-bans everything, which would let a mint with",
-              "`PermanentDelegate` (issuer can empty the vault) or an armed",
-              "`TransferHook` (issuer can make every exit revert) into pool custody,",
-              "with the loss landing on whoever supplied the other side.",
-              "",
-              "Seeded from `constants::HARD_BANNED_EXTENSIONS` at config creation",
-              "and movable only by `protocol_admin`. It is governance state rather",
-              "than a compile-time constant on purpose: several regulated",
-              "stablecoins (PYUSD, USDG, AUSD) ship `PermanentDelegate` for",
-              "compliance seizure, so listing them is a deliberate protocol",
-              "decision about trusting a named issuer — not something a pool",
-              "creator may self-authorise, and not something a hardcoded constant",
-              "should decide for every deployment.",
-              "",
-              "Pre-upgrade configs decode this as `0`; `initialize_config` seeds it",
-              "for new ones, and `set_banned_extensions` can set it explicitly."
-            ],
-            "type": "u64"
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
           },
           {
             "name": "reserved",
             "docs": [
               "Forward-compatibility padding so future fields can be added without",
-              "migrating existing config accounts. Shrank 120 → 112 when",
-              "`hard_banned_extensions` was carved out of the tail."
+              "migrating existing config accounts. Shrank 120 → 112 when the",
+              "(now deprecated) second policy bitmap was carved out of the tail."
             ],
             "type": {
               "array": [
@@ -1173,20 +1144,21 @@
     {
       "name": "SingleTokenDeposit",
       "docs": [
-        "Emitted at the end of `deposit_single_token` with everything an",
-        "indexer needs to reconstruct the user-facing receipt without",
-        "re-fetching state.",
+        "Receipt of the retired v5 `deposit_single_token` route. Nothing emits it",
+        "any more (the route was removed under audit L-16); the declaration is",
+        "kept so indexers can still decode historic v5 logs from the IDL and so",
+        "the event list stays append-only.",
         "",
         "# Fields",
         "* `helper`                   — helper PDA pubkey.",
-        "* `pool`                     — Cubic Pool PDA.",
+        "* `pool`                     — Coffer Pool PDA.",
         "* `user`                     — depositor.",
         "* `token_in_index`           — index of the supplied token.",
         "* `amount_in`                — raw input.",
         "* `allocations`              — pre-CPI per-token slice plan.",
         "* `deposited_amounts`        — post-CPI helper balances actually fed",
-        "to `add_liquidity` (after `cap_deposit_amounts_to_lp_ratio`).",
-        "* `bpt_received`             — BPT minted to the user.",
+        "to `add_liquidity` (after the v5 LP-ratio pre-cap).",
+        "* `lp_received`             — LP minted to the user.",
         "* `dust_refunded`            — per-token refund helper → user, index",
         "aligned with `allocations` / `deposited_amounts`. Previously a single",
         "sum across every mint, which added raw amounts of different decimals",
@@ -1228,7 +1200,7 @@
             }
           },
           {
-            "name": "bpt_received",
+            "name": "lp_received",
             "type": "u64"
           },
           {
@@ -1288,7 +1260,7 @@
             }
           },
           {
-            "name": "bpt_received",
+            "name": "lp_received",
             "type": "u64"
           },
           {

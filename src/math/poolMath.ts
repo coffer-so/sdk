@@ -1,10 +1,10 @@
 import { complement, divDown, divUp, mulDown, ONE, weightToFp, assertU64, assertU128, ceilDiv, MathError } from "./fixedPoint";
-import { MINIMUM_INITIAL_BPT } from "../config";
+import { MIN_LP_SUPPLY } from "../config";
 import { powFp } from "./logExp";
 
 /**
- * Port of `CubicMath::calc_out_given_in` from
- * `contracts/programs/cubic-pool/src/math/cubic_math.rs`.
+ * Port of `PoolMath::calc_out_given_in` from
+ * `contracts/programs/coffer-pool/src/math/pool_math.rs`.
  *
  * Formula:   aO = bO * (1 - (bI / (bI + aI))^(wI / wO))
  *
@@ -41,21 +41,21 @@ export function calcOutGivenIn(params: {
 }
 
 /**
- * Port of `CubicMath::calc_bpt_out_given_exact_tokens_in`: the limiting
+ * Port of `PoolMath::calc_lp_out_given_exact_tokens_in`: the limiting
  * ratio `min(amount_i / actual_i)` over live legs (18-decimal fixed point)
- * and the floor-rounded BPT it mints. The ratio is what `calcDepositCredit`
+ * and the floor-rounded LP it mints. The ratio is what `calcDepositCredit`
  * sizes each leg's real debit from, so callers that go on to credit the
  * pool need both.
  */
-export function calcJoinRatioAndBpt(
+export function calcJoinRatioAndLp(
   actualBalances: bigint[],
   amountsIn: bigint[],
-  bptTotalSupply: bigint
-): { bpt: bigint; ratio: bigint } {
+  lpTotalSupply: bigint
+): { lp: bigint; ratio: bigint } {
   if (actualBalances.length !== amountsIn.length) {
     throw new MathError("InvalidArrayLength");
   }
-  assertU64(bptTotalSupply); actualBalances.forEach((v) => assertU64(v)); amountsIn.forEach((v) => assertU64(v));
+  assertU64(lpTotalSupply); actualBalances.forEach((v) => assertU64(v)); amountsIn.forEach((v) => assertU64(v));
   let ratioMin: bigint | null = null;
   for (let i = 0; i < actualBalances.length; i++) {
     if (actualBalances[i] === 0n) continue;
@@ -63,29 +63,29 @@ export function calcJoinRatioAndBpt(
     ratioMin = ratioMin === null || ratio < ratioMin ? ratio : ratioMin;
   }
   if (ratioMin === null) throw new MathError("PoolNotSeeded");
-  return { bpt: assertU64(assertU128(bptTotalSupply * ratioMin) / ONE, "bpt out"), ratio: ratioMin };
+  return { lp: assertU64(assertU128(lpTotalSupply * ratioMin) / ONE, "lp out"), ratio: ratioMin };
 }
 
-/** Proportional join: `bpt = total_supply * min(amount_i / actual_balance_i)` across live legs. */
-export function calcBptOutGivenExactTokensIn(
+/** Proportional join: `lp = total_supply * min(amount_i / actual_balance_i)` across live legs. */
+export function calcLpOutGivenExactTokensIn(
   actualBalances: bigint[],
   amountsIn: bigint[],
-  bptTotalSupply: bigint
+  lpTotalSupply: bigint
 ): bigint {
-  return calcJoinRatioAndBpt(actualBalances, amountsIn, bptTotalSupply).bpt;
+  return calcJoinRatioAndLp(actualBalances, amountsIn, lpTotalSupply).lp;
 }
 
 /**
- * Port of `CubicMath::calc_tokens_out_given_bpt_in`. Proportional exit.
+ * Port of `PoolMath::calc_tokens_out_given_lp_in`. Proportional exit.
  */
-export function calcTokensOutGivenBptIn(
+export function calcTokensOutGivenLpIn(
   actualBalances: bigint[],
-  bptAmount: bigint,
-  bptTotalSupply: bigint
+  lpAmount: bigint,
+  lpTotalSupply: bigint
 ): bigint[] {
-  assertU64(bptAmount); assertU64(bptTotalSupply); actualBalances.forEach((v) => assertU64(v));
-  if (bptTotalSupply === 0n) throw new MathError("InvalidBptAmount");
-  const ratio = divDown(bptAmount, bptTotalSupply);
+  assertU64(lpAmount); assertU64(lpTotalSupply); actualBalances.forEach((v) => assertU64(v));
+  if (lpTotalSupply === 0n) throw new MathError("InvalidLpAmount");
+  const ratio = divDown(lpAmount, lpTotalSupply);
   return actualBalances.map((bal) => assertU64(mulDown(bal, ratio)));
 }
 
@@ -106,11 +106,11 @@ export function calcSpotOut(params: {
   return (amountIn * virtualBalanceOut * weightInBps) / (virtualBalanceIn * weightOutBps);
 }
 
-// ── v6 liquidity rounding (cubic_math.rs) ───────────────────────────────
+// ── v6 liquidity rounding (pool_math.rs) ───────────────────────────────
 
 /**
  * `calc_deposit_credit`: credit the pool with `ceil(actual · ratio / ONE)`.
- * Paired with the floor-rounded BPT mint so no live leg's backing per BPT
+ * Paired with the floor-rounded LP mint so no live leg's backing per LP
  * decreases; the credit still fits under the integer net ceiling that
  * produced `ratio`.
  */
@@ -122,20 +122,20 @@ export function calcDepositCredit(actual: bigint, ratioMin: bigint): bigint {
 /**
  * `virtual_balance_after_deposit`: a live leg grows from its realized net
  * credit, `ceil(V · (A + c) / A)`; a sidelined leg (`A == 0`, no credit)
- * follows the BPT supply growth instead.
+ * follows the LP supply growth instead.
  */
-export function virtualBalanceAfterDeposit(virtualBalance: bigint, actualBalance: bigint, creditedAmount: bigint, bptMinted: bigint, bptSupply: bigint): bigint {
-  [virtualBalance, actualBalance, creditedAmount, bptMinted, bptSupply].forEach((v) => assertU64(v));
+export function virtualBalanceAfterDeposit(virtualBalance: bigint, actualBalance: bigint, creditedAmount: bigint, lpMinted: bigint, lpSupply: bigint): bigint {
+  [virtualBalance, actualBalance, creditedAmount, lpMinted, lpSupply].forEach((v) => assertU64(v));
   if (virtualBalance === 0n) throw new MathError("InvalidVirtualBalances");
-  if (bptSupply === 0n) throw new MathError("InvalidBptAmount");
-  assertU64(bptSupply + bptMinted, "bpt supply");
+  if (lpSupply === 0n) throw new MathError("InvalidLpAmount");
+  assertU64(lpSupply + lpMinted, "lp supply");
   assertU64(actualBalance + creditedAmount, "actual balance");
   let numerator: bigint, denominator: bigint;
   if (actualBalance > 0n) {
     numerator = creditedAmount; denominator = actualBalance;
   } else {
     if (creditedAmount !== 0n) throw new MathError("TokenLivenessMismatch");
-    numerator = bptMinted; denominator = bptSupply;
+    numerator = lpMinted; denominator = lpSupply;
   }
   const increase = ceilDiv(virtualBalance * numerator, denominator);
   return assertU64(virtualBalance + increase, "virtual balance");
@@ -144,13 +144,13 @@ export function virtualBalanceAfterDeposit(virtualBalance: bigint, actualBalance
 /**
  * `virtual_balance_after_withdrawal`: a live leg shrinks from the gross
  * vault payout, `max(1, floor(V · (A − payout) / A))`; a sidelined leg
- * follows the remaining BPT supply. The floor pairs with the deposit
+ * follows the remaining LP supply. The floor pairs with the deposit
  * ceiling so a free join/exit round trip cannot ratchet `V` upward.
  */
-export function virtualBalanceAfterWithdrawal(virtualBalance: bigint, actualBalance: bigint, grossPayout: bigint, bptBurned: bigint, bptSupply: bigint): bigint {
-  [virtualBalance, actualBalance, grossPayout, bptBurned, bptSupply].forEach((v) => assertU64(v));
+export function virtualBalanceAfterWithdrawal(virtualBalance: bigint, actualBalance: bigint, grossPayout: bigint, lpBurned: bigint, lpSupply: bigint): bigint {
+  [virtualBalance, actualBalance, grossPayout, lpBurned, lpSupply].forEach((v) => assertU64(v));
   if (virtualBalance === 0n) throw new MathError("InvalidVirtualBalances");
-  if (bptSupply === 0n || bptBurned >= bptSupply) throw new MathError("InvalidBptAmount");
+  if (lpSupply === 0n || lpBurned >= lpSupply) throw new MathError("InvalidLpAmount");
   if (grossPayout > actualBalance) throw new MathError("MathUnderflow");
   const remaining = actualBalance - grossPayout;
   let numerator: bigint, denominator: bigint;
@@ -158,17 +158,17 @@ export function virtualBalanceAfterWithdrawal(virtualBalance: bigint, actualBala
     if (remaining === 0n) throw new MathError("InvalidAmounts");
     numerator = remaining; denominator = actualBalance;
   } else {
-    numerator = bptSupply - bptBurned; denominator = bptSupply;
+    numerator = lpSupply - lpBurned; denominator = lpSupply;
   }
   const next = (virtualBalance * numerator) / denominator;
   return next > 1n ? next : 1n;
 }
 
-/** `calc_effective_bpt_burn`: honour the caller's ceiling while keeping `MINIMUM_INITIAL_BPT` in supply. */
-export function calcEffectiveBptBurn(requested: bigint, supply: bigint): bigint {
+/** `calc_effective_lp_burn`: honour the caller's ceiling while keeping `MIN_LP_SUPPLY` in supply. */
+export function calcEffectiveLpBurn(requested: bigint, supply: bigint): bigint {
   assertU64(requested); assertU64(supply);
-  if (requested === 0n || requested > supply) throw new MathError("InvalidBptAmount");
-  const maxBurnable = supply > MINIMUM_INITIAL_BPT ? supply - MINIMUM_INITIAL_BPT : 0n;
-  if (maxBurnable === 0n) throw new MathError("InvalidBptAmount");
+  if (requested === 0n || requested > supply) throw new MathError("InvalidLpAmount");
+  const maxBurnable = supply > MIN_LP_SUPPLY ? supply - MIN_LP_SUPPLY : 0n;
+  if (maxBurnable === 0n) throw new MathError("InvalidLpAmount");
   return requested < maxBurnable ? requested : maxBurnable;
 }

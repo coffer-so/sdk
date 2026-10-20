@@ -2,13 +2,13 @@ import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 
 /**
- * Raw binary layout of CubicPool **v5** (see
- * `contracts/programs/cubic-pool/src/state/cubic_pool.rs`).
+ * Raw binary layout of CofferPool **v5** (see
+ * `contracts/programs/coffer-pool/src/state/coffer_pool.rs`).
  *
  * v4 reorganised per-token data from six parallel arrays into a single
  * `tokens: [TokenSlot; 10]` array (each slot = `AssetConfig` +
  * `AssetDynamics`). For backwards compatibility with downstream
- * consumers (`CubicPoolClient.sync()` and similar), this decoder still
+ * consumers (`CofferPoolClient.sync()` and similar), this decoder still
  * exposes the parallel-array shape, plus the new max-selloff and admin
  * fields.
  *
@@ -16,9 +16,10 @@ import BN from "bn.js";
  * at 1683 — every pre-existing field keeps its byte offset):
  *   - `AssetConfig.reserved[3]` → `variable_fee_slope_mid_pct: u16` +
  *     `variable_fee_kink_pct: u8`. Slot stays 88 bytes.
- *   - `CubicPool`: `range_manager_max_leverage_bps: u32` and
+ *   - `CofferPool`: `range_manager_max_leverage_bps: u32` and
  *     `range_manager_min_leverage_bps: u32` appended after
- *     `banned_extensions`; trailing `reserved` shrank [u8;24] → [u8;16].
+ *     the (now deprecated) `banned_extensions` slot; trailing `reserved`
+ *     shrank [u8;24] → [u8;16].
  *
  * Pools written by the pre-v5.1 program decode these new fields as `0`,
  * which is the back-compatible reading (curve has no kink, leverage band
@@ -121,24 +122,26 @@ export interface RawPoolAccount {
   lookupTable: PublicKey;
 
   /**
-   * Effective Token-2022 banned-extensions bitmap this pool's tokens were
-   * vetted against at creation (creator override, or the config default).
-   * `0` ⇒ no extensions banned. Pre-upgrade pools read `0`. A permissive
-   * value is a rug-risk — surface it before depositing.
+   * Bytes 1651..1659: the former per-pool `banned_extensions` Token-2022
+   * policy bitmap. The policy was removed in v6.1 (T19); the program never
+   * reads these bytes and writes `0` for new pools, while existing pools
+   * still carry their old bitmap. Exposed raw for layout inspection only —
+   * never interpret it. Not trailing (it sits between `lookup_table` and
+   * `range_manager_max_leverage_bps`), so the offset is preserved.
    */
-  bannedExtensions: BN;
+  deprecatedBannedExtensions: BN;
   /** The exact trailing ABI padding, preserved for complete state inspection. */
   reserved: Buffer;
-  /** `reserved[0..4] == "V5M1"`: `CubicPool::is_v5_migrated()`. */
+  /** `reserved[0..4] == "V5M1"`: `CofferPool::is_v5_migrated()`. */
   v5Migrated: boolean;
 }
 
-/** 8-byte anchor discriminator for CubicPool. */
+/** 8-byte anchor discriminator for CofferPool. */
 export const POOL_DISCRIMINATOR_LEN = 8;
 const POOL_DISCRIMINATOR = Buffer.from([137, 210, 42, 22, 209, 156, 43, 78]);
 const MAX_TOKENS = 10;
 /**
- * Total on-chain size of a v4/v5 CubicPool (includes the 8-byte
+ * Total on-chain size of a v4/v5 CofferPool (includes the 8-byte
  * discriminator). v5.1 carved its new fields out of `reserved`, so the
  * size is deliberately identical to v4 — size alone cannot tell the two
  * apart. Decoding interprets the current layout; it does not prove an older
@@ -154,7 +157,7 @@ const TOKEN_SLOT_LEN = ASSET_CONFIG_LEN + ASSET_DYNAMICS_LEN;
 /** Pre-v4 size — legacy accounts are unsupported by the current v4-to-v5 migration. */
 export const POOL_V3_LEN = 1154;
 
-/** `CubicPool::V5_MIGRATION_MARKER`: stamped into `reserved[0..4]` by `migrate_to_v5` and at creation. */
+/** `CofferPool::V5_MIGRATION_MARKER`: stamped into `reserved[0..4]` by `migrate_to_v5` and at creation. */
 export const V5_MIGRATION_MARKER = Buffer.from("V5M1", "ascii");
 
 export function decodePoolAccount(data: Buffer): RawPoolAccount {
@@ -171,7 +174,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
     );
   }
   if (!data.subarray(0, POOL_DISCRIMINATOR_LEN).equals(POOL_DISCRIMINATOR)) {
-    throw new Error("decodePoolAccount: invalid CubicPool discriminator");
+    throw new Error("decodePoolAccount: invalid CofferPool discriminator");
   }
 
   let off = POOL_DISCRIMINATOR_LEN;
@@ -293,9 +296,9 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
   const lookupTable = readPubkey(data, off);
   off += 32;
 
-  // Effective per-pool Token-2022 banned-extensions bitmap (carved out of
-  // the old reserved[32]; pre-upgrade pools read 0).
-  const bannedExtensions = readU64LE(data, off);
+  // Former per-pool banned-extensions bitmap (policy removed in v6.1/T19).
+  // Read raw so every later field keeps its byte offset.
+  const deprecatedBannedExtensions = readU64LE(data, off);
   off += 8;
 
   // v5.1: two u32s carved out of the trailing reserved blob, which shrank
@@ -354,7 +357,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
     windowStartTimestamp,
     selloffVbSnapshot,
     lookupTable,
-    bannedExtensions,
+    deprecatedBannedExtensions,
     reserved,
     v5Migrated,
   };

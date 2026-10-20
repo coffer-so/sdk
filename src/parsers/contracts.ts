@@ -48,7 +48,7 @@ export function decodeContractEvent(base64: string, program?: ContractProgram): 
   return null;
 }
 
-/** Parse all 60 known events; fields and names match the shipped contract IDLs.
+/** Parse all 59 known events; fields and names match the shipped contract IDLs.
  * This is decoding, not proof of the emitting program's identity. Consumers
  * must verify transaction success and program provenance before indexing.
  */

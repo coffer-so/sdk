@@ -13,8 +13,8 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
 } from "@solana/spl-token";
 import BN from "bn.js";
-import { CofferConfig, MINIMUM_INITIAL_BPT } from "../config";
-import { CUBIC_POOL_IDL, PROTOCOL_ADMIN_IDL, SINGLE_TOKEN_LIQUIDITY_IDL } from "../idl";
+import { CofferConfig, MIN_LP_SUPPLY } from "../config";
+import { COFFER_POOL_IDL, PROTOCOL_ADMIN_IDL, SINGLE_TOKEN_LIQUIDITY_IDL } from "../idl";
 import { PoolInfo } from "../types/pool";
 import {
   AddLiquidityParams,
@@ -28,16 +28,16 @@ import {
   SelloffParams,
   TokenChange,
 } from "../types/tx";
-import { deriveAta, deriveBptMint } from "../utils/pda";
+import { deriveAta, deriveLpMint, derivePoolPda } from "../utils/pda";
 import { buildContractInstruction } from "./contract-instructions";
-import { calcTokensOutGivenBptIn, calcBptOutGivenExactTokensIn } from "../math/cubicMath";
+import { calcTokensOutGivenLpIn, calcLpOutGivenExactTokensIn } from "../math/poolMath";
 import { netOfTransferFee } from "../math/transferFee";
 import { assertTokensSupported } from "../utils/extensions";
 
 /**
  * Low-level transaction builders. Emit raw `TransactionInstruction`s suitable
  * for combination with others (e.g. versioned transactions with ALTs) in a
- * single tx. Higher-level convenience lives on `CubicPoolClient`.
+ * single tx. Higher-level convenience lives on `CofferPoolClient`.
  */
 
 /**
@@ -50,7 +50,7 @@ import { assertTokensSupported } from "../utils/extensions";
  * or a bad IDL copy, and we want a loud failure at import time instead of a
  * transaction the program rejects with `InstructionFallbackNotFound`.
  *
- * NOTE: declared before `CUBIC_POOL_DISC` on purpose. Those maps call
+ * NOTE: declared before `COFFER_POOL_DISC` on purpose. Those maps call
  * `computeDiscriminator` at module-evaluation time, and a `const` declared
  * after them would still be in its temporal dead zone when they run.
  */
@@ -58,7 +58,10 @@ const PINNED: Record<string, string> = {
   swap: "f8c69e91e17587c8",
   add_liquidity: "b59d59438fb63448",
   remove_liquidity: "5055d14818ceb16c",
-  initialize_cubic_pool: "d79474cf79686f83",
+  // v6.1 (T18): `initialize_cubic_pool` (d79474cf79686f83) was renamed to
+  // `initialize_pool`, which re-cuts its discriminator. A 0.1.x SDK sending
+  // the old bytes gets `InstructionFallbackNotFound` from a v6.1 program.
+  initialize_pool: "5fb40aac54aee828",
   initialize_pool_alt: "fb874202f4490c90",
   deposit_single_token_planned: "fc0a53ee02ee4b1a",
   initialize_config: "d07f1501c2bec446",
@@ -70,14 +73,14 @@ const PINNED: Record<string, string> = {
 
 function computeDiscriminator(
   ixName: string,
-  idl: "cubicPool" | "stld" | "protocolAdmin" = "cubicPool",
+  idl: "cofferPool" | "stld" | "protocolAdmin" = "cofferPool",
 ): Buffer {
   const source =
     idl === "stld"
       ? SINGLE_TOKEN_LIQUIDITY_IDL
       : idl === "protocolAdmin"
         ? PROTOCOL_ADMIN_IDL
-        : CUBIC_POOL_IDL;
+        : COFFER_POOL_IDL;
   const ix = (source.instructions as Array<{ name: string; discriminator: number[] }>).find(
     (candidate) => candidate.name === ixName,
   );
@@ -96,11 +99,11 @@ function computeDiscriminator(
   return bytes;
 }
 
-const CUBIC_POOL_DISC = {
+const COFFER_POOL_DISC = {
   swap: computeDiscriminator("swap"),
   addLiquidity: computeDiscriminator("add_liquidity"),
   removeLiquidity: computeDiscriminator("remove_liquidity"),
-  initializeCubicPool: computeDiscriminator("initialize_cubic_pool"),
+  initializePool: computeDiscriminator("initialize_pool"),
   initializePoolAlt: computeDiscriminator("initialize_pool_alt"),
   setRangeManager: computeDiscriminator("set_range_manager"),
   setRangeManagerConfig: computeDiscriminator("set_range_manager_config"),
@@ -111,19 +114,19 @@ const PROTOCOL_ADMIN_DISC = {
   poolInitializeConfig: computeDiscriminator("pool_initialize_config", "protocolAdmin"),
 };
 
-function bptProgram(pool: PoolInfo): PublicKey {
-  const program = pool.bptTokenProgram ?? TOKEN_PROGRAM_ID;
+function lpProgram(pool: PoolInfo): PublicKey {
+  const program = pool.lpTokenProgram ?? TOKEN_PROGRAM_ID;
   if (!program.equals(TOKEN_PROGRAM_ID) && !program.equals(TOKEN_2022_PROGRAM_ID)) {
-    throw new Error("BPT mint must be owned by SPL Token or Token-2022");
+    throw new Error("LP mint must be owned by SPL Token or Token-2022");
   }
   return program;
 }
 
-function requirePositiveMinimumBpt(minimumBptAmount: BN | undefined, ixName: string): BN {
-  if (!minimumBptAmount || minimumBptAmount.lte(new BN(0))) {
-    throw new Error(`${ixName}: minimumBptAmount must be positive`);
+function requirePositiveMinimumLp(minimumLpAmount: BN | undefined, ixName: string): BN {
+  if (!minimumLpAmount || minimumLpAmount.lte(new BN(0))) {
+    throw new Error(`${ixName}: minimumLpAmount must be positive`);
   }
-  return minimumBptAmount;
+  return minimumLpAmount;
 }
 
 /**
@@ -171,7 +174,7 @@ export function buildSwapIx(
   const userTokenOut = deriveAta(params.user, outTok.mint, outTok.tokenProgram);
 
   const data = Buffer.concat([
-    CUBIC_POOL_DISC.swap,
+    COFFER_POOL_DISC.swap,
     encodeU64(params.amountIn),
     encodeU64(params.minAmountOut),
     encodeU8(params.tokenInIndex),
@@ -193,7 +196,7 @@ export function buildSwapIx(
   ];
 
   return new TransactionInstruction({
-    programId: cfg.programs.cubicPool,
+    programId: cfg.programs.cofferPool,
     keys,
     data,
   });
@@ -240,7 +243,7 @@ export function buildSwapTx(
  * basket that fits inside the vector you pass and leaves the remainder in
  * the wallet; it does NOT pull the full amounts. Any UI copy of the form
  * "you will deposit exactly X" is wrong — quote the proportional basket
- * instead (see `CubicPoolClient.quoteAddLiquidity`).
+ * instead (see `CofferPoolClient.quoteAddLiquidity`).
  *
  * The wire format is unchanged, so this is a behaviour note, not an
  * encoding change: the same bytes now mean "at most this much".
@@ -251,8 +254,8 @@ export function buildAddLiquidityIx(
   params: AddLiquidityParams
 ): TransactionInstruction {
   assertTokensSupported(pool, params.tokenAmounts.flatMap((amount, i) => amount.gt(new BN(0)) ? [i] : []), "add_liquidity");
-  const userBpt = deriveAta(params.user, pool.bptMint, bptProgram(pool));
-  const minBpt = requirePositiveMinimumBpt(params.minimumBptAmount, "add_liquidity");
+  const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
+  const minLp = requirePositiveMinimumLp(params.minimumLpAmount, "add_liquidity");
   if (params.tokenAmounts.length !== pool.tokenCount) {
     // The program rejects this with `InvalidArrayLength` (6064); catching it
     // here costs a round trip less.
@@ -263,10 +266,10 @@ export function buildAddLiquidityIx(
   }
 
   // Mirror the program's early refusals: liveness mismatch, a ceiling fully
-  // consumed by its transfer fee, and a basket that rounds to zero BPT
+  // consumed by its transfer fee, and a basket that rounds to zero LP
   // (`DepositTooSmall`). v6 credits live legs UP from the ratio, so a
-  // positive BPT amount never leaves a live leg unmoved.
-  if (pool.bptTotalSupply.gt(new BN(0))) {
+  // positive LP amount never leaves a live leg unmoved.
+  if (pool.lpTotalSupply.gt(new BN(0))) {
     const balances = pool.tokens.map(token => BigInt(token.actualBalance.toString()));
     const amounts = params.tokenAmounts.map(amount => BigInt(amount.toString()));
     const net = amounts.map((amount, i) => netOfTransferFee(pool.tokens[i].transferFee, amount));
@@ -274,15 +277,15 @@ export function buildAddLiquidityIx(
       if ((balance > 0n) !== (amounts[i] > 0n)) throw new Error("add_liquidity: token liveness mismatch");
       if (amounts[i] > 0n && net[i] === 0n) throw new Error(`add_liquidity: ceiling at token index ${i} is fully consumed by its transfer fee`);
     });
-    if (calcBptOutGivenExactTokensIn(balances, net, BigInt(pool.bptTotalSupply.toString())) === 0n) {
+    if (calcLpOutGivenExactTokensIn(balances, net, BigInt(pool.lpTotalSupply.toString())) === 0n) {
       throw new Error("add_liquidity: deposit too small after proportional rounding");
     }
   }
 
   const data = Buffer.concat([
-    CUBIC_POOL_DISC.addLiquidity,
+    COFFER_POOL_DISC.addLiquidity,
     encodeVecU64(params.tokenAmounts),
-    encodeU64(minBpt),
+    encodeU64(minLp),
   ]);
 
   // remaining_accounts layout:
@@ -303,16 +306,16 @@ export function buildAddLiquidityIx(
 
   const keys: AccountMeta[] = [
     { pubkey: pool.address, isSigner: false, isWritable: true },
-    { pubkey: pool.bptMint, isSigner: false, isWritable: true },
-    { pubkey: userBpt, isSigner: false, isWritable: true },
+    { pubkey: pool.lpMint, isSigner: false, isWritable: true },
+    { pubkey: userLp, isSigner: false, isWritable: true },
     { pubkey: params.user, isSigner: true, isWritable: true },
-    { pubkey: bptProgram(pool), isSigner: false, isWritable: false },
+    { pubkey: lpProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
     ...tail(params.extraAccounts, "add_liquidity"),
   ];
 
   return new TransactionInstruction({
-    programId: cfg.programs.cubicPool,
+    programId: cfg.programs.cofferPool,
     keys,
     data,
   });
@@ -323,16 +326,16 @@ export function buildAddLiquidityTx(
   pool: PoolInfo,
   params: AddLiquidityParams
 ): BuiltTx {
-  const userBpt = deriveAta(params.user, pool.bptMint, bptProgram(pool));
+  const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
   return {
     instructions: [
       ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
       createAssociatedTokenAccountIdempotentInstruction(
         params.user,
-        userBpt,
+        userLp,
         params.user,
-        pool.bptMint,
-        bptProgram(pool)
+        pool.lpMint,
+        lpProgram(pool)
       ),
       buildAddLiquidityIx(cfg, pool, params),
     ],
@@ -349,20 +352,20 @@ export function buildRemoveLiquidityIx(
   pool: PoolInfo,
   params: RemoveLiquidityParams
 ): TransactionInstruction {
-  const supply = pool.bptTotalSupply;
-  const maxBurn = BN.max(supply.sub(new BN(MINIMUM_INITIAL_BPT.toString())), new BN(0));
-  const effectiveBurn = BN.min(params.bptAmount, maxBurn);
+  const supply = pool.lpTotalSupply;
+  const maxBurn = BN.max(supply.sub(new BN(MIN_LP_SUPPLY.toString())), new BN(0));
+  const effectiveBurn = BN.min(params.lpAmount, maxBurn);
   const transferred = supply.gt(new BN(0))
-    ? calcTokensOutGivenBptIn(pool.tokens.map(token => BigInt(token.actualBalance.toString())), BigInt(effectiveBurn.toString()), BigInt(supply.toString()))
+    ? calcTokensOutGivenLpIn(pool.tokens.map(token => BigInt(token.actualBalance.toString())), BigInt(effectiveBurn.toString()), BigInt(supply.toString()))
         .flatMap((amount, i) => amount > 0n ? [i] : [])
     : [];
   assertTokensSupported(pool, transferred, "remove_liquidity");
-  const userBpt = deriveAta(params.user, pool.bptMint, bptProgram(pool));
+  const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
   const mins = requireExplicitMinimums(params.minimumTokenAmounts, pool.tokenCount, "remove_liquidity");
 
   const data = Buffer.concat([
-    CUBIC_POOL_DISC.removeLiquidity,
-    encodeU64(params.bptAmount),
+    COFFER_POOL_DISC.removeLiquidity,
+    encodeU64(params.lpAmount),
     encodeVecU64(mins),
   ]);
 
@@ -384,16 +387,16 @@ export function buildRemoveLiquidityIx(
 
   const keys: AccountMeta[] = [
     { pubkey: pool.address, isSigner: false, isWritable: true },
-    { pubkey: pool.bptMint, isSigner: false, isWritable: true },
-    { pubkey: userBpt, isSigner: false, isWritable: true },
+    { pubkey: pool.lpMint, isSigner: false, isWritable: true },
+    { pubkey: userLp, isSigner: false, isWritable: true },
     { pubkey: params.user, isSigner: true, isWritable: true },
-    { pubkey: bptProgram(pool), isSigner: false, isWritable: false },
+    { pubkey: lpProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
     ...tail(params.extraAccounts, "remove_liquidity"),
   ];
 
   return new TransactionInstruction({
-    programId: cfg.programs.cubicPool,
+    programId: cfg.programs.cofferPool,
     keys,
     data,
   });
@@ -437,7 +440,7 @@ export function buildRemoveLiquidityTx(
 // ============================================================
 
 /**
- * Raw `cubic_pool::initialize_config`.
+ * Raw `coffer_pool::initialize_config`.
  *
  * ⚠ **This instruction is no longer directly callable from a wallet.** In
  * v5.1 (audit H-2) the `protocol_admin: Pubkey` ARGUMENT was removed and
@@ -476,7 +479,7 @@ export function buildInitializeConfigIx(
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
   return new TransactionInstruction({
-    programId: cfg.programs.cubicPool,
+    programId: cfg.programs.cofferPool,
     keys,
     data,
   });
@@ -484,9 +487,9 @@ export function buildInitializeConfigIx(
 
 /**
  * `protocol_admin::pool_initialize_config` — the ONLY way to create a
- * `CubicPoolConfig` that a wallet can actually sign.
+ * `CofferPoolConfig` that a wallet can actually sign.
  *
- * `cubic_pool::initialize_config` takes the Treasury PDA as a `Signer`
+ * `coffer_pool::initialize_config` takes the Treasury PDA as a `Signer`
  * (audit H-01: an unauthenticated config let anyone open a pool that charged
  * a swap fee and paid the protocol nothing). A PDA cannot sign a transaction
  * — only the program that owns its seeds can, via `invoke_signed`. So the
@@ -513,7 +516,7 @@ export function buildPoolInitializeConfigIx(
     { pubkey: treasuryPda, isSigner: false, isWritable: false },
     { pubkey: params.admin, isSigner: true, isWritable: true },
     { pubkey: params.config, isSigner: true, isWritable: true },
-    { pubkey: cfg.programs.cubicPool, isSigner: false, isWritable: false },
+    { pubkey: cfg.programs.cofferPool, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
   return new TransactionInstruction({
@@ -523,26 +526,24 @@ export function buildPoolInitializeConfigIx(
   });
 }
 
-export function buildInitializeCubicPoolIx(
+export function buildInitializePoolIx(
   cfg: CofferConfig,
   params: DeployPoolParams
 ): TransactionInstruction {
-  const tokenProgram = params.bptTokenProgram ?? TOKEN_PROGRAM_ID;
-  const [pool] = PublicKey.findProgramAddressSync(
-    [Buffer.from("cubic_pool"), params.configKey.toBuffer(), params.poolId.toArrayLike(Buffer, "le", 8)],
-    cfg.programs.cubicPool
-  );
-  const [bptMint] = deriveBptMint(cfg.programs.cubicPool, pool);
+  const tokenProgram = params.lpTokenProgram ?? TOKEN_PROGRAM_ID;
+  const [pool] = derivePoolPda(cfg.programs.cofferPool, params.configKey, params.poolId);
+  const [lpMint] = deriveLpMint(cfg.programs.cofferPool, pool);
 
+  // Args: `(normalized_weights: Vec<u64>, initial_virtual_balances: Vec<u64>,
+  // swap_fee_rate: u32, pool_id: u64)`. v6.1 (T19) removed the trailing
+  // `banned_extensions_override: Option<u64>`; the policy no longer exists,
+  // so nothing is encoded after `pool_id`.
   const data = Buffer.concat([
-    CUBIC_POOL_DISC.initializeCubicPool,
+    COFFER_POOL_DISC.initializePool,
     encodeVecU64(params.weightsBps.map((w) => new BN(w))),
     encodeVecU64(params.virtualBalances),
     encodeU32(params.swapFeeRate),
     encodeU64(params.poolId),
-    // Option<u64> banned_extensions_override: 0x00 = None (inherit config
-    // default), 0x01 + u64 LE = Some(bitmap) chosen by the creator.
-    encodeOptionU64(params.bannedExtensions),
   ]);
 
   // There is no `tokens` ix arg — the pool's token set is defined SOLELY by
@@ -557,7 +558,7 @@ export function buildInitializeCubicPoolIx(
   const keys: AccountMeta[] = [
     { pubkey: params.configKey, isSigner: false, isWritable: false },
     { pubkey: pool, isSigner: false, isWritable: true },
-    { pubkey: bptMint, isSigner: false, isWritable: true },
+    { pubkey: lpMint, isSigner: false, isWritable: true },
     { pubkey: params.payer, isSigner: true, isWritable: true },
     { pubkey: tokenProgram, isSigner: false, isWritable: false },
     { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
@@ -566,7 +567,7 @@ export function buildInitializeCubicPoolIx(
   ];
 
   return new TransactionInstruction({
-    programId: cfg.programs.cubicPool,
+    programId: cfg.programs.cofferPool,
     keys,
     data,
   });
@@ -576,7 +577,7 @@ export function buildDeployPoolTx(cfg: CofferConfig, params: DeployPoolParams): 
   return {
     instructions: [
       ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-      buildInitializeCubicPoolIx(cfg, params),
+      buildInitializePoolIx(cfg, params),
     ],
     suggestedCuLimit: 400_000,
   };
@@ -589,7 +590,7 @@ export function buildDeployPoolTx(cfg: CofferConfig, params: DeployPoolParams): 
 export interface InitializePoolAltParams {
   /** Pool PDA. */
   pool: PublicKey;
-  /** `CubicPoolConfig` account this pool is pinned to. Read by the
+  /** `CofferPoolConfig` account this pool is pinned to. Read by the
    *  program to gate the alternative-authority path (`config.protocol_admin`). */
   config: PublicKey;
   /** Authority. Must equal either `pool.pool_admin` (per-pool owner
@@ -642,11 +643,11 @@ export function buildInitializePoolAltIx(
   const altAddr = deriveAltAddress(params.authority, params.recentSlot);
 
   const data = Buffer.concat([
-    CUBIC_POOL_DISC.initializePoolAlt,
+    COFFER_POOL_DISC.initializePoolAlt,
     encodeU64(params.recentSlot),
   ]);
 
-  // Account order MUST match cubic-pool's InitializePoolAlt context:
+  // Account order MUST match coffer-pool's InitializePoolAlt context:
   //   pool, config, authority, payer, lookup_table, system_program, alt_program.
   const keys: AccountMeta[] = [
     { pubkey: params.pool, isSigner: false, isWritable: true },
@@ -659,7 +660,7 @@ export function buildInitializePoolAltIx(
   ];
 
   return new TransactionInstruction({
-    programId: cfg.programs.cubicPool,
+    programId: cfg.programs.cofferPool,
     keys,
     data,
   });
@@ -703,7 +704,7 @@ export function buildSetRangeManagerIx(
   params: SetRangeManagerParams,
 ): TransactionInstruction {
   const data = Buffer.concat([
-    CUBIC_POOL_DISC.setRangeManager,
+    COFFER_POOL_DISC.setRangeManager,
     params.newManager.toBuffer(),
     encodeBool(params.enabled),
   ]);
@@ -712,7 +713,7 @@ export function buildSetRangeManagerIx(
     { pubkey: pool, isSigner: false, isWritable: true },
     { pubkey: params.authority, isSigner: true, isWritable: false },
   ];
-  return new TransactionInstruction({ programId: cfg.programs.cubicPool, keys, data });
+  return new TransactionInstruction({ programId: cfg.programs.cofferPool, keys, data });
 }
 
 /**
@@ -727,7 +728,7 @@ export function buildSetRangeManagerConfigIx(
   params: SetRangeManagerConfigParams,
 ): TransactionInstruction {
   const data = Buffer.concat([
-    CUBIC_POOL_DISC.setRangeManagerConfig,
+    COFFER_POOL_DISC.setRangeManagerConfig,
     encodeU16(params.maxVbChangePct),
     encodeU16(params.maxWeightChangePct),
     encodeU32(params.minUpdateIntervalSecs),
@@ -738,7 +739,7 @@ export function buildSetRangeManagerConfigIx(
     { pubkey: pool, isSigner: false, isWritable: true },
     { pubkey: params.authority, isSigner: true, isWritable: false },
   ];
-  return new TransactionInstruction({ programId: cfg.programs.cubicPool, keys, data });
+  return new TransactionInstruction({ programId: cfg.programs.cofferPool, keys, data });
 }
 
 /**
@@ -767,7 +768,7 @@ export function buildRangeManagerUpdateIx(
     throw new Error("range_manager_update: must change at least one virtual balance or weight");
   }
   const data = Buffer.concat([
-    CUBIC_POOL_DISC.rangeManagerUpdate,
+    COFFER_POOL_DISC.rangeManagerUpdate,
     encodeVecTokenChange(vbChanges),
     encodeVecTokenChange(weightChanges),
   ]);
@@ -775,17 +776,17 @@ export function buildRangeManagerUpdateIx(
     { pubkey: pool, isSigner: false, isWritable: true },
     { pubkey: params.authority, isSigner: true, isWritable: false },
   ];
-  return new TransactionInstruction({ programId: cfg.programs.cubicPool, keys, data });
+  return new TransactionInstruction({ programId: cfg.programs.cofferPool, keys, data });
 }
 
 /** Set the pool-local swap fee (hundredths of a basis point). */
 export function buildSetSwapFeeRateIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, swapFeeRate: number): TransactionInstruction {
-  return buildContractInstruction(cfg, "cubicPool", "set_swap_fee_rate", { swap_fee_rate: swapFeeRate }, { pool, authority });
+  return buildContractInstruction(cfg, "cofferPool", "set_swap_fee_rate", { swap_fee_rate: swapFeeRate }, { pool, authority });
 }
 
 /** Replace every token's sell-off policy, including both kink parameters. */
 export function buildSetMaxSelloffIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, params: SelloffParams[]): TransactionInstruction {
-  return buildContractInstruction(cfg, "cubicPool", "set_max_selloff", { params: params.map(p => ({
+  return buildContractInstruction(cfg, "cofferPool", "set_max_selloff", { params: params.map(p => ({
     max_selloff_pct: p.maxSelloffPct, period_length: p.periodLength,
     fee_threshold_pct: p.feeThresholdPct, fee_slope_low_pct: p.feeSlopeLowPct,
     fee_slope_high_pct: p.feeSlopeHighPct, fee_slope_mid_pct: p.feeSlopeMidPct,
@@ -794,24 +795,24 @@ export function buildSetMaxSelloffIx(cfg: CofferConfig, pool: PublicKey, authori
 }
 
 export function buildInitiatePoolAdminTransferIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, newAdmin: PublicKey): TransactionInstruction {
-  return buildContractInstruction(cfg, "cubicPool", "initiate_pool_admin_transfer", { new_admin: newAdmin }, { pool, authority });
+  return buildContractInstruction(cfg, "cofferPool", "initiate_pool_admin_transfer", { new_admin: newAdmin }, { pool, authority });
 }
 
 export function buildAcceptPoolAdminTransferIx(cfg: CofferConfig, pool: PublicKey, newAdmin: PublicKey): TransactionInstruction {
-  return buildContractInstruction(cfg, "cubicPool", "accept_pool_admin_transfer", {}, { pool, new_admin: newAdmin });
+  return buildContractInstruction(cfg, "cofferPool", "accept_pool_admin_transfer", {}, { pool, new_admin: newAdmin });
 }
 
 export function buildCancelPoolAdminTransferIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
-  return buildContractInstruction(cfg, "cubicPool", "cancel_pool_admin_transfer", {}, { pool, authority });
+  return buildContractInstruction(cfg, "cofferPool", "cancel_pool_admin_transfer", {}, { pool, authority });
 }
 
 /** Permanently renounce the pool-local admin role. */
 export function buildDisablePoolAdminIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
-  return buildContractInstruction(cfg, "cubicPool", "disable_pool_admin", {}, { pool, authority });
+  return buildContractInstruction(cfg, "cofferPool", "disable_pool_admin", {}, { pool, authority });
 }
 
 export function buildGetPoolInfoIx(cfg: CofferConfig, pool: PublicKey): TransactionInstruction {
-  return buildContractInstruction(cfg, "cubicPool", "get_pool_info", {}, { pool });
+  return buildContractInstruction(cfg, "cofferPool", "get_pool_info", {}, { pool });
 }
 
 // ============================================================
@@ -845,13 +846,6 @@ function encodeU64(v: BN): Buffer {
   if (!BN.isBN(v) || v.isNeg() || v.bitLength() > 64) throw new Error("Expected an unsigned 64-bit BN");
   return v.toArrayLike(Buffer, "le", 8);
 }
-/** Borsh `Option<u64>`: 1 tag byte (0=None, 1=Some) + u64 LE when Some. */
-function encodeOptionU64(v?: BN | number | null): Buffer {
-  if (v === undefined || v === null) return Buffer.from([0]);
-  if (typeof v === "number" && (!Number.isSafeInteger(v) || v < 0)) throw new Error("Bitmap must be a non-negative safe integer or BN");
-  const bn = BN.isBN(v) ? v : new BN(v);
-  return Buffer.concat([Buffer.from([1]), encodeU64(bn)]);
-}
 function encodeVecU64(vs: BN[]): Buffer {
   const len = Buffer.alloc(4);
   len.writeUInt32LE(vs.length, 0);
@@ -865,7 +859,7 @@ function encodeBool(v: boolean): Buffer {
  * Borsh `TokenChange { index: u8, expected_current: u64, new_value: u64 }`.
  *
  * Field order verified against the `TokenChange` type in
- * `src/idl/cubic_pool.json`. `expected_current` sits IN THE MIDDLE — it was
+ * `src/idl/coffer_pool.json`. `expected_current` sits IN THE MIDDLE — it was
  * inserted between `index` and `new_value`, not appended. Encoding it last
  * produces a 17-byte record the program happily parses as
  * `(index, new_value=expected, expected=new)`, which either reverts as

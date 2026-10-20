@@ -2,9 +2,9 @@
  * `deposit_single_token_planned` instruction builder (browser-safe, no RPC).
  *
  * Account layout (`DepositSingleTokenDirect` + remaining accounts):
- *   [pool w, bpt_mint w, user_bpt w, user s, cubic_pool_program, bpt_token_program]
+ *   [pool w, lp_mint w, user_lp w, user s, coffer_pool_program, lp_token_program]
  *   + [mint_i, user_token_i w, vault_i w] × N
- *   + exactly 0 or 1 token program (the pool program that is NOT the BPT program)
+ *   + exactly 0 or 1 token program (the pool program that is NOT the LP program)
  *   + hook/memo extras (never signers, never a core account)
  */
 import { sha256 } from "@noble/hashes/sha256";
@@ -48,7 +48,7 @@ export interface AllocationPlan {
   validUntilSlot: bigint;
 }
 
-/** Borsh body of the plan (after `amount_in`, `token_in_index`, `minimum_bpt_amount`). */
+/** Borsh body of the plan (after `amount_in`, `token_in_index`, `minimum_lp_amount`). */
 export function encodeAllocationPlan(plan: AllocationPlan): Buffer {
   if (plan.expectedState.length !== 32) throw new Error("AllocationPlan.expectedState must be 32 bytes");
   const count = Buffer.alloc(4);
@@ -64,11 +64,11 @@ export function encodeAllocationPlan(plan: AllocationPlan): Buffer {
 
 export interface PlannedZapAccounts {
   pool: PublicKey;
-  bptMint: PublicKey;
-  userBptAccount: PublicKey;
+  lpMint: PublicKey;
+  userLpAccount: PublicKey;
   user: PublicKey;
-  cubicPoolProgram: PublicKey;
-  bptTokenProgram: PublicKey;
+  cofferPoolProgram: PublicKey;
+  lpTokenProgram: PublicKey;
   mints: PublicKey[];
   userTokenAccounts: PublicKey[];
   vaults: PublicKey[];
@@ -77,16 +77,16 @@ export interface PlannedZapAccounts {
   extraAccounts?: AccountMeta[];
 }
 
-/** Derive the account set for `user` from a synced pool (ATAs for every slot and the BPT mint). */
+/** Derive the account set for `user` from a synced pool (ATAs for every slot and the LP mint). */
 export function plannedZapAccounts(cfg: CofferConfig, pool: PoolInfo, user: PublicKey, extraAccounts?: AccountMeta[]): PlannedZapAccounts {
-  const bptTokenProgram = pool.bptTokenProgram ?? TOKEN_PROGRAM_ID;
+  const lpTokenProgram = pool.lpTokenProgram ?? TOKEN_PROGRAM_ID;
   return {
     pool: pool.address,
-    bptMint: pool.bptMint,
-    userBptAccount: deriveAta(user, pool.bptMint, bptTokenProgram),
+    lpMint: pool.lpMint,
+    userLpAccount: deriveAta(user, pool.lpMint, lpTokenProgram),
     user,
-    cubicPoolProgram: cfg.programs.cubicPool,
-    bptTokenProgram,
+    cofferPoolProgram: cfg.programs.cofferPool,
+    lpTokenProgram,
     mints: pool.tokens.map((t) => t.mint),
     userTokenAccounts: pool.tokens.map((t) => deriveAta(user, t.mint, t.tokenProgram)),
     vaults: pool.tokens.map((t) => t.vault),
@@ -98,7 +98,7 @@ export function plannedZapAccounts(cfg: CofferConfig, pool: PoolInfo, user: Publ
 export interface PlannedZapArgs {
   amountIn: bigint;
   tokenInIndex: number;
-  minimumBpt: bigint;
+  minimumLp: bigint;
   plan: AllocationPlan;
 }
 
@@ -110,25 +110,25 @@ export function buildPlannedZapIx(cfg: CofferConfig, accounts: PlannedZapAccount
   }
   if (!Number.isInteger(args.tokenInIndex) || args.tokenInIndex < 0 || args.tokenInIndex >= n) throw new Error("deposit_single_token_planned: invalid tokenInIndex");
   if (args.amountIn <= 0n) throw new Error("deposit_single_token_planned: amountIn must be positive");
-  if (args.minimumBpt <= 0n) throw new Error("deposit_single_token_planned: minimumBpt must be positive (the only slippage guard on the route)");
+  if (args.minimumLp <= 0n) throw new Error("deposit_single_token_planned: minimumLp must be positive (the only slippage guard on the route)");
   if (args.plan.expectedState.length !== 32) throw new Error("deposit_single_token_planned: expectedState must be 32 bytes");
   if (args.plan.allocations.reduce((sum, v) => sum + v, 0n) !== args.amountIn) throw new Error("deposit_single_token_planned: allocations must sum to amountIn");
   const programAllowed = (p: PublicKey) => p.equals(TOKEN_PROGRAM_ID) || p.equals(TOKEN_2022_PROGRAM_ID);
-  if (![accounts.bptTokenProgram, ...accounts.tokenPrograms].every(programAllowed)) throw new Error("deposit_single_token_planned: unsupported token program");
+  if (![accounts.lpTokenProgram, ...accounts.tokenPrograms].every(programAllowed)) throw new Error("deposit_single_token_planned: unsupported token program");
   if (new Set(accounts.mints.map((k) => k.toBase58())).size !== n) throw new Error("deposit_single_token_planned: duplicate mint");
-  if (accounts.mints.some((m) => m.equals(accounts.bptMint))) throw new Error("deposit_single_token_planned: a pool mint cannot be the BPT mint");
+  if (accounts.mints.some((m) => m.equals(accounts.lpMint))) throw new Error("deposit_single_token_planned: a pool mint cannot be the LP mint");
 
   const meta = (pubkey: PublicKey, isWritable = false, isSigner = false): AccountMeta => ({ pubkey, isWritable, isSigner });
   const keys: AccountMeta[] = [
-    meta(accounts.pool, true), meta(accounts.bptMint, true), meta(accounts.userBptAccount, true),
-    meta(accounts.user, false, true), meta(accounts.cubicPoolProgram), meta(accounts.bptTokenProgram),
+    meta(accounts.pool, true), meta(accounts.lpMint, true), meta(accounts.userLpAccount, true),
+    meta(accounts.user, false, true), meta(accounts.cofferPoolProgram), meta(accounts.lpTokenProgram),
   ];
   for (let i = 0; i < n; i++) keys.push(meta(accounts.mints[i]), meta(accounts.userTokenAccounts[i], true), meta(accounts.vaults[i], true));
-  // Exactly the token programs the pool uses that differ from the BPT program: at most one.
-  const others = [...new Map(accounts.tokenPrograms.filter((p) => !p.equals(accounts.bptTokenProgram)).map((p) => [p.toBase58(), p])).values()];
-  if (others.length > 1) throw new Error("deposit_single_token_planned: more than one non-BPT token program");
+  // Exactly the token programs the pool uses that differ from the LP program: at most one.
+  const others = [...new Map(accounts.tokenPrograms.filter((p) => !p.equals(accounts.lpTokenProgram)).map((p) => [p.toBase58(), p])).values()];
+  if (others.length > 1) throw new Error("deposit_single_token_planned: more than one non-LP token program");
   for (const program of others) keys.push(meta(program));
-  const forbidden = new Set([accounts.user, accounts.pool, accounts.bptMint, accounts.userBptAccount].map((k) => k.toBase58()));
+  const forbidden = new Set([accounts.user, accounts.pool, accounts.lpMint, accounts.userLpAccount].map((k) => k.toBase58()));
   const seen = new Set<string>();
   for (const extra of accounts.extraAccounts ?? []) {
     if (extra.isSigner || forbidden.has(extra.pubkey.toBase58())) throw new Error("deposit_single_token_planned: the extension tail cannot carry signers or core accounts");
@@ -138,7 +138,7 @@ export function buildPlannedZapIx(cfg: CofferConfig, accounts: PlannedZapAccount
   }
   const data = Buffer.concat([
     DISCRIMINATOR,
-    u64(args.amountIn, "amountIn"), Buffer.from([args.tokenInIndex]), u64(args.minimumBpt, "minimumBpt"),
+    u64(args.amountIn, "amountIn"), Buffer.from([args.tokenInIndex]), u64(args.minimumLp, "minimumLp"),
     encodeAllocationPlan(args.plan),
   ]);
   return new TransactionInstruction({ programId: cfg.programs.singleTokenLiquidity, keys, data });

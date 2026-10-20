@@ -1,14 +1,14 @@
 import BN from "bn.js";
 import { PublicKey, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
-import { CubicPoolClient, RpcClient, decodePoolAccount, decodeContractAccount, deriveBptMint, deriveAta, getConfig, IDLS } from "../src";
+import { CofferPoolClient, RpcClient, decodePoolAccount, decodeContractAccount, deriveLpMint, deriveAta, getConfig, IDLS } from "../src";
 import { ContractAccountMap } from "../src/types/contracts";
 
-type State = ContractAccountMap["cubicPool"]["CubicPool"];
+type State = ContractAccountMap["cofferPool"]["CofferPool"];
 const key = (n: number) => new PublicKey(Buffer.alloc(32, n));
 const bn = (n: number | string | bigint) => new BN(n.toString());
 const wide = bn("9007199254741017");
-const fields = (name: string) => (IDLS.cubicPool.types.find(t => t.name === name)!.type as any).fields as {name: string; type: any}[];
+const fields = (name: string) => (IDLS.cofferPool.types.find(t => t.name === name)!.type as any).fields as {name: string; type: any}[];
 
 // Borsh encoder independent of the manual SDK account decoder and its offsets.
 function encode(value: any, type: any): Buffer {
@@ -23,7 +23,7 @@ function encode(value: any, type: any): Buffer {
   throw new Error("Unknown fixture type");
 }
 function bytes(state: State): Buffer {
-  return Buffer.concat([Buffer.from(IDLS.cubicPool.accounts[0].discriminator), ...fields("CubicPool").map(f => encode((state as any)[f.name], f.type))]);
+  return Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...fields("CofferPool").map(f => encode((state as any)[f.name], f.type))]);
 }
 function normalize(v: any): any {
   if (BN.isBN(v)) return v.toString();
@@ -51,7 +51,7 @@ function fixture(): State {
         protocol_fees_owed: wide.addn(50+i), previous_selloff: wide.addn(70+i),
         current_selloff: wide.addn(90+i), window_start_timestamp: bn(-900-i), selloff_vb_snapshot: wide.addn(110+i)},
     })),
-    lookup_table: key(30), banned_extensions: bn("9223372036854776320"),
+    lookup_table: key(30), _deprecated_banned_extensions: bn("9223372036854776320"),
     range_manager_max_leverage_bps: 876543, range_manager_min_leverage_bps: 12345,
     reserved: Array.from({length:16}, (_,i) => i+1),
   };
@@ -62,7 +62,7 @@ const poolMap = {
   pool_admin: "poolAdmin", pending_pool_admin: "pendingPoolAdmin", range_manager: "rangeManager",
   range_manager_enabled: "rangeManagerEnabled", range_manager_max_vb_change_pct: "rangeManagerMaxVbChangePct",
   range_manager_max_weight_change_pct: "rangeManagerMaxWeightChangePct", range_manager_min_update_interval_secs: "rangeManagerMinUpdateIntervalSecs",
-  range_manager_last_updated: "rangeManagerLastUpdated", lookup_table: "lookupTable", banned_extensions: "bannedExtensions",
+  range_manager_last_updated: "rangeManagerLastUpdated", lookup_table: "lookupTable", _deprecated_banned_extensions: "deprecatedBannedExtensions",
   range_manager_max_leverage_bps: "rangeManagerMaxLeverageBps", range_manager_min_leverage_bps: "rangeManagerMinLeverageBps",
 } as const;
 const configMap = {
@@ -79,15 +79,15 @@ const dynamicsMap = {
   selloff_vb_snapshot: ["selloffVbSnapshot", "selloffVbSnapshot"],
 } as const;
 
-test("field mapping covers every current CubicPool and token-slot ABI field", () => {
-  expect([...Object.keys(poolMap), "tokens", "reserved"].sort()).toEqual(fields("CubicPool").map(f => f.name).sort());
+test("field mapping covers every current CofferPool and token-slot ABI field", () => {
+  expect([...Object.keys(poolMap), "tokens", "reserved"].sort()).toEqual(fields("CofferPool").map(f => f.name).sort());
   expect(Object.keys(configMap).sort()).toEqual(fields("AssetConfig").map(f => f.name).sort());
   expect(Object.keys(dynamicsMap).sort()).toEqual(fields("AssetDynamics").map(f => f.name).sort());
 });
 
 test("manual pool decoder preserves every field, signed i64, wide u64 and padding", () => {
   const state = fixture(), encoded = bytes(state), raw = decodePoolAccount(encoded) as any;
-  expect(normalize(decodeContractAccount("cubicPool", "CubicPool", encoded))).toEqual(normalize(state));
+  expect(normalize(decodeContractAccount("cofferPool", "CofferPool", encoded))).toEqual(normalize(state));
   for (const [wire, name] of Object.entries(poolMap)) expect(normalize(raw[name])).toEqual(normalize((state as any)[wire]));
   for (let i=0; i<10; i++) {
     for (const [wire,[name]] of Object.entries(configMap)) expect(normalize(raw[name][i])).toEqual(normalize((state.tokens[i].config as any)[wire]));
@@ -109,9 +109,9 @@ function mockClient(state: State, data = bytes(state)) {
   const cfg = getConfig("mainnet"), address = key(1);
   const mint = (decimals: number, supply: BN) => { const b = Buffer.alloc(82); b[44]=decimals; b[45]=1; supply.toArrayLike(Buffer,"le",8).copy(b,36); return b; };
   const infos = new Map<string, any>();
-  infos.set(address.toBase58(), {data,owner:cfg.programs.cubicPool,lamports:123});
-  const bpt = deriveBptMint(cfg.programs.cubicPool,address)[0];
-  infos.set(bpt.toBase58(), {data:mint(9,wide.addn(999)),owner:TOKEN_2022_PROGRAM_ID,lamports:456});
+  infos.set(address.toBase58(), {data,owner:cfg.programs.cofferPool,lamports:123});
+  const lp = deriveLpMint(cfg.programs.cofferPool,address)[0];
+  infos.set(lp.toBase58(), {data:mint(9,wide.addn(999)),owner:TOKEN_2022_PROGRAM_ID,lamports:456});
   state.tokens.slice(0,state.token_count).forEach((s,i) => infos.set(s.config.mint.toBase58(),{data:mint(6+i,wide.addn(i)),owner:s.config.token_program,lamports:789}));
   const clock=Buffer.alloc(40); clock.writeBigUInt64LE(445105299n,0); clock.writeBigUInt64LE(1030n,16); clock.writeBigInt64LE(1788799999n,32);
   infos.set(SYSVAR_CLOCK_PUBKEY.toBase58(),{data:clock,owner:key(55),lamports:1});
@@ -120,7 +120,7 @@ function mockClient(state: State, data = bytes(state)) {
     getMultipleAccountsInfo: async (keys: PublicKey[]) => keys.map(k => infos.get(k.toBase58()) ?? null),
     getSlot: async () => 1,
   })});
-  return new CubicPoolClient({config:cfg,poolAddress:address,rpc});
+  return new CofferPoolClient({config:cfg,poolAddress:address,rpc});
 }
 
 test("sync maps every operational field and token program with full-width balances", async () => {
@@ -128,6 +128,7 @@ test("sync maps every operational field and token program with full-width balanc
   if (!result.ok) throw new Error(result.error.humanMessage);
   const info = result.data as any;
   for (const [wire,name] of Object.entries(poolMap)) {
+    if (wire === "_deprecated_banned_extensions") { expect(info[name]).toBeUndefined(); continue; }
     const expected = wire === "created_at" ? state.created_at.toNumber() : (state as any)[wire];
     expect(normalize(info[name])).toEqual(normalize(expected));
   }
@@ -142,8 +143,8 @@ test("sync maps every operational field and token program with full-width balanc
     expect(info.tokens[i].vault.equals(deriveAta(info.address, info.tokens[i].mint, info.tokens[i].tokenProgram))).toBe(true);
     expect(info.tokens[i].extensions).toEqual([]);
   }
-  expect(info.bptTokenProgram.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
-  expect(info.bptTotalSupply.eq(wide.addn(999))).toBe(true);
+  expect(info.lpTokenProgram.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+  expect(info.lpTotalSupply.eq(wide.addn(999))).toBe(true);
   expect(info.chainTimestamp).toBe(1788799999);
   expect(info.chainSlot).toBe(445105299);
   expect(info.chainEpoch).toBe(1030);

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Cubee has a two-level referral system. Users share referral links, invitees bind themselves as referrals, and referrers earn bonus XP from their referrals' activity.
+Coffer has a two-level referral system. Users share referral links, invitees bind themselves as referrals, and referrers earn bonus XP from their referrals' activity.
 
 - **L1 (direct referrer):** 12% of referral's XP
 - **L2 (referrer's referrer):** 6% of referral's XP

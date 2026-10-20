@@ -1,20 +1,20 @@
 # Exact decoded state mapping
 
-Target: `@coffer_so/sdk-v6` 0.1.0; contract source `contracts/v6@7d753b3`.
+Target: `@coffer_so/sdk-v6` 0.2.0; contract source `contracts` v6.1 (post T18/T19 rename, derived from `v6@7d753b3`).
 The account layouts are unchanged from v5; v6 adds the `"V5M1"` migration
-marker in `CubicPool.reserved[0..4]` (`v5Migrated`).
+marker in `CofferPool.reserved[0..4]` (`v5Migrated`).
 
 Three read interfaces serve different purposes:
 
-- `CubicPoolClient.sync()` returns operational camelCase `PoolInfo`, enriched with mint data and Solana Clock. `getCached()` returns that last snapshot without RPC. There is no `getState()` method.
+- `CofferPoolClient.sync()` returns operational camelCase `PoolInfo`, enriched with mint data and Solana Clock. `getCached()` returns that last snapshot without RPC. There is no `getState()` method.
 - `decodePoolAccount(data)` preserves the complete 1683-byte current pool layout as `RawPoolAccount`, including all ten slots as parallel arrays and `reserved: Buffer`.
 - `decodeContractAccount(program, accountName, data)` returns the complete exact IDL structure with snake_case names, nested structs, padding arrays and full-width `BN` integers. It also covers config and Treasury.
 
 The decoders validate size and discriminator. The manual pool decoder also validates canonical Borsh booleans and `token_count <= 10`. It reads `i64` as signed two’s complement. A correctly sized account is not proof of migration: v4 and v5 are both 1683 bytes. Interpret this table only for the target program/layout.
 
-Check the RPC account owner before decoding. For both `CubicPool` and `CubicPoolConfig`, the owner must be the configured cubic-pool program, even though their schemas are repeated in the STLD IDL. Treasury belongs to protocol-admin.
+Check the RPC account owner before decoding. For both `CofferPool` and `CofferPoolConfig`, the owner must be the configured coffer-pool program, even though their schemas are repeated in the STLD IDL. Treasury belongs to protocol-admin.
 
-## CubicPool
+## CofferPool
 
 Offsets include the 8-byte discriminator. `reserved` is ABI padding rather than an operational parameter.
 
@@ -39,7 +39,7 @@ Offsets include the 8-byte discriminator. `reserved` is ABI padding rather than 
 | `range_manager_last_updated` | `i64` | 171 | `rangeManagerLastUpdated` | `rangeManagerLastUpdated` |
 | `tokens` | `[TokenSlot; 10]` | 179 | Parallel arrays below (10 entries each) | `tokens` (first `tokenCount` entries) |
 | `lookup_table` | `pubkey` | 1619 | `lookupTable` | `lookupTable` |
-| `banned_extensions` | `u64` | 1651 | `bannedExtensions` | `bannedExtensions` |
+| `_deprecated_banned_extensions` | `u64` | 1651 | `deprecatedBannedExtensions` | Omitted (policy removed in v6.1/T19; never interpret) |
 | `range_manager_max_leverage_bps` | `u32` | 1659 | `rangeManagerMaxLeverageBps` | `rangeManagerMaxLeverageBps` |
 | `range_manager_min_leverage_bps` | `u32` | 1663 | `rangeManagerMinLeverageBps` | `rangeManagerMinLeverageBps` |
 | `reserved` | `[u8; 16]` | 1667 | `reserved: Buffer` | Omitted; use raw decoder |
@@ -71,17 +71,16 @@ Slot `i` starts at `179 + 144 × i`. AssetConfig is 88 bytes; AssetDynamics is 5
 | `AssetDynamics.window_start_timestamp` | `i64` | 128 | `windowStartTimestamp[i]` | `windowStartTimestamp` |
 | `AssetDynamics.selloff_vb_snapshot` | `u64` | 136 | `selloffVbSnapshot[i]` | `selloffVbSnapshot` |
 
-## CubicPoolConfig
+## CofferPoolConfig
 
-Use `decodeContractAccount("cubicPool", "CubicPoolConfig", data)`. `sync()` does not fetch this account.
+Use `decodeContractAccount("cofferPool", "CofferPoolConfig", data)`. `sync()` does not fetch this account.
 
 | Exact returned field | Type | Byte offset |
 | --- | --- | ---: |
 | `protocol_admin` | `pubkey` | 8 |
 | `pending_protocol_admin` | `pubkey` | 40 |
 | `default_protocol_fee_rate` | `u16` | 72 |
-| `banned_extensions` | `u64` | 74 |
-| `hard_banned_extensions` | `u64` | 82 |
+| `_deprecated_extension_policy` | `[u8; 16]` | 74 |
 | `reserved` | `[u8; 112]` | 90 |
 
 Current account length: **202 bytes** including discriminator.
@@ -104,7 +103,7 @@ Use `decodeContractAccount("protocolAdmin", "Treasury", data)`. `sync()` does no
 
 Current account length: **818 bytes** including discriminator.
 
-Config’s `banned_extensions` is a default policy, `hard_banned_extensions` is the protocol floor, and pool `bannedExtensions` is that pool’s stored policy snapshot. Do not collapse them into one field. Generic decoding returns the stored hard floor, including zero; it does not substitute the contract’s effective fallback policy.
+Bytes 74..90 of the config and 1651..1659 of the pool held the Token-2022 extension-policy bitmaps until v6.1. The policy was removed (T19): no code path reads them, existing accounts still carry their old values, fresh accounts write zero. They are exposed raw (`_deprecated_extension_policy`, `deprecatedBannedExtensions`) only so every later field keeps its byte offset; never interpret them.
 
 Treasury’s registered `token_mints` and `token_vaults` are distinct from pool reserve ATAs. Its `supervisor`, `pending_admin` and active `token_count` are available without truncating the arrays. The generic decoder expects the current 818-byte layout and rejects an older 786-byte Treasury; supervisor migration is a separate program operation.
 
@@ -112,20 +111,20 @@ Treasury’s registered `token_mints` and `token_vaults` are distinct from pool 
 
 `decodeMintAccount(data)` returns `mintAuthority`, `supply: BN`, `decimals`, `isInitialized`, `freezeAuthority`, extension type IDs in `extensions`, and the three extension bodies the v6 transfer path depends on: `transferFeeConfig` (both epoch schedules), `transferHook` (`programId === PublicKey.default` means disarmed) and `pausableConfig`. It checks the base mint shape, authority-option tags, initialized flag, Token-2022 mint/TLV structure and rejects a fee schedule above 100 % like the program. Other extension payloads are not decoded.
 
-`sync()` adds token `index`, `vault`, optional display `metadata`, `concentration`, mint `decimals`, `extensions`, `unsupportedExtensions` (only `NonTransferable`/unknown types), `transferFee` (the schedule selected for `chainEpoch`), `transferHookProgram` (armed hooks only) and `paused`. Pool-level derived fields are `address`, `bptMint`, `bptTokenProgram`, `bptTotalSupply`, `unsupportedTokenIndices` (unsupported, paused or native-mint tokens), `chainSlot`, `chainEpoch`, `chainTimestamp` (seconds), `v5Migrated` and `syncedAt` (local milliseconds). Metadata/concentration are display conveniences, not on-chain state.
+`sync()` adds token `index`, `vault`, optional display `metadata`, `concentration`, mint `decimals`, `extensions`, `unsupportedExtensions` (only `NonTransferable`/unknown types), `transferFee` (the schedule selected for `chainEpoch`), `transferHookProgram` (armed hooks only) and `paused`. Pool-level derived fields are `address`, `lpMint`, `lpTokenProgram`, `lpTotalSupply`, `unsupportedTokenIndices` (unsupported, paused or native-mint tokens), `chainSlot`, `chainEpoch`, `chainTimestamp` (seconds), `v5Migrated` and `syncedAt` (local milliseconds). Metadata/concentration are display conveniences, not on-chain state.
 
 `PoolInfo.createdAt`, `chainSlot`, `chainEpoch` and `chainTimestamp` are numbers for compatibility. Values outside the exact safe-number range cause a `parse_failure` result rather than truncation. Raw account decoders retain full i64 precision. All token balances, fees, windows and supply remain BN. `sync()` reads the pool and then the mints + Clock in two calls, so it is not an atomic multi-account snapshot; `PlannedZapClient.quote` takes the atomic snapshot the plan hash needs.
 
 ```ts
 const account = await pool.rpc.getAccountInfo(configAddress);
 if (!account.ok) throw new Error(account.error.humanMessage);
-if (!account.data || !account.data.owner.equals(config.programs.cubicPool)) {
+if (!account.data || !account.data.owner.equals(config.programs.cofferPool)) {
   throw new Error("Config account missing or wrong owner");
 }
-const state = decodeContractAccount("cubicPool", "CubicPoolConfig", account.data.data);
+const state = decodeContractAccount("cofferPool", "CofferPoolConfig", account.data.data);
 // state.protocol_admin, state.pending_protocol_admin,
-// state.default_protocol_fee_rate, state.banned_extensions,
-// state.hard_banned_extensions, state.reserved
+// state.default_protocol_fee_rate, state._deprecated_extension_policy,
+// state.reserved
 ```
 
 The example assumes an existing pool client/config and `configAddress: PublicKey`. For Treasury, derive its PDA with `deriveTreasuryPda`, read its account, verify the protocol-admin owner, and decode `"protocolAdmin", "Treasury"`.
@@ -134,4 +133,4 @@ The example assumes an existing pool client/config and `configAddress: PublicKey
 
 `tests/account-state.test.ts` compares the manual decoder and every operational `sync()` field against an independent IDL-driven Borsh fixture. It covers all ten token slots, nonzero padding, mixed token programs, negative i64, u64 values above `Number.MAX_SAFE_INTEGER`, malformed discriminators/booleans and precise numeric-conversion failures.
 
-`tests/contract-abi.test.ts` covers all complete config/Treasury/pool layouts, all 61 instructions and all 61 events. `scripts/check-contract-abi.cjs --contracts-dir ...` compares the bundled IDLs with a chosen checkout’s target IDLs.
+`tests/contract-abi.test.ts` covers all complete config/Treasury/pool layouts, all 59 instructions and all 59 events. `scripts/check-contract-abi.cjs --contracts-dir ...` compares the bundled IDLs with a chosen checkout’s target IDLs.

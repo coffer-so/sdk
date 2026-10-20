@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
-const programs = { cubicPool: 'cubic_pool', protocolAdmin: 'protocol_admin', singleTokenLiquidity: 'single_token_liquidity' };
+const programs = { cofferPool: 'coffer_pool', protocolAdmin: 'protocol_admin', singleTokenLiquidity: 'single_token_liquidity' };
 const idls = Object.fromEntries(Object.entries(programs).map(([key, name]) => [key, JSON.parse(fs.readFileSync(path.join(root, 'src/idl', name + '.json'), 'utf8'))]));
 const prop = (name) => JSON.stringify(name);
 function ts(type, program) {

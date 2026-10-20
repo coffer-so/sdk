@@ -84,18 +84,18 @@ export interface AddLiquidityParams {
    */
   tokenAmounts: BN[];
   /**
-   * Slippage floor on BPT minted. Required and must be > 0 — this is the
+   * Slippage floor on LP minted. Required and must be > 0 — this is the
    * only guard on the join, since `tokenAmounts` is now a ceiling rather
    * than a commitment.
    */
-  minimumBptAmount?: BN;
+  minimumLpAmount?: BN;
   /** v6 remaining-account tail (`resolveAddLiquidityExtraAccounts`); see `SwapParams.extraAccounts`. */
   extraAccounts?: AccountMeta[];
 }
 
 /**
- * Result of `CubicPoolClient.quoteAddLiquidity`. Mirrors
- * `cubic-pool/add_liquidity.rs`: the program crops the caller's ceiling
+ * Result of `CofferPoolClient.quoteAddLiquidity`. Mirrors
+ * `coffer-pool/add_liquidity.rs`: the program crops the caller's ceiling
  * vector to the single limiting ratio `min_i(amount_i / actual_i)`, pulls
  * `depositAmounts` and leaves `refundAmounts` in the wallet.
  */
@@ -124,26 +124,26 @@ export interface AddLiquidityQuote {
   transferFees: BN[];
   /** Per-token virtual balance after the join (`virtual_balance_after_deposit`). */
   virtualBalancesAfter: BN[];
-  /** BPT the program will mint for this basket at the synced state. */
-  bptOut: BN;
-  /** `bptOut` after the quoted slippage; pass as `minimumBptAmount`. */
-  minimumBptAmount: BN;
+  /** LP the program will mint for this basket at the synced state. */
+  lpOut: BN;
+  /** `lpOut` after the quoted slippage; pass as `minimumLpAmount`. */
+  minimumLpAmount: BN;
   /** Index of the token that limits the basket (smallest net amount / balance); `-1` for the seed deposit. */
   limitingTokenIndex: number;
 }
 
 export interface RemoveLiquidityParams {
   user: PublicKey;
-  bptAmount: BN;
+  lpAmount: BN;
   /** Floors on what the user RECEIVES per token (post transfer fee); derive from `quoteRemove().receivedAmounts`. */
   minimumTokenAmounts?: BN[];
   /** v6 remaining-account tail (`resolveRemoveLiquidityExtraAccounts`); see `SwapParams.extraAccounts`. */
   extraAccounts?: AccountMeta[];
 }
 
-/** Result of `CubicPoolClient.quoteRemove` (mirrors `remove_liquidity.rs`). */
+/** Result of `CofferPoolClient.quoteRemove` (mirrors `remove_liquidity.rs`). */
 export interface RemoveLiquidityQuote {
-  /** Gross vault payouts per token (`calc_tokens_out_given_bpt_in`, floor). */
+  /** Gross vault payouts per token (`calc_tokens_out_given_lp_in`, floor). */
   tokenOuts: BN[];
   /** Token-2022 transfer fee withheld per token (`0` for fee-less mints). */
   transferFees: BN[];
@@ -153,8 +153,8 @@ export interface RemoveLiquidityQuote {
    * from them.
    */
   receivedAmounts: BN[];
-  /** Burn after the contract's `MINIMUM_INITIAL_BPT` clamp (`calc_effective_bpt_burn`). */
-  effectiveBptIn: BN;
+  /** Burn after the contract's `MIN_LP_SUPPLY` clamp (`calc_effective_lp_burn`). */
+  effectiveLpIn: BN;
   /** Per-token virtual balance after the exit (`virtual_balance_after_withdrawal`). */
   virtualBalancesAfter: BN[];
 }
@@ -163,11 +163,11 @@ export interface RemoveLiquidityQuote {
  * v6 planned zap (`deposit_single_token_planned`): deposit one token; the
  * program executes the swaps and the proportional join of a plan the SDK
  * computed off-chain (`PlannedZapClient.quote`). Supported on pools of 2..10
- * tokens; the single `minimumBpt` floor is the only slippage guard on the
+ * tokens; the single `minimumLp` floor is the only slippage guard on the
  * whole route (internal swaps run with `min_out = 0`).
  */
 export interface PlannedZapQuoteOptions {
-  /** Hundredths-bps slippage on the estimated BPT; omit to use the SDK default. */
+  /** Hundredths-bps slippage on the estimated LP; omit to use the SDK default. */
   slippageHundredthsBps?: number;
   /** Plan validity in slots from the snapshot slot (1..150, default 120 ≈ 48 s). */
   validForSlots?: number;
@@ -193,7 +193,7 @@ export interface DeployPoolParams {
   poolId: BN;
   /**
    * Pool's token mints, in the same order as `weightsBps`/`virtualBalances`.
-   * There is no `tokens` field in the on-chain `initialize_cubic_pool` ix
+   * There is no `tokens` field in the on-chain `initialize_pool` ix
    * data — the program derives the token set solely from remaining_accounts
    * (one mint per token). The SDK still requires this array so it can build
    * that remaining_accounts list in the right order.
@@ -202,19 +202,8 @@ export interface DeployPoolParams {
   weightsBps: number[];
   virtualBalances: BN[];
   swapFeeRate: number;
-  /** SPL Token program to use for the BPT mint (classic SPL Token recommended). */
-  bptTokenProgram?: PublicKey;
-  /**
-   * Optional creator-chosen Token-2022 banned-extensions bitmap. Omit
-   * (`undefined`/`null`) to inherit the config default. Set a bitmap to vet
-   * THIS pool's tokens against it and store it on the pool. `0` clears the
-   * configurable default; the hard floor and runtime restrictions still apply.
-   *
-   * ⚠ A permissive policy (un-banning PermanentDelegate / TransferHook /
-   * TransferFee) makes the pool drainable/abusable by the token issuer —
-   * surface this to the user before deploying.
-   */
-  bannedExtensions?: BN | number | null;
+  /** SPL Token program to use for the LP mint (classic SPL Token recommended). */
+  lpTokenProgram?: PublicKey;
 }
 
 // ============================================================

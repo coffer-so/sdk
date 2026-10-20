@@ -4,7 +4,7 @@ import type { TransferFee } from "@solana/spl-token";
 import { TokenInfo } from "../config/tokens";
 
 /**
- * A single token slot inside a Cubic Pool, enriched with off-chain metadata
+ * A single token slot inside a Coffer Pool, enriched with off-chain metadata
  * (ticker, logo, coingeckoId) when available.
  */
 export interface PoolTokenInfo {
@@ -91,7 +91,7 @@ export interface PoolTokenInfo {
 }
 
 /**
- * Parsed operational pool state returned by `CubicPoolClient.sync()`.
+ * Parsed operational pool state returned by `CofferPoolClient.sync()`.
  * Padding and unused token slots are available through decodePoolAccount;
  * decodeContractAccount preserves the complete exact ABI shape.
  */
@@ -108,15 +108,15 @@ export interface PoolInfo {
   address: PublicKey;
   /** Pool config account referenced by the pool. */
   config: PublicKey;
-  /** `Account<CubicPool>.bump`. */
+  /** `Account<CofferPool>.bump`. */
   bump: number;
   /** Integer identifier salt. Pools under the same config differ by pool_id. */
   poolId: BN;
   tokenCount: number;
   tokens: PoolTokenInfo[];
-  bptMint: PublicKey;
-  /** Owner program of the BPT mint; classic Token for older manually supplied snapshots. */
-  bptTokenProgram?: PublicKey;
+  lpMint: PublicKey;
+  /** Owner program of the LP mint; classic Token for older manually supplied snapshots. */
+  lpTokenProgram?: PublicKey;
   poolAdmin?: PublicKey;
   pendingPoolAdmin?: PublicKey;
   rangeManager?: PublicKey;
@@ -142,8 +142,8 @@ export interface PoolInfo {
    * its per-token kill switches and leverage band are trustworthy.
    */
   v5Migrated?: boolean;
-  /** Total supply of BPT tokens at snapshot time. */
-  bptTotalSupply: BN;
+  /** Total supply of LP tokens at snapshot time. */
+  lpTotalSupply: BN;
   /** Hundredths-of-basis-point units (1_000_000 == 100 %). */
   swapFeeRate: number;
   /** Basis points (10_000 == 100 %). */
@@ -157,12 +157,6 @@ export interface PoolInfo {
    * v0-tx builders compress per-token accounts via this ALT.
    */
   lookupTable: PublicKey;
-  /**
-   * Effective Token-2022 banned-extensions bitmap this pool's tokens were
-   * vetted against at creation. `0` ⇒ nothing banned (permissive — rug risk;
-   * surface to users before they deposit).
-   */
-  bannedExtensions: BN;
   /**
    * Absolute UPPER bound on `virtual_balance / actual_balance` the range
    * manager may leave a token at, in basis points (10_000 = 1.0×). `0` ⇒

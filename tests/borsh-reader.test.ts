@@ -1,4 +1,4 @@
-import { BorshReader, parseCubicPoolEvents, IDLS } from "../src";
+import { BorshReader, parseCofferPoolEvents, IDLS } from "../src";
 
 test.each(["u8", "u16", "u32", "u64", "i64", "bool", "pubkey"] as const)("%s refuses truncated data", method => {
   const length = {u8:1,u16:2,u32:4,u64:8,i64:8,bool:1,pubkey:32}[method];
@@ -14,9 +14,9 @@ test("bounds checks reject invalid skips and oversized vectors before reading", 
 });
 
 test("short current Swap event becomes Unknown instead of inventing a zero surge fee", () => {
-  const discriminator=Buffer.from(IDLS.cubicPool.events.find(e=>e.name==="Swap")!.discriminator);
+  const discriminator=Buffer.from(IDLS.cofferPool.events.find(e=>e.name==="Swap")!.discriminator);
   // Four public keys, four u64 quantities and one i64 timestamp. The required
   // trailing surge_fee_amount is deliberately missing from this current ABI.
   const data=Buffer.concat([discriminator,Buffer.alloc(4*32+5*8)]);
-  expect(parseCubicPoolEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("Unknown");
+  expect(parseCofferPoolEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("Unknown");
 });

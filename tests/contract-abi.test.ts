@@ -7,7 +7,7 @@ import { getConfig } from "../src/config";
 import { ContractProgram } from "../src/types/contracts";
 import { buildContractInstruction } from "../src/clients/contract-instructions";
 import { decodeContractAccount, parseContractEvents } from "../src/parsers/contracts";
-import { parseCubicPoolEvents } from "../src/parsers/events";
+import { parseCofferPoolEvents } from "../src/parsers/events";
 import { buildAddLiquidityIx, buildRemoveLiquidityIx, buildSetMaxSelloffIx, buildSetRangeManagerConfigIx } from "../src/clients/tx-builders";
 import { buildPlannedZapIx, plannedZapAccounts } from "../src/clients/plannedZap/instruction";
 import { deriveAta } from "../src/utils/pda";
@@ -67,8 +67,8 @@ const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
 test("generated public types match all shipped IDLs", () => {
-  expect(instructions).toHaveLength(61);
-  expect(events).toHaveLength(61);
+  expect(instructions).toHaveLength(59); // 61 − set_banned_extensions − pool_set_banned_extensions (v6.1, T19)
+  expect(events).toHaveLength(59); // 61 − BannedExtensionsUpdated − PoolBannedExtensionsSet (v6.1, T19)
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
 
@@ -95,7 +95,7 @@ test.each(events)("$program.$event.name: every event field is decoded", ({ progr
   expect(decoded).toHaveLength(1);
   expect(decoded[0].kind).toBe(event.name);
   expect(normalize(decoded[0].data)).toEqual(normalize(expected));
-  const compatible = parseCubicPoolEvents([log]);
+  const compatible = parseCofferPoolEvents([log]);
   expect(compatible).toHaveLength(1);
   expect(compatible[0].kind).toBe(event.name);
   expect(compatible[0].kind).not.toBe("Unknown");
@@ -115,7 +115,7 @@ test.each(programs.flatMap(([program, idl]) => idl.accounts.map((account: any) =
 
 test("strict ABI rejects missing/extra fields, wrong widths and unsafe JS integers", () => {
   const accounts = { pool: pk(), authority: pk() };
-  const build = (args: any, supplied = accounts) => (buildContractInstruction as any)(cfg, "cubicPool", "set_swap_fee_rate", args, supplied);
+  const build = (args: any, supplied = accounts) => (buildContractInstruction as any)(cfg, "cofferPool", "set_swap_fee_rate", args, supplied);
   expect(() => build({})).toThrow(/required/);
   expect(() => build({ swap_fee_rate: 10, extra: 0 })).toThrow(/not in/);
   for (const invalid of [-1, 0x100000000, 1.5, NaN]) expect(() => build({ swap_fee_rate: invalid })).toThrow();
@@ -128,27 +128,27 @@ test("strict ABI rejects missing/extra fields, wrong widths and unsafe JS intege
 
 function poolFixture(): PoolInfo {
   return {
-    address: pk(), config: pk(), bump: 1, tokenCount: 2, poolId: new BN(1), bptMint: pk(), bptTokenProgram: TOKEN_2022_PROGRAM_ID,
-    bptTotalSupply: new BN(100000), swapFeeRate: 0, protocolFeeRate: 0, poolEnabled: true, swapsEnabled: true, createdAt: 0,
-    lookupTable: PublicKey.default, bannedExtensions: new BN(0), syncedAt: 0, unsupportedTokenIndices: [],
+    address: pk(), config: pk(), bump: 1, tokenCount: 2, poolId: new BN(1), lpMint: pk(), lpTokenProgram: TOKEN_2022_PROGRAM_ID,
+    lpTotalSupply: new BN(100000), swapFeeRate: 0, protocolFeeRate: 0, poolEnabled: true, swapsEnabled: true, createdAt: 0,
+    lookupTable: PublicKey.default, syncedAt: 0, unsupportedTokenIndices: [],
     tokens: [0, 1].map(index => ({ index, mint: pk(), tokenProgram: TOKEN_2022_PROGRAM_ID, decimals: 9, weightBps: 5000,
       virtualBalance: new BN(100000), actualBalance: new BN(100000), protocolFeesOwed: new BN(0), vault: pk(), concentration: 1,
       isActive: true, maxSelloffPct: 0, extensions: [], unsupportedExtensions: [] })),
   };
 }
 
-test("Token-2022 BPT is used for joins, exits and the planned zap", () => {
+test("Token-2022 LP is used for joins, exits and the planned zap", () => {
   const pool = poolFixture(); const user = pk();
-  const add = buildAddLiquidityIx(cfg, pool, { user, tokenAmounts: [new BN(100), new BN(100)], minimumBptAmount: new BN(1) });
-  const remove = buildRemoveLiquidityIx(cfg, pool, { user, bptAmount: new BN(100), minimumTokenAmounts: [new BN(0), new BN(0)] });
+  const add = buildAddLiquidityIx(cfg, pool, { user, tokenAmounts: [new BN(100), new BN(100)], minimumLpAmount: new BN(1) });
+  const remove = buildRemoveLiquidityIx(cfg, pool, { user, lpAmount: new BN(100), minimumTokenAmounts: [new BN(0), new BN(0)] });
   for (const ix of [add, remove]) {
-    expect(ix.keys[2].pubkey.equals(deriveAta(user, pool.bptMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
+    expect(ix.keys[2].pubkey.equals(deriveAta(user, pool.lpMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
     expect(ix.keys[4].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
   }
-  const zap = buildPlannedZapIx(cfg, plannedZapAccounts(cfg, pool, user), { amountIn: 100n, tokenInIndex: 0, minimumBpt: 1n, plan: { allocations: [60n, 40n], expectedState: new Uint8Array(32), quotedAt: 0n, validUntilSlot: 1n } });
-  expect(zap.keys[2].pubkey.equals(deriveAta(user, pool.bptMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
+  const zap = buildPlannedZapIx(cfg, plannedZapAccounts(cfg, pool, user), { amountIn: 100n, tokenInIndex: 0, minimumLp: 1n, plan: { allocations: [60n, 40n], expectedState: new Uint8Array(32), quotedAt: 0n, validUntilSlot: 1n } });
+  expect(zap.keys[2].pubkey.equals(deriveAta(user, pool.lpMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
   expect(zap.keys[5].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
-  // Every pool token shares the BPT program (Token-2022) → no token-program suffix.
+  // Every pool token shares the LP program (Token-2022) → no token-program suffix.
   expect(zap.keys).toHaveLength(6 + 3 * 2);
   expect(zap.keys.some((k) => k.pubkey.equals(TOKEN_PROGRAM_ID))).toBe(false);
 });
@@ -156,7 +156,7 @@ test("Token-2022 BPT is used for joins, exits and the planned zap", () => {
 test("sell-off convenience builder sends all seven per-token parameters in ABI order", () => {
   const pool = pk(); const authority = pk();
   const result = buildSetMaxSelloffIx(cfg, pool, authority, [{ maxSelloffPct: 300, periodLength: 60, feeThresholdPct: 100, feeSlopeLowPct: 10, feeSlopeHighPct: 900, feeSlopeMidPct: 700, feeKinkPct: 80 }]);
-  const expected = buildContractInstruction(cfg, "cubicPool", "set_max_selloff", { params: [{ max_selloff_pct: 300, period_length: 60, fee_threshold_pct: 100, fee_slope_low_pct: 10, fee_slope_high_pct: 900, fee_slope_mid_pct: 700, fee_kink_pct: 80 }] }, { pool, authority });
+  const expected = buildContractInstruction(cfg, "cofferPool", "set_max_selloff", { params: [{ max_selloff_pct: 300, period_length: 60, fee_threshold_pct: 100, fee_slope_low_pct: 10, fee_slope_high_pct: 900, fee_slope_mid_pct: 700, fee_kink_pct: 80 }] }, { pool, authority });
   expect(result).toEqual(expected);
 });
 
@@ -164,9 +164,9 @@ test("sell-off convenience builder sends all seven per-token parameters in ABI o
 // or omit newly required fields, even though the API covers every instruction.
 if (false) {
   // @ts-expect-error unknown instruction
-  buildContractInstruction(cfg, "cubicPool", "unknown_instruction", {}, {});
-  // @ts-expect-error required hard floor must not disappear at compile time
-  buildContractInstruction(cfg, "cubicPool", "set_banned_extensions", { banned_extensions: new BN(1) }, { config: pk(), authority: pk() });
+  buildContractInstruction(cfg, "cofferPool", "unknown_instruction", {}, {});
+  // @ts-expect-error `set_banned_extensions` was deleted in v6.1 (T19)
+  buildContractInstruction(cfg, "cofferPool", "set_banned_extensions", { banned_extensions: new BN(1), hard_banned_extensions: new BN(0) }, { config: pk(), authority: pk() });
 }
 
 test("every AdminClient operation matches the current protocol-admin ABI", async () => {
@@ -184,15 +184,14 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     cancel_admin_transfer: () => client.cancelAdminTransferIx(a),
     register_token: () => client.registerTokenIx(a, mint),
     withdraw: () => client.withdrawIx(a, mint, recipient, amount),
-    transfer_upgrade_authority: () => client.transferUpgradeAuthorityIx(a, cfg.programs.cubicPool, other),
-    freeze_pool_program: () => client.freezePoolProgramIx(a, cfg.programs.cubicPool),
-    close_pool_program: () => client.closePoolProgramIx(a, cfg.programs.cubicPool, recipient),
-    upgrade_pool_program: () => client.upgradePoolProgramIx(a, cfg.programs.cubicPool, other, recipient),
+    transfer_upgrade_authority: () => client.transferUpgradeAuthorityIx(a, cfg.programs.cofferPool, other),
+    freeze_pool_program: () => client.freezePoolProgramIx(a, cfg.programs.cofferPool),
+    close_pool_program: () => client.closePoolProgramIx(a, cfg.programs.cofferPool, recipient),
+    upgrade_pool_program: () => client.upgradePoolProgramIx(a, cfg.programs.cofferPool, other, recipient),
     pool_initialize_config: () => client.poolInitializeConfigIx(a, config, 300),
     pool_set_protocol_fee_rate: () => client.setProtocolFeeRateIx(a, config, pool, 300),
     pool_set_pool_enabled: () => client.setPoolEnabledIx(a, config, pool, true),
     pool_set_swaps_enabled: () => client.setSwapsEnabledIx(a, config, pool, false),
-    pool_set_banned_extensions: () => client.setBannedExtensionsIx(a, config, amount, new BN(512)),
     pool_migrate_to_v5: () => client.migratePoolToV5Ix(a, config, pool, false),
     stld_withdraw_sol: () => client.stldWithdrawSolIx(a, config, pool, other, recipient, amount),
     freeze_pools: () => client.freezePoolsIx(a, [{ config, pool }]),
@@ -231,15 +230,15 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
   expect(() => client.debugWithdrawLiquidityIx(a, config, pool, [amount, amount], { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] })).toThrow(/one entry per pool token/);
 });
 
-test("join builder accepts a thin basket (v6 credits live legs UP) but refuses a zero-BPT one", () => {
+test("join builder accepts a thin basket (v6 credits live legs UP) but refuses a zero-LP one", () => {
   const pool = poolFixture();
   pool.tokens[0].actualBalance = new BN(3);
   pool.tokens[1].actualBalance = new BN(3);
-  pool.bptTotalSupply = new BN(1000000);
-  // ratio 1/3 → BPT 333_333, each leg credited ceil(3 · 1/3) = 1: a valid v6 join.
-  expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumBptAmount: new BN(1) })).not.toThrow();
-  pool.bptTotalSupply = new BN(2);
-  expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumBptAmount: new BN(1) })).toThrow(/too small/);
+  pool.lpTotalSupply = new BN(1000000);
+  // ratio 1/3 → LP 333_333, each leg credited ceil(3 · 1/3) = 1: a valid v6 join.
+  expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumLpAmount: new BN(1) })).not.toThrow();
+  pool.lpTotalSupply = new BN(2);
+  expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumLpAmount: new BN(1) })).toThrow(/too small/);
 });
 
 test("legacy event parser preserves malformed/new unrepresentable events as Unknown", () => {
@@ -250,5 +249,5 @@ test("legacy event parser preserves malformed/new unrepresentable events as Unkn
   value.timestamp = new BN(1).shln(62);
   const data = Buffer.concat([Buffer.from(event.discriminator), encodeFields(value, schema.fields, idl)]);
   expect(parseContractEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("SupervisorSet");
-  expect(parseCubicPoolEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("Unknown");
+  expect(parseCofferPoolEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("Unknown");
 });

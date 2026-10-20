@@ -135,7 +135,7 @@ export interface ResolveTransferExtraAccountsOptions {
  * its registry, and the memo program when any Token-2022 destination
  * requires incoming memos. `mints` must hold a snapshot for every
  * Token-2022 mint in `transfers`. `forbiddenKeys` are the instruction's
- * core accounts (user, pool, BPT mint, …): a hook that requests one of them,
+ * core accounts (user, pool, LP mint, …): a hook that requests one of them,
  * or any signer, is outside the supported profile and throws
  * `UnsupportedTransferProfileError`.
  *

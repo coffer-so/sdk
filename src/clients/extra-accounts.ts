@@ -12,7 +12,7 @@ import { PoolInfo } from "../types/pool";
 import { AddLiquidityParams, RemoveLiquidityParams, SwapParams } from "../types/tx";
 import { deriveAta } from "../utils/pda";
 import { AccountReader, MintSnapshot, resolveTransferExtraAccounts, ResolveTransferExtraAccountsOptions, TransferLeg } from "../utils/transferProfile";
-import { calcEffectiveBptBurn, calcTokensOutGivenBptIn } from "../math/cubicMath";
+import { calcEffectiveLpBurn, calcTokensOutGivenLpIn } from "../math/poolMath";
 
 const bi = (v: BN): bigint => BigInt(v.toString());
 
@@ -42,7 +42,7 @@ async function mintSnapshots(reader: AccountReader, pool: PoolInfo, indices: num
 }
 
 function coreKeys(pool: PoolInfo, user: PublicKey): PublicKey[] {
-  return [user, pool.address, pool.bptMint];
+  return [user, pool.address, pool.lpMint];
 }
 
 /**
@@ -96,12 +96,12 @@ export async function resolveAddLiquidityExtraAccounts(
 export async function resolveRemoveLiquidityExtraAccounts(
   reader: AccountReader,
   pool: PoolInfo,
-  params: Pick<RemoveLiquidityParams, "user" | "bptAmount">,
+  params: Pick<RemoveLiquidityParams, "user" | "lpAmount">,
   options: ResolveExtraAccountsParams = {}
 ): Promise<AccountMeta[]> {
-  const supply = bi(pool.bptTotalSupply);
-  const effective = calcEffectiveBptBurn(bi(params.bptAmount), supply);
-  const payouts = calcTokensOutGivenBptIn(pool.tokens.map((t) => bi(t.actualBalance)), effective, supply);
+  const supply = bi(pool.lpTotalSupply);
+  const effective = calcEffectiveLpBurn(bi(params.lpAmount), supply);
+  const payouts = calcTokensOutGivenLpIn(pool.tokens.map((t) => bi(t.actualBalance)), effective, supply);
   const indices = payouts.flatMap((p, i) => (p > 0n ? [i] : []));
   if (!needsResolution(pool, indices)) return [];
   const legs: TransferLeg[] = indices.map((i) => {

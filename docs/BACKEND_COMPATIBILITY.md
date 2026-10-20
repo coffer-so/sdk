@@ -34,7 +34,7 @@ Statistics and leaderboard list routes can return flat JSON. Do not assume one
 response envelope for all generic HTTP calls.
 
 The checked router uses its own surrounding reserve/fee logic around
-`calcOutGivenIn`, not `CubicPoolClient.quoteSwap`. It still subtracts protocol
+`calcOutGivenIn`, not `CofferPoolClient.quoteSwap`. It still subtracts protocol
 fees from v5 actual output balances, uses indexed fee metadata and omits the
 current sell-off/surge path. Re-sync and quote proposed legs with the current
 SDK before deriving signed output floors; server estimates are not executable
@@ -57,7 +57,7 @@ fields and one event the indexer must learn before v6 pools are indexed:
 - `SingleTokenDepositDirect` (planned zap) replaces `SingleTokenDeposit`
   (helper route): no helper PDA, `dust_remaining` stays in the user's accounts,
   `deposited_amounts` are measured join debits. Both decoders ship in
-  `parseCubicPoolEvents`/`parseContractEvents`.
+  `parseCofferPoolEvents`/`parseContractEvents`.
 - `PoolInitialized.pool_id`, `RangeManagerConfigSet.old/new_min_leverage_bps`.
 
 Pricing and APY code that replays `calc_out_given_in` must switch to the v6

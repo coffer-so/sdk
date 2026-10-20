@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 
-export type CubicPoolEvent =
+export type CofferPoolEvent =
   | PoolInitializedEvent
   | SwapEvent
   | LiquidityAddedEvent
@@ -13,7 +13,6 @@ export type CubicPoolEvent =
   | SingleTokenDepositDirectEvent
   | PoolStateLogEvent
   | MaxSelloffWindowAdvancedEvent
-  | BannedExtensionsUpdatedEvent
   | AdditionalContractEvent
   | UnknownEvent;
 
@@ -22,19 +21,15 @@ export interface PoolInitializedEvent {
   pool: PublicKey;
   config: PublicKey;
   tokenCount: number;
-  bptMint: PublicKey;
+  lpMint: PublicKey;
   timestamp: number;
   /**
-   * Effective Token-2022 banned-extensions bitmap this pool's tokens were
-   * vetted against at creation (creator override OR-ed with the protocol's
-   * hard floor, or the parent config's default).
-   *
-   * Appended to the event in v5.1 — decodes as `0` for logs emitted by an
-   * older deployment, which is indistinguishable from a genuinely
-   * permissive `0`. Prefer the pool account's `bannedExtensions` field when
-   * the distinction matters.
+   * Wire slot of the former `banned_extensions` bitmap. The Token-2022
+   * extension policy was removed in v6.1 (T19): a v6.1 program emits `0`
+   * here; logs of older deployments carry whatever bitmap they stored. Never
+   * interpret it — the frontend discloses mint extensions from the mint TLV.
    */
-  bannedExtensions: BN;
+  deprecatedBannedExtensions: BN;
   /** PDA salt (`pool_id`). Appended in v6; `0` for logs of older deployments. */
   poolId: BN;
 }
@@ -77,7 +72,7 @@ export interface LiquidityAddedEvent {
   pool: PublicKey;
   user: PublicKey;
   tokenAmounts: BN[];
-  bptAmount: BN;
+  lpAmount: BN;
   timestamp: number;
 }
 
@@ -85,7 +80,7 @@ export interface LiquidityRemovedEvent {
   kind: "LiquidityRemoved";
   pool: PublicKey;
   user: PublicKey;
-  bptAmount: BN;
+  lpAmount: BN;
   tokenAmounts: BN[];
   timestamp: number;
 }
@@ -127,7 +122,7 @@ export interface SingleTokenDepositEvent {
   allocations: BN[];
   /** Per-token amounts actually passed to `add_liquidity`. */
   depositedAmounts: BN[];
-  bptReceived: BN;
+  lpReceived: BN;
   /**
    * Per-token dust returned to the user after the proportional join,
    * index-aligned with the pool's tokens.
@@ -158,30 +153,10 @@ export interface SingleTokenDepositDirectEvent {
   allocations: BN[];
   /** Measured per-token debits of the join (after the pool's own crop). */
   depositedAmounts: BN[];
-  bptReceived: BN;
+  lpReceived: BN;
   /** Per-token unspent budget left in the user's accounts; each entry is in a different mint. */
   dustRemaining: BN[];
   timestamp: number;
-}
-
-/**
- * `set_banned_extensions` / `pool_set_banned_extensions` audit trail.
- *
- * `hard*` values are the protocol-level floor a pool creator's per-pool
- * override can never clear (`PermanentDelegate`, `TransferHook`, …); the
- * plain values are the config's default policy for new pools.
- */
-export interface BannedExtensionsUpdatedEvent {
-  kind: "BannedExtensionsUpdated";
-  config: PublicKey;
-  authority: PublicKey;
-  oldValue: BN;
-  newValue: BN;
-  timestamp: number;
-  /** New in v5.1 — `0` for logs emitted by an older deployment. */
-  oldHardValue: BN;
-  /** New in v5.1 — `0` for logs emitted by an older deployment. */
-  newHardValue: BN;
 }
 
 export interface PoolStateLogEvent {
@@ -221,7 +196,7 @@ export interface UnknownEvent {
  */
 type CamelCase<S extends string> = S extends `${infer Head}_${infer Tail}` ? `${Head}${Capitalize<CamelCase<Tail>>}` : S;
 type CamelEventData<T> = { [K in keyof T as K extends string ? CamelCase<K> : K]: K extends "timestamp" ? number : T[K] };
-type ExistingEventName = "PoolInitialized" | "Swap" | "LiquidityAdded" | "LiquidityRemoved" | "ProtocolFeesCollected" | "PoolEnabledUpdated" | "SwapsEnabledUpdated" | "SingleTokenDeposit" | "SingleTokenDepositDirect" | "PoolStateLog" | "MaxSelloffWindowAdvanced" | "BannedExtensionsUpdated";
+type ExistingEventName = "PoolInitialized" | "Swap" | "LiquidityAdded" | "LiquidityRemoved" | "ProtocolFeesCollected" | "PoolEnabledUpdated" | "SwapsEnabledUpdated" | "SingleTokenDeposit" | "SingleTokenDepositDirect" | "PoolStateLog" | "MaxSelloffWindowAdvanced";
 export type AdditionalContractEvent = {
   [P in keyof import("./contracts").ContractEventMap]: {
     [E in Exclude<keyof import("./contracts").ContractEventMap[P], ExistingEventName>]:

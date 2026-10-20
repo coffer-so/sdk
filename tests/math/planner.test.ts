@@ -15,28 +15,28 @@ function slot(weightBps: bigint, balance = 1_000_000_000n): SwapLeg {
 }
 /** `planner.rs::tests::pool(n)`: equal weights, 1e9 balances, 1e9 supply, no fees, now = 100. */
 function pool(n: number): QuotePool {
-  return { tokens: Array.from({ length: n }, () => slot(BigInt(Math.floor(10_000 / n)))), bptSupply: 1_000_000_000n, swapFeeRate: 0, protocolFeeRate: 0, now: 100n };
+  return { tokens: Array.from({ length: n }, () => slot(BigInt(Math.floor(10_000 / n)))), lpSupply: 1_000_000_000n, swapFeeRate: 0, protocolFeeRate: 0, now: 100n };
 }
 const sum = (xs: bigint[]) => xs.reduce((a, b) => a + b, 0n);
 const withFee = (p: QuotePool, i: number, f: TransferFee | null): QuotePool => ({ ...p, tokens: p.tokens.map((t, j) => (j === i ? { ...t, transferFee: f } : t)) });
 
 describe("planner (planner.rs ports)", () => {
-  test("nonlinear_m07_case_improves_bpt_and_preserves_budget", () => {
+  test("nonlinear_m07_case_improves_lp_and_preserves_budget", () => {
     const p = pool(2);
     const old = replay(p, 0, 500_000_000n, [250_000_000n, 250_000_000n]);
     const q = quoteZap(p, 0, 500_000_000n);
-    expect(old.bpt).toBe(200_000_000n);
-    expect(q.bpt >= 224_744_868n && q.bpt <= 224_744_872n).toBe(true);
-    expect(q.bpt > old.bpt + old.bpt / 10n).toBe(true);
+    expect(old.lp).toBe(200_000_000n);
+    expect(q.lp >= 224_744_868n && q.lp <= 224_744_872n).toBe(true);
+    expect(q.lp > old.lp + old.lp / 10n).toBe(true);
     expect(sum(q.allocations)).toBe(500_000_000n);
     expect(q.dust.every((d) => d <= 4n)).toBe(true);
   });
 
-  test("raw_unit_rounding_budgets_return_positive_bpt_with_ceiling_swap_fees", () => {
+  test("raw_unit_rounding_budgets_return_positive_lp_with_ceiling_swap_fees", () => {
     const p = { ...pool(2), swapFeeRate: 3000, protocolFeeRate: 2000 };
     for (const amount of [10n, 21n, 101n]) {
       const q = quoteZap(p, 0, amount);
-      expect(q.bpt > 1n).toBe(true);
+      expect(q.lp > 1n).toBe(true);
       expect(q.creditedNet.every((c) => c > 0n)).toBe(true);
     }
   });
@@ -48,7 +48,7 @@ describe("planner (planner.rs ports)", () => {
       for (let input = 0; input < n; input++) {
         const q = quoteZap(p, input, 20_000_000n);
         const replayed = replay(p, input, 20_000_000n, q.allocations);
-        expect(q.bpt).toBe(replayed.bpt);
+        expect(q.lp).toBe(replayed.lp);
         expect(q.dust).toEqual(replayed.dust);
         for (let i = 0; i < n; i++) {
           expect(q.depositedGross[i] <= q.available[i]).toBe(true);
@@ -69,7 +69,7 @@ describe("planner (planner.rs ports)", () => {
     const q = quoteZap(p, 0, 20_000_000n);
     expect(q.swaps.every((s) => s.grossInput - s.netInput === 100n && s.surgeFee > 0n)).toBe(true);
     expect(sum(q.allocations)).toBe(20_000_000n);
-    expect(q.bpt > 0n).toBe(true);
+    expect(q.lp > 0n).toBe(true);
     expect(() => quoteZap(withFee(p, 0, fee(10_000, (1n << 64n) - 1n)), 0, 20_000_000n)).toThrow(SimError);
   });
 
@@ -87,7 +87,7 @@ describe("planner (planner.rs ports)", () => {
     expect(single.swaps).toEqual([]);
   });
 
-  test("small_two_token_plans_match_exhaustive_integer_bpt_search", () => {
+  test("small_two_token_plans_match_exhaustive_integer_lp_search", () => {
     const cases: Array<[number, number, bigint, [bigint, bigint]]> = [
       [0, 0, 0n, [5000n, 5000n]], [100, 250, 100n, [5000n, 5000n]], [10_000, 100, 3n, [3000n, 7000n]], [9999, 10_000, 2n, [7000n, 3000n]],
     ];
@@ -100,10 +100,10 @@ describe("planner (planner.rs ports)", () => {
         let exhaustive = -1n;
         for (let x = 1n; x < amount; x++) {
           const a = input === 0 ? [amount - x, x] : [x, amount - x];
-          try { const r = replay(p, input, amount, a); if (r.bpt > exhaustive) exhaustive = r.bpt; } catch (e) { if (!isSimFailure(e)) throw e; }
+          try { const r = replay(p, input, amount, a); if (r.lp > exhaustive) exhaustive = r.lp; } catch (e) { if (!isSimFailure(e)) throw e; }
         }
         const q = quoteZap(p, input, amount);
-        expect(q.bpt).toBe(exhaustive);
+        expect(q.lp).toBe(exhaustive);
       }
     }
   });
@@ -134,20 +134,20 @@ describe("planner (planner.rs ports)", () => {
   test("program-equivalent failures are MathError/SimError; config errors propagate", () => {
     const p = pool(2);
     expect(() => replay(p, 0, 10n, [5n, 5n, 0n])).toThrow(SimError);
-    expect(() => quoteZap({ ...p, bptSupply: 0n }, 0, 10n)).toThrow(SimError);
+    expect(() => quoteZap({ ...p, lpSupply: 0n }, 0, 10n)).toThrow(SimError);
     expect(() => quoteZap(p, 0, 0n)).toThrow(SimError);
     expect(isSimFailure(new MathError("x"))).toBe(true);
     expect(isSimFailure(new Error("x"))).toBe(false);
   });
 
-  test("planned-accounting fixture: 300 in, 100 swapped → BPT 95 (plain) / 94 (1 % fees), dust 3 / 2", () => {
+  test("planned-accounting fixture: 300 in, 100 swapped → LP 95 (plain) / 94 (1 % fees), dust 3 / 2", () => {
     // tests/offline/v6-planned-accounting.test.ts, replayed through the planner.
     for (const withFees of [false, true]) {
-      let p: QuotePool = { tokens: [slot(5000n, 2000n), slot(5000n, 1000n)], bptSupply: 1000n, swapFeeRate: 0, protocolFeeRate: 0, now: 100n };
+      let p: QuotePool = { tokens: [slot(5000n, 2000n), slot(5000n, 1000n)], lpSupply: 1000n, swapFeeRate: 0, protocolFeeRate: 0, now: 100n };
       p.tokens[0] = { ...p.tokens[0], virtualBalance: 1000n };
       if (withFees) p = withFee(withFee(p, 0, fee(100, 1_000_000n)), 1, fee(100, 1_000_000n));
       const q = replay(p, 0, 300n, [200n, 100n]);
-      expect(q.bpt).toBe(withFees ? 94n : 95n);
+      expect(q.lp).toBe(withFees ? 94n : 95n);
       expect(q.creditedNet[1]).toBe(withFees ? 86n : 87n);
       expect(q.dust).toEqual([0n, withFees ? 2n : 3n]);
       expect(q.depositedGross).toEqual([200n, withFees ? 87n : 87n]);
@@ -167,11 +167,11 @@ describe("planner (planner.rs ports)", () => {
     const started = Date.now();
     const q = quoteZap(p, 0, 50_000_000n);
     const elapsed = Date.now() - started;
-    expect(q.bpt > 0n).toBe(true);
+    expect(q.lp > 0n).toBe(true);
     expect(sum(q.allocations)).toBe(50_000_000n);
     // Reported in docs/PLANNED_ZAP.md; generous bound so CI noise cannot fail it.
     expect(elapsed).toBeLessThan(60_000);
     // eslint-disable-next-line no-console
-    console.info(`planner benchmark N=10: ${elapsed} ms, bpt=${q.bpt}`);
+    console.info(`planner benchmark N=10: ${elapsed} ms, lp=${q.lp}`);
   });
 });

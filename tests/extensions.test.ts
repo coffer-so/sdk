@@ -2,19 +2,16 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { NATIVE_MINT_2022, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import {
-  CubicPoolClient,
+  CofferPoolClient,
   getConfig,
   MintExtension,
   parseMintExtensions,
   unsupportedMintExtensions,
-  bannedMintExtensions,
   MAX_KNOWN_MINT_EXTENSION,
   decodeMintAccount,
   buildSwapIx,
   buildAddLiquidityIx,
   HARD_UNSUPPORTED_MINT_EXTENSIONS,
-  HARD_BANNED_EXTENSIONS,
-  DEFAULT_BANNED_EXTENSIONS,
   tokenTransferBlockers,
   isTokenTransferable,
 } from "../src";
@@ -107,30 +104,19 @@ describe("parseMintExtensions", () => {
 
 describe("unsupportedMintExtensions", () => {
   test("v6: only non-transferable mints are unsupported; fee, hook, pausable, confidential-fee move via transfer_checked", () => {
-    expect(unsupportedMintExtensions([1, 14, 9, 16, 26, 18, 13], new BN(0))).toEqual([9, 13]);
+    expect(unsupportedMintExtensions([1, 14, 9, 16, 26, 18, 13])).toEqual([9, 13]);
     expect(HARD_UNSUPPORTED_MINT_EXTENSIONS).toEqual([MintExtension.NonTransferable, MintExtension.NonTransferableAccount]);
   });
-  test("benign extensions pass when not banned by the pool", () => {
-    expect(unsupportedMintExtensions([18, 19, 4, 6, 8, 11], new BN(0))).toEqual([]);
+  test("benign extensions are never unsupported", () => {
+    expect(unsupportedMintExtensions([18, 19, 4, 6, 8, 11])).toEqual([]);
   });
-  test("protocol floor bans only NonTransferable; the default policy is wider", () => {
-    expect(HARD_BANNED_EXTENSIONS).toBe(1n << 9n);
-    expect(bannedMintExtensions([1, 3, 10, 12, 14, 25, 26, 4, 9], DEFAULT_BANNED_EXTENSIONS)).toEqual([1, 3, 10, 12, 14, 25, 26]);
-  });
-  test("creation-policy diagnostics do not block a transferable PermanentDelegate mint", () => {
-    expect(unsupportedMintExtensions([12, 18], new BN(1 << 12))).toEqual([]);
-    expect(unsupportedMintExtensions([12, 18], new BN(0))).toEqual([]);
-    expect(bannedMintExtensions([12, 18], new BN(1 << 12))).toEqual([12]);
-    expect(bannedMintExtensions([12, 18], new BN(0))).toEqual([]);
+  test("v6.1 (T19): no extension policy — PermanentDelegate, MintCloseAuthority, InterestBearing, hooks and fees are admissible", () => {
+    expect(unsupportedMintExtensions([12, 18])).toEqual([]);
+    expect(unsupportedMintExtensions([1, 3, 10, 12, 14, 25, 26, 4])).toEqual([]);
   });
   test("unknown extension types are unsupported", () => {
     expect(MAX_KNOWN_MINT_EXTENSION).toBe(27);
-    expect(unsupportedMintExtensions([28, 40], new BN(0))).toEqual([28, 40]);
-  });
-  test("policy bitmaps preserve high u64 bits and reject invalid bounds", () => {
-    expect(bannedMintExtensions([12, 63, 64], 1n << 63n)).toEqual([63]);
-    expect(() => bannedMintExtensions([12], -1n)).toThrow(/u64/);
-    expect(() => bannedMintExtensions([12], 1n << 64n)).toThrow(/u64/);
+    expect(unsupportedMintExtensions([28, 40])).toEqual([28, 40]);
   });
 });
 
@@ -164,15 +150,15 @@ function poolWithFeeToken(): PoolInfo {
     tokenCount: 3,
     tokens,
     unsupportedTokenIndices: [2],
-    bptMint: pk(),
-    bptTotalSupply: new BN(1_000_000_000),
+    lpMint: pk(),
+    lpTotalSupply: new BN(1_000_000_000),
     swapFeeRate: 0,
     protocolFeeRate: 0,
     poolEnabled: true,
     swapsEnabled: true,
     createdAt: 0,
     lookupTable: PublicKey.default,
-    bannedExtensions: new BN(0),
+   
     syncedAt: Date.now(),
   };
 }
@@ -180,7 +166,7 @@ function poolWithFeeToken(): PoolInfo {
 describe("unsupported-extension guard", () => {
   const cfg = getConfig("devnet");
   const pool = poolWithFeeToken();
-  const client = new CubicPoolClient({ config: cfg, poolAddress: pool.address });
+  const client = new CofferPoolClient({ config: cfg, poolAddress: pool.address });
   (client as unknown as { cache: PoolInfo }).cache = pool;
   const user = pk();
 
@@ -207,9 +193,9 @@ describe("unsupported-extension guard", () => {
     const amounts = [new BN(1000), new BN(1000), new BN(1000)];
     const codes = [
       client.quoteAddLiquidity(amounts),
-      client.buildAddLiquidityTx({ user, tokenAmounts: amounts, minimumBptAmount: new BN(1) }),
+      client.buildAddLiquidityTx({ user, tokenAmounts: amounts, minimumLpAmount: new BN(1) }),
       client.quoteRemove(new BN(1000)),
-      client.buildRemoveLiquidityTx({ user, bptAmount: new BN(1000), minimumTokenAmounts: amounts }),
+      client.buildRemoveLiquidityTx({ user, lpAmount: new BN(1000), minimumTokenAmounts: amounts }),
     ].map((r) => (r.ok ? "ok" : r.error.code));
     expect(codes).toEqual(codes.map(() => "unsupported_token_extension"));
   });
@@ -218,7 +204,7 @@ describe("unsupported-extension guard", () => {
     expect(() => buildSwapIx(cfg, pool, { user, tokenInIndex: 0, tokenOutIndex: 2, amountIn: new BN(1), minAmountOut: new BN(1) })).toThrow(
       /cannot transfer this token/
     );
-    expect(() => buildAddLiquidityIx(cfg, pool, { user, tokenAmounts: [new BN(1), new BN(1), new BN(1)], minimumBptAmount: new BN(1) })).toThrow(
+    expect(() => buildAddLiquidityIx(cfg, pool, { user, tokenAmounts: [new BN(1), new BN(1), new BN(1)], minimumLpAmount: new BN(1) })).toThrow(
       /NonTransferable/
     );
     expect(() => buildSwapIx(cfg, pool, { user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(1), minAmountOut: new BN(1) })).not.toThrow();
@@ -227,28 +213,28 @@ describe("unsupported-extension guard", () => {
   test("zero-transfer sidelined tokens do not block proportional deposit or withdrawal", () => {
     const sidelined = poolWithFeeToken();
     sidelined.tokens[2].actualBalance = new BN(0);
-    const c = new CubicPoolClient({ config: cfg, poolAddress: sidelined.address });
+    const c = new CofferPoolClient({ config: cfg, poolAddress: sidelined.address });
     (c as unknown as { cache: PoolInfo }).cache = sidelined;
     const amounts = [new BN(1000), new BN(1000), new BN(0)];
     expect(c.quoteAddLiquidity(amounts).ok).toBe(true);
-    expect(c.buildAddLiquidityTx({ user, tokenAmounts: amounts, minimumBptAmount: new BN(1) }).ok).toBe(true);
+    expect(c.buildAddLiquidityTx({ user, tokenAmounts: amounts, minimumLpAmount: new BN(1) }).ok).toBe(true);
     const exit = c.quoteRemove(new BN(1000));
     expect(exit.ok).toBe(true);
     if (exit.ok) expect(exit.data.tokenOuts.map(String)).toEqual(["1000", "1000", "0"]);
     expect(c.buildRemoveLiquidityTx({
-      user, bptAmount: new BN(1000), minimumTokenAmounts: amounts,
+      user, lpAmount: new BN(1000), minimumTokenAmounts: amounts,
     }).ok).toBe(true);
   });
 
   test("v6 policy flip: a transfer-fee or hooked token is quoted and built", () => {
     const feePool = poolWithFeeToken();
     feePool.tokens[2].extensions = [MintExtension.TransferFeeConfig, MintExtension.TransferHook];
-    feePool.tokens[2].unsupportedExtensions = unsupportedMintExtensions(feePool.tokens[2].extensions, 0n);
+    feePool.tokens[2].unsupportedExtensions = unsupportedMintExtensions(feePool.tokens[2].extensions);
     feePool.tokens[2].transferFee = { epoch: 0n, maximumFee: 1_000n, transferFeeBasisPoints: 100 };
     feePool.tokens[2].transferHookProgram = pk();
     feePool.unsupportedTokenIndices = feePool.tokens.filter((t) => !isTokenTransferable(t)).map((t) => t.index);
     expect(feePool.unsupportedTokenIndices).toEqual([]);
-    const c = new CubicPoolClient({ config: cfg, poolAddress: feePool.address });
+    const c = new CofferPoolClient({ config: cfg, poolAddress: feePool.address });
     (c as unknown as { cache: PoolInfo }).cache = feePool;
     expect(c.quoteSwap(0, 2, new BN(1000)).ok).toBe(true);
     expect(c.buildSwapTx({ user, tokenInIndex: 2, tokenOutIndex: 0, amountIn: new BN(1000), minAmountOut: new BN(1) }).ok).toBe(true);
@@ -258,10 +244,10 @@ describe("unsupported-extension guard", () => {
   test("an unpaused Pausable mint is accepted; a paused one is refused on every leg that moves it", () => {
     const pausable = poolWithFeeToken();
     pausable.tokens[2].extensions = [MintExtension.PausableConfig];
-    pausable.tokens[2].unsupportedExtensions = unsupportedMintExtensions([MintExtension.PausableConfig], 0n);
+    pausable.tokens[2].unsupportedExtensions = unsupportedMintExtensions([MintExtension.PausableConfig]);
     pausable.tokens[2].paused = false;
     pausable.unsupportedTokenIndices = [];
-    const c = new CubicPoolClient({ config: cfg, poolAddress: pausable.address });
+    const c = new CofferPoolClient({ config: cfg, poolAddress: pausable.address });
     (c as unknown as { cache: PoolInfo }).cache = pausable;
     expect(c.quoteSwap(0, 2, new BN(1000)).ok).toBe(true);
     pausable.tokens[2].paused = true;

@@ -16,10 +16,11 @@ import { PoolInfo, PoolTokenInfo } from "../types/pool";
  * (`UnsupportedExtension`), so the SDK rejects an operation on a paused
  * token at quote/build time.
  *
- * `banned_extensions` is the pool's creation-time admission policy, a
- * disclosure rather than a transfer restriction: PermanentDelegate,
- * MintCloseAuthority, InterestBearing, TransferFee, TransferHook, … may all
- * be present on a pool whose creator cleared the bit.
+ * There is no extension policy (v6.1, T19 removed the `banned_extensions`
+ * bitmaps): PermanentDelegate, MintCloseAuthority, InterestBearing,
+ * TransferFee, TransferHook, … may all be present on a pool's tokens. The
+ * pool creator decides; this module's TLV parser is the data source for the
+ * frontend's "token extensions in this pool" disclosure.
  *
  * The SDK inspects every pool token's mint on `sync()` and refuses to quote
  * or build a transaction that would move a token the program cannot
@@ -65,8 +66,8 @@ export enum MintExtension {
 export const MAX_KNOWN_MINT_EXTENSION = MintExtension.PausableAccount;
 
 /**
- * Extensions the AMM can never move, whatever the pool's `banned_extensions`
- * policy says (`validate_tlv` rejects them unconditionally). Transfer fees,
+ * Extensions the AMM can never move (`validate_tlv` rejects them
+ * unconditionally). Transfer fees,
  * hooks, memo requirements and an unpaused `Pausable` mint are handled by
  * the v6 transfer path and are NOT in this list.
  */
@@ -74,23 +75,6 @@ export const HARD_UNSUPPORTED_MINT_EXTENSIONS: ReadonlyArray<MintExtension> = [
   MintExtension.NonTransferable, // cannot move at all
   MintExtension.NonTransferableAccount, // account-side marker of the same
 ];
-
-/**
- * `DEFAULT_BANNED_EXTENSIONS` from `cubic-pool/constants.rs`: the bitmap a
- * fresh `CubicPoolConfig` starts with. Exposed so consumers can render the
- * policy; the per-pool effective bitmap is `PoolInfo.bannedExtensions`.
- */
-export const DEFAULT_BANNED_EXTENSIONS: bigint =
-  (1n << BigInt(MintExtension.TransferFeeConfig)) |
-  (1n << BigInt(MintExtension.MintCloseAuthority)) |
-  (1n << BigInt(MintExtension.InterestBearingConfig)) |
-  (1n << BigInt(MintExtension.PermanentDelegate)) |
-  (1n << BigInt(MintExtension.TransferHook)) |
-  (1n << BigInt(MintExtension.ScaledUiAmountConfig)) |
-  (1n << BigInt(MintExtension.PausableConfig));
-
-/** `HARD_BANNED_EXTENSIONS` from `constants.rs`: OR-ed into every pool's effective bitmap. */
-export const HARD_BANNED_EXTENSIONS: bigint = 1n << BigInt(MintExtension.NonTransferable);
 
 /** Human-readable name for an extension discriminant. */
 export function mintExtensionName(type: number): string {
@@ -157,30 +141,16 @@ export function parseMintExtensions(data: Buffer | Uint8Array): number[] {
  * know (> {@link MAX_KNOWN_MINT_EXTENSION}; it rejects unknown types
  * fail-closed because their transfer semantics are unknown).
  *
- * `banned_extensions` is a snapshot of creation policy, not a runtime transfer
- * restriction. The optional second argument is retained for compatibility
- * but does not change this result. Use `bannedMintExtensions` for diagnostics.
+ * There is no extension *policy* any more (v6.1, T19): the pool creator alone
+ * decides which mints go into a pool, and the frontend discloses the
+ * extensions they carry (`parseMintExtensions` / `PoolTokenInfo.extensions`).
  * A paused `Pausable` mint is a RUNTIME condition reported through
  * `PoolTokenInfo.paused`, not through this list.
  */
-export function unsupportedMintExtensions(extensions: number[], _bannedExtensions?: BN | bigint): number[] {
+export function unsupportedMintExtensions(extensions: number[]): number[] {
   return extensions.filter(
     (type) => HARD_UNSUPPORTED_MINT_EXTENSIONS.includes(type) || type > MAX_KNOWN_MINT_EXTENSION
   );
-}
-
-/** Extensions covered by a creation-policy bitmap; does not imply transfer failure. */
-export function bannedMintExtensions(extensions: number[], bannedExtensions?: BN | bigint): number[] {
-  const banned =
-    bannedExtensions === undefined
-      ? 0n
-      : typeof bannedExtensions === "bigint"
-        ? bannedExtensions
-        : BigInt(bannedExtensions.toString());
-  if (banned < 0n || banned > 0xffff_ffff_ffff_ffffn) {
-    throw new Error("bannedMintExtensions: bitmap must fit u64");
-  }
-  return extensions.filter((type) => type >= 0 && type < 64 && ((banned >> BigInt(type)) & 1n) === 1n);
 }
 
 type TransferPolicyToken = Pick<PoolTokenInfo, "index" | "mint" | "unsupportedExtensions" | "metadata"> &
@@ -220,7 +190,7 @@ export function describeUnsupportedToken(t: TransferPolicyToken): string {
  * Throw if any of the given token indices (or every token when `indices` is
  * `"all"`) cannot be transferred by the program. Used by the low-level
  * instruction builders so that direct `build*Ix` callers get the same
- * protection as `CubicPoolClient` users.
+ * protection as `CofferPoolClient` users.
  */
 export function assertTokensSupported(pool: PoolInfo, indices: number[] | "all", op: string): void {
   const idx = indices === "all" ? pool.tokens.map((t) => t.index) : indices;

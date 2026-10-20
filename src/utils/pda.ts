@@ -2,8 +2,8 @@ import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
-  BPT_MINT_SEED,
-  CUBIC_POOL_SEED,
+  LP_MINT_SEED,
+  POOL_SEED,
   STLD_HELPER_SEED,
   TREASURY_SEED,
 } from "../config";
@@ -14,18 +14,18 @@ export function derivePoolPda(
   poolId: BN
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [CUBIC_POOL_SEED, config.toBuffer(), poolId.toArrayLike(Buffer, "le", 8)],
+    [POOL_SEED, config.toBuffer(), poolId.toArrayLike(Buffer, "le", 8)],
     programId
   );
 }
 
-export function deriveBptMint(
-  cubicPoolProgramId: PublicKey,
+export function deriveLpMint(
+  cofferPoolProgramId: PublicKey,
   pool: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [BPT_MINT_SEED, pool.toBuffer()],
-    cubicPoolProgramId
+    [LP_MINT_SEED, pool.toBuffer()],
+    cofferPoolProgramId
   );
 }
 

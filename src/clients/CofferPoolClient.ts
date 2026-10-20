@@ -6,30 +6,30 @@ import { CofferConfig } from "../config";
 import { PoolInfo, PoolTokenInfo } from "../types/pool";
 import { SdkResult, err, ok } from "../types/result";
 import { AddLiquidityQuote, PlannedZapQuoteOptions, RemoveLiquidityQuote, SwapQuote } from "../types/tx";
-import { CubicPoolEvent } from "../types/events";
+import { CofferPoolEvent } from "../types/events";
 import { RpcClient } from "./RpcClient";
 import { decodePoolAccount, RawPoolAccount } from "../parsers/poolAccount";
 import { decodeMintAccount } from "../parsers/mintAccount";
-import { parseCubicPoolEvents } from "../parsers/events";
-import { deriveAta, deriveBptMint } from "../utils/pda";
+import { parseCofferPoolEvents } from "../parsers/events";
+import { deriveAta, deriveLpMint } from "../utils/pda";
 import { resolveKnownToken } from "../config/tokens";
 import { describeUnsupportedToken, isTokenTransferable, unsupportedMintExtensions } from "../utils/extensions";
 import { grossOfTransferFee, netOfTransferFee, selectEpochFee, transferFeeOf } from "../math/transferFee";
 import {
-  calcBptOutGivenExactTokensIn,
+  calcLpOutGivenExactTokensIn,
   calcDepositCredit,
-  calcEffectiveBptBurn,
-  calcJoinRatioAndBpt,
-  calcTokensOutGivenBptIn,
+  calcEffectiveLpBurn,
+  calcJoinRatioAndLp,
+  calcTokensOutGivenLpIn,
   virtualBalanceAfterDeposit,
   virtualBalanceAfterWithdrawal,
-} from "../math/cubicMath";
+} from "../math/poolMath";
 import { divDown, mulDown } from "../math/fixedPoint";
 import { calculateInvariant } from "../math/weightedMath";
 import { rescaleWindowOnVbChange, computeSelloffWindow, projectSelloffWindow, SelloffWindowStatus } from "../math/maxSelloff";
 import { calcSurgeFeePct } from "../math/surgeFee";
 import { applySlippage, priceImpactHbps } from "../math/slippage";
-import { MINIMUM_INITIAL_BPT, PERCENT_SCALE, SWAP_FEE_PRECISION } from "../config";
+import { MIN_LP_SUPPLY, PERCENT_SCALE, SWAP_FEE_PRECISION } from "../config";
 import {
   buildAddLiquidityTx,
   buildRemoveLiquidityTx,
@@ -46,7 +46,7 @@ import { resolveAddLiquidityExtraAccounts, resolveRemoveLiquidityExtraAccounts, 
 import { UnsupportedTransferProfileError } from "../utils/transferProfile";
 import type { AccountMeta } from "@solana/web3.js";
 
-export interface CubicPoolClientParams {
+export interface CofferPoolClientParams {
   config: CofferConfig;
   poolAddress: PublicKey;
   rpc?:
@@ -65,7 +65,7 @@ export interface CubicPoolClientParams {
  * Per-pool client. Fetch the state with `sync()`, then call any of the
  * quote / buildTx methods off the cached snapshot.
  */
-export class CubicPoolClient {
+export class CofferPoolClient {
   readonly config: CofferConfig;
   readonly poolAddress: PublicKey;
   readonly rpc: RpcClient;
@@ -74,7 +74,7 @@ export class CubicPoolClient {
   /** Raw decoded account from the last `sync()`; holds per-token window data. */
   private rawAccount: RawPoolAccount | undefined;
 
-  constructor(params: CubicPoolClientParams) {
+  constructor(params: CofferPoolClientParams) {
     this.config = params.config;
     this.poolAddress = params.poolAddress;
     this.rpc =
@@ -96,7 +96,7 @@ export class CubicPoolClient {
   }
 
   /**
-   * Fetch and decode the pool account + BPT mint + per-token mint decimals.
+   * Fetch and decode the pool account + LP mint + per-token mint decimals.
    * Safe to call repeatedly; subsequent calls replace the cache.
    */
   async sync(): Promise<SdkResult<PoolInfo>> {
@@ -105,7 +105,7 @@ export class CubicPoolClient {
     if (poolInfo.data === null) {
       return err("account_not_found", `Pool ${this.poolAddress.toBase58()} does not exist on-chain`);
     }
-    if (!poolInfo.data.owner.equals(this.config.programs.cubicPool)) return err("parse_failure", "Pool account has an unexpected owner");
+    if (!poolInfo.data.owner.equals(this.config.programs.cofferPool)) return err("parse_failure", "Pool account has an unexpected owner");
     let raw;
     try {
       raw = decodePoolAccount(poolInfo.data.data);
@@ -114,15 +114,15 @@ export class CubicPoolClient {
     }
     const n = raw.tokenCount;
     const mintAddrs = raw.tokenMints.slice(0, n);
-    const [bptMint, _bptBump] = deriveBptMint(this.config.programs.cubicPool, this.poolAddress);
+    const [lpMint, _lpBump] = deriveLpMint(this.config.programs.cofferPool, this.poolAddress);
 
-    const mintInfos = await this.rpc.getMultipleAccountsWithInfo([bptMint, ...mintAddrs, SYSVAR_CLOCK_PUBKEY]);
+    const mintInfos = await this.rpc.getMultipleAccountsWithInfo([lpMint, ...mintAddrs, SYSVAR_CLOCK_PUBKEY]);
     if (!mintInfos.ok) return mintInfos;
-    const [bptInfo, ...rest] = mintInfos.data;
+    const [lpInfo, ...rest] = mintInfos.data;
     const tokenMintInfos = rest.slice(0, n);
     const clockInfo = rest[n];
-    const bptMintData = bptInfo?.data;
-    if (bptInfo && ![TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID].some(p => p.equals(bptInfo.owner))) return err("parse_failure", "Invalid BPT token program");
+    const lpMintData = lpInfo?.data;
+    if (lpInfo && ![TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID].some(p => p.equals(lpInfo.owner))) return err("parse_failure", "Invalid LP token program");
     if (!clockInfo || clockInfo.data.length < 40) return err("parse_failure", "Solana Clock account missing");
     // Clock sysvar: slot u64 @0, epoch_start_timestamp i64 @8, epoch u64 @16,
     // leader_schedule_epoch u64 @24, unix_timestamp i64 @32.
@@ -133,14 +133,14 @@ export class CubicPoolClient {
     if (![chainSlot, chainEpoch, chainTimestamp, createdAt].every(Number.isSafeInteger)) {
       return err("parse_failure", "Pool/Clock values cannot be represented exactly by PoolInfo; use the raw account decoder for full integer values");
     }
-    if (!bptMintData) {
-      return err("account_not_found", "BPT mint account missing");
+    if (!lpMintData) {
+      return err("account_not_found", "LP mint account missing");
     }
-    let bptMintAcc;
+    let lpMintAcc;
     try {
-      bptMintAcc = decodeMintAccount(bptMintData);
+      lpMintAcc = decodeMintAccount(lpMintData);
     } catch (e) {
-      return err("parse_failure", "Could not decode BPT mint", e);
+      return err("parse_failure", "Could not decode LP mint", e);
     }
     const tokens: PoolTokenInfo[] = [];
     for (let i = 0; i < n; i++) {
@@ -190,7 +190,7 @@ export class CubicPoolClient {
         variableFeeSlopeMidPct: raw.variableFeeSlopeMidPct[i],
         variableFeeKinkPct: raw.variableFeeKinkPct[i],
         extensions: mintAcc.extensions,
-        unsupportedExtensions: unsupportedMintExtensions(mintAcc.extensions, raw.bannedExtensions),
+        unsupportedExtensions: unsupportedMintExtensions(mintAcc.extensions),
         transferFee: mintAcc.transferFeeConfig ? selectEpochFee(mintAcc.transferFeeConfig, BigInt(chainEpoch)) : null,
         transferHookProgram:
           mintAcc.transferHook && !mintAcc.transferHook.programId.equals(PublicKey.default) ? mintAcc.transferHook.programId : null,
@@ -206,8 +206,8 @@ export class CubicPoolClient {
       tokenCount: n,
       tokens,
       unsupportedTokenIndices: tokens.filter((t) => !isTokenTransferable(t)).map((t) => t.index),
-      bptMint,
-      bptTokenProgram: bptInfo!.owner,
+      lpMint,
+      lpTokenProgram: lpInfo!.owner,
       poolAdmin: raw.poolAdmin,
       pendingPoolAdmin: raw.pendingPoolAdmin,
       rangeManager: raw.rangeManager,
@@ -220,14 +220,13 @@ export class CubicPoolClient {
       chainSlot,
       chainEpoch,
       v5Migrated: raw.v5Migrated,
-      bptTotalSupply: bptMintAcc.supply,
+      lpTotalSupply: lpMintAcc.supply,
       swapFeeRate: raw.swapFeeRate,
       protocolFeeRate: raw.protocolFeeRate,
       poolEnabled: raw.poolEnabled,
       swapsEnabled: raw.swapsEnabled,
       createdAt,
       lookupTable: raw.lookupTable,
-      bannedExtensions: raw.bannedExtensions,
       rangeManagerMaxLeverageBps: raw.rangeManagerMaxLeverageBps,
       rangeManagerMinLeverageBps: raw.rangeManagerMinLeverageBps,
       syncedAt: Date.now(),
@@ -348,13 +347,13 @@ export class CubicPoolClient {
     );
   }
 
-  /** Seed deposit: creator-only, exact amounts, BPT derived from virtual reserves. */
+  /** Seed deposit: creator-only, exact amounts, LP derived from virtual reserves. */
   quoteSeedDeposit(user: PublicKey, tokenAmounts: BN[], slippageHundredthsBps?: number): SdkResult<AddLiquidityQuote> {
     const state = this.requireCache();
     if (!state.ok) return state;
     const pool = state.data;
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
-    if (!pool.bptTotalSupply.isZero()) return err("invalid_input", "Pool already seeded; use quoteAddLiquidity");
+    if (!pool.lpTotalSupply.isZero()) return err("invalid_input", "Pool already seeded; use quoteAddLiquidity");
     if (!pool.poolAdmin) return err("invalid_input", "Pool admin missing: sync the pool before quoting");
     if (pool.poolAdmin.equals(PublicKey.default)) return err("invalid_input", "PoolAdminDisabled");
     if (!pool.poolAdmin.equals(user)) return err("invalid_input", "SeedDepositNotPoolAdmin");
@@ -363,21 +362,21 @@ export class CubicPoolClient {
     const supported = this.requireSupported(tokenAmounts.flatMap((a,i) => a.isZero() ? [] : [i]), "seed deposit");
     if (!supported.ok) return supported;
     try {
-      // v6: the vault credits the fee-EXCLUDED amount; BPT is invariant-based
+      // v6: the vault credits the fee-EXCLUDED amount; LP is invariant-based
       // on the virtual balances (or on the net credits when all are zero).
       const amounts = tokenAmounts.map(a => BigInt(a.toString()));
       const credited = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, a));
       if (credited.some((c, i) => amounts[i] > 0n && c === 0n)) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
       const virtual = pool.tokens.map(t => BigInt(t.virtualBalance.toString()));
       const balances = virtual.every(v => v === 0n) ? credited : virtual;
-      const bptOut = u64(calculateInvariant(balances, pool.tokens.map(t => t.weightBps), pool.tokens.map(t => t.decimals)), "BPT amount");
-      if (bptOut < MINIMUM_INITIAL_BPT) return err("invalid_input", "InitialLiquidityTooSmall");
+      const lpOut = u64(calculateInvariant(balances, pool.tokens.map(t => t.weightBps), pool.tokens.map(t => t.decimals)), "LP amount");
+      if (lpOut < MIN_LP_SUPPLY) return err("invalid_input", "InitialLiquidityTooSmall");
       const zeros = tokenAmounts.map(() => new BN(0));
       const charged = tokenAmounts.map(a => a.clone());
       return ok({ tokenAmounts, depositAmounts: charged, refundAmounts: zeros, chargedAmounts: charged.map(a => a.clone()), unspentAmounts: zeros.map(z => z.clone()),
         creditedAmounts: credited.map(c => new BN(c.toString())), transferFees: amounts.map((a, i) => new BN((a - credited[i]).toString())),
         virtualBalancesAfter: pool.tokens.map(t => t.virtualBalance.clone()),
-        bptOut: new BN(bptOut.toString()), minimumBptAmount: new BN(applySlippage(bptOut, slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps).toString()),
+        lpOut: new BN(lpOut.toString()), minimumLpAmount: new BN(applySlippage(lpOut, slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps).toString()),
         limitingTokenIndex: -1 });
     } catch (e) { return err("math_overflow", "Seed-deposit quote failed", e); }
   }
@@ -386,7 +385,7 @@ export class CubicPoolClient {
    * Proportional-join quote (v6 `add_liquidity.rs`). `tokenAmounts` is a
    * CEILING: the program nets each ceiling of its mint's transfer fee, takes
    * the limiting ratio `min_i(net_i / actual_i)` over live legs, mints
-   * `floor(supply · ratio)` BPT, credits each leg `ceil(actual_i · ratio)`
+   * `floor(supply · ratio)` LP, credits each leg `ceil(actual_i · ratio)`
    * and debits that credit grossed up by the transfer fee. Whatever is left
    * of the ceiling stays in the wallet.
    *
@@ -395,8 +394,8 @@ export class CubicPoolClient {
    * (`MathOverflow` on-chain). Pass `chargedAmounts` as the ceilings to
    * `buildAddLiquidityTx` for a basket that is exact at this state.
    *
-   * Not applicable to the seed deposit (BPT supply == 0): the program
-   * mints invariant-based BPT there and takes the full amounts.
+   * Not applicable to the seed deposit (LP supply == 0): the program
+   * mints invariant-based LP there and takes the full amounts.
    */
   quoteAddLiquidity(tokenAmounts: BN[], slippageHundredthsBps?: number): SdkResult<AddLiquidityQuote> {
     const poolRes = this.requireCache();
@@ -405,8 +404,8 @@ export class CubicPoolClient {
     if (tokenAmounts.length !== pool.tokenCount) {
       return err("invalid_input", "tokenAmounts length must equal pool.tokenCount");
     }
-    if (pool.bptTotalSupply.isZero()) {
-      return err("invalid_input", "Pool has zero BPT supply; use quoteSeedDeposit");
+    if (pool.lpTotalSupply.isZero()) {
+      return err("invalid_input", "Pool has zero LP supply; use quoteSeedDeposit");
     }
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
     if (tokenAmounts.some((a) => a.isNeg() || a.bitLength() > 64)) {
@@ -421,16 +420,16 @@ export class CubicPoolClient {
     try {
       const bals = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
       const amounts = tokenAmounts.map((a) => BigInt(a.toString()));
-      const supply = BigInt(pool.bptTotalSupply.toString());
+      const supply = BigInt(pool.lpTotalSupply.toString());
       const net = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, a));
       if (net.some((n, i) => amounts[i] > 0n && n === 0n)) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
-      const { bpt: bptOut, ratio } = calcJoinRatioAndBpt(bals, net, supply);
+      const { lp: lpOut, ratio } = calcJoinRatioAndLp(bals, net, supply);
       let limiting = -1;
       for (let i = 0; i < bals.length; i++) {
         if (bals[i] > 0n && divDown(net[i], bals[i]) === ratio) { limiting = i; break; }
       }
-      if (bptOut === 0n) return err("amount_too_small", "DepositTooSmall");
-      u64(supply + bptOut, "BPT supply");
+      if (lpOut === 0n) return err("amount_too_small", "DepositTooSmall");
+      u64(supply + lpOut, "LP supply");
       const credited: bigint[] = [], charged: bigint[] = [], virtualAfter: bigint[] = [];
       for (let i = 0; i < bals.length; i++) {
         const credit = bals[i] > 0n ? calcDepositCredit(bals[i], ratio) : 0n;
@@ -439,7 +438,7 @@ export class CubicPoolClient {
         if (charge > amounts[i]) return err("invalid_input", `Transfer-fee gross-up exceeds the ceiling at token index ${i}; raise the ceiling by at least ${(charge - amounts[i]).toString()}`);
         u64(bals[i] + credit, "reserve balance");
         const vb = BigInt(pool.tokens[i].virtualBalance.toString());
-        const next = virtualBalanceAfterDeposit(vb, bals[i], credit, bptOut, supply);
+        const next = virtualBalanceAfterDeposit(vb, bals[i], credit, lpOut, supply);
         rescaleWindowOnVbChange(swapLegOf(pool.tokens[i]).window, vb, next);
         credited.push(credit); charged.push(charge); virtualAfter.push(next);
       }
@@ -454,8 +453,8 @@ export class CubicPoolClient {
         creditedAmounts: bnList(credited),
         transferFees: bnList(charged.map((c, i) => c - credited[i])),
         virtualBalancesAfter: bnList(virtualAfter),
-        bptOut: new BN(bptOut.toString()),
-        minimumBptAmount: new BN(applySlippage(bptOut, slip).toString()),
+        lpOut: new BN(lpOut.toString()),
+        minimumLpAmount: new BN(applySlippage(lpOut, slip).toString()),
         limitingTokenIndex: limiting,
       });
     } catch (e) {
@@ -465,27 +464,27 @@ export class CubicPoolClient {
 
   /**
    * Proportional-withdraw quote (v6 `remove_liquidity.rs`): the burn is
-   * clamped to keep `MINIMUM_INITIAL_BPT` in supply, payouts are the
+   * clamped to keep `MIN_LP_SUPPLY` in supply, payouts are the
    * floor-rounded proportional share of the raw actual balances, and each
    * leg's transfer fee is withheld from the user. Derive
    * `minimumTokenAmounts` from `receivedAmounts`.
    */
-  quoteRemove(bptIn: BN): SdkResult<RemoveLiquidityQuote> {
+  quoteRemove(lpIn: BN): SdkResult<RemoveLiquidityQuote> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     const pool = poolRes.data;
-    if (pool.bptTotalSupply.isZero()) {
-      return err("invalid_input", "Pool has zero BPT supply");
+    if (pool.lpTotalSupply.isZero()) {
+      return err("invalid_input", "Pool has zero LP supply");
     }
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
     try {
       const bals = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
-      const supply = BigInt(pool.bptTotalSupply.toString());
-      const requested = BigInt(bptIn.toString());
-      if (requested <= 0n || requested > supply) return err("invalid_input", "InvalidBptAmount");
+      const supply = BigInt(pool.lpTotalSupply.toString());
+      const requested = BigInt(lpIn.toString());
+      if (requested <= 0n || requested > supply) return err("invalid_input", "InvalidLpAmount");
       let effective: bigint;
-      try { effective = calcEffectiveBptBurn(requested, supply); } catch { return err("invalid_input", "InvalidBptAmount"); }
-      const outs = calcTokensOutGivenBptIn(bals, effective, supply);
+      try { effective = calcEffectiveLpBurn(requested, supply); } catch { return err("invalid_input", "InvalidLpAmount"); }
+      const outs = calcTokensOutGivenLpIn(bals, effective, supply);
       const supported = this.requireSupported(outs.flatMap((amount,i) => amount > 0n ? [i] : []), "remove_liquidity");
       if (!supported.ok) return supported;
       const fees = outs.map((o, i) => transferFeeOf(pool.tokens[i].transferFee, o));
@@ -497,7 +496,7 @@ export class CubicPoolClient {
       });
       const bnList = (xs: bigint[]) => xs.map((x) => new BN(x.toString()));
       return ok({ tokenOuts: bnList(outs), transferFees: bnList(fees), receivedAmounts: bnList(outs.map((o, i) => o - fees[i])),
-        effectiveBptIn: new BN(effective.toString()), virtualBalancesAfter: bnList(virtualAfter) });
+        effectiveLpIn: new BN(effective.toString()), virtualBalancesAfter: bnList(virtualAfter) });
     } catch (e) {
       return err("math_overflow", `Remove quote failed: ${e instanceof Error ? e.message : String(e)}`, e);
     }
@@ -586,7 +585,7 @@ export class CubicPoolClient {
     if (params.minimumTokenAmounts.length !== poolRes.data.tokenCount) {
       return err("invalid_input", "minimumTokenAmounts length must equal pool.tokenCount");
     }
-    const quote = this.quoteRemove(params.bptAmount);
+    const quote = this.quoteRemove(params.lpAmount);
     if (!quote.ok) return quote;
     try {
       return ok(buildRemoveLiquidityTx(this.config, poolRes.data, params));
@@ -622,7 +621,7 @@ export class CubicPoolClient {
   }
 
   /** Tail for `remove_liquidity` at the synced state. */
-  async resolveRemoveLiquidityExtraAccounts(params: Pick<RemoveLiquidityParams, "user" | "bptAmount">, options?: ResolveExtraAccountsParams): Promise<SdkResult<AccountMeta[]>> {
+  async resolveRemoveLiquidityExtraAccounts(params: Pick<RemoveLiquidityParams, "user" | "lpAmount">, options?: ResolveExtraAccountsParams): Promise<SdkResult<AccountMeta[]>> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     return this.resolveTail(() => resolveRemoveLiquidityExtraAccounts(this.rpc.connection, poolRes.data, params, options), "remove_liquidity");
@@ -654,7 +653,7 @@ export class CubicPoolClient {
     return err(
       "unsupported_token_extension",
       `${op} refused: ${bad.map(describeUnsupportedToken).join("; ")}. ` +
-        "The cubic-pool program cannot transfer such tokens; the transaction would revert on-chain."
+        "The coffer-pool program cannot transfer such tokens; the transaction would revert on-chain."
     );
   }
 

@@ -1,7 +1,7 @@
 /**
  * Sliding-window cumulative-sell rate limiter.
  *
- * Port of contracts `v6` `programs/cubic-pool/src/math/max_selloff.rs`:
+ * Port of contracts `v6` `programs/coffer-pool/src/math/max_selloff.rs`:
  * `check_and_advance` (rotation with the carryover rounded UP),
  * `rebase_snapshot` and `rescale_window_on_vb_change` (the window follows
  * every virtual-balance move of its token, tracked even while disabled).

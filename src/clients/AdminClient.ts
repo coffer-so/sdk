@@ -26,15 +26,15 @@ export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
  * AdminClient — wraps `protocol_admin` with treasury-routed admin
  * operations.
  *
- * The cubic_pool program enforces that every admin instruction must be
+ * The coffer_pool program enforces that every admin instruction must be
  * signed by the Treasury PDA (`seeds = [b"treasury"]`, owned by
  * protocol_admin). This client builds the canonical flow:
  *
  *     admin wallet
  *       → protocol_admin.<wrapper>     (treasury.admin == signer)
- *       → CPI cubic_pool.<admin_ix>             (signer == TREASURY_PDA)
+ *       → CPI coffer_pool.<admin_ix>             (signer == TREASURY_PDA)
  *
- * Direct calls into cubic_pool admin instructions will fail on-chain.
+ * Direct calls into coffer_pool admin instructions will fail on-chain.
  *
  * Instruction methods return a `TransactionInstruction` (or a Promise of it). Compose into a tx
  * with `@solana/web3.js` and sign with the admin wallet.
@@ -48,7 +48,7 @@ export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
 export class AdminClient {
   readonly program: Program;
   readonly config: CofferConfig;
-  readonly cubicPoolProgramId: PublicKey;
+  readonly cofferPoolProgramId: PublicKey;
   readonly stldProgramId: PublicKey;
   readonly treasuryPda: PublicKey;
 
@@ -58,7 +58,7 @@ export class AdminClient {
     const idl = JSON.parse(JSON.stringify(PROTOCOL_ADMIN_IDL)) as any;
     idl.address = config.programs.protocolAdmin.toString();
     this.program = new Program(idl, provider) as any;
-    this.cubicPoolProgramId = config.programs.cubicPool;
+    this.cofferPoolProgramId = config.programs.cofferPool;
     this.stldProgramId = config.programs.singleTokenLiquidity;
     [this.treasuryPda] = deriveTreasuryPda(config.programs.protocolAdmin);
   }
@@ -255,7 +255,7 @@ export class AdminClient {
         treasury: this.treasuryPda,
         admin,
         config,
-        cubicPoolProgram: this.cubicPoolProgramId,
+        cofferPoolProgram: this.cofferPoolProgramId,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -287,46 +287,6 @@ export class AdminClient {
   }
 
   /**
-   * Update a config's Token-2022 extension policy.
-   *
-   * ⚠ v5.1 (audit H-5) added a second REQUIRED argument,
-   * `hardBannedExtensions`. Two distinct bitmaps:
-   *
-   *  - `banned` — the config's default policy, inherited by new pools that
-   *    do not pass their own override. A pool creator may override it in
-   *    either direction.
-   *  - `hardBanned` — the protocol floor. It is OR-ed into every pool's
-   *    effective bitmap at creation and a creator override can never clear
-   *    it. This is what keeps `PermanentDelegate` / `TransferHook` mints out
-   *    of vault custody regardless of what a pool creator chooses.
-   *
-   * Loosening `hardBanned` is a protocol-wide safety decision, not a
-   * routine config tweak.
-   */
-  setBannedExtensionsIx(
-    admin: PublicKey,
-    config: PublicKey,
-    banned: BN,
-    hardBanned: BN,
-  ) {
-    if (hardBanned === undefined) {
-      throw new Error(
-        "AdminClient.setBannedExtensionsIx: hardBanned is required as of v5.1. " +
-          "Pass the config's current hard_banned_extensions to leave the floor unchanged.",
-      );
-    }
-    return (this.program.methods as any)
-      .poolSetBannedExtensions(banned, hardBanned)
-      .accounts({
-        treasury: this.treasuryPda,
-        admin,
-        config,
-        cubicPoolProgram: this.cubicPoolProgramId,
-      })
-      .instruction();
-  }
-
-  /**
    * Migrate a pool account from the v4 storage layout to v5.
    *
    * ⚠ v5.1 (audit H-7) added `reactivateTokens` and this instruction is no
@@ -351,7 +311,7 @@ export class AdminClient {
         pool,
         config,
         systemProgram: SystemProgram.programId,
-        cubicPoolProgram: this.cubicPoolProgramId,
+        cofferPoolProgram: this.cofferPoolProgramId,
       })
       .instruction();
   }
@@ -402,7 +362,7 @@ export class AdminClient {
       .accounts({
         treasury: this.treasuryPda,
         authority,
-        cubicPoolProgram: this.cubicPoolProgramId,
+        cofferPoolProgram: this.cofferPoolProgramId,
       })
       .remainingAccounts(this.configPoolRemaining(pairs, /* poolWritable */ true))
       .instruction();
@@ -419,7 +379,7 @@ export class AdminClient {
       .accounts({
         treasury: this.treasuryPda,
         authority: admin,
-        cubicPoolProgram: this.cubicPoolProgramId,
+        cofferPoolProgram: this.cofferPoolProgramId,
       })
       .remainingAccounts(this.configPoolRemaining(pairs, /* poolWritable */ true))
       .instruction();
@@ -444,7 +404,7 @@ export class AdminClient {
         authority,
         config,
         pool,
-        cubicPoolProgram: this.cubicPoolProgramId,
+        cofferPoolProgram: this.cofferPoolProgramId,
       })
       .instruction();
   }
@@ -540,7 +500,7 @@ export class AdminClient {
 
   poolWithdrawSolIx(admin: PublicKey, config: PublicKey, source: PublicKey, recipient: PublicKey, amount: BN) {
     return buildContractInstruction(this.config, "protocolAdmin", "pool_withdraw_sol", { amount }, {
-      treasury: this.treasuryPda, admin, config, source, recipient, cubic_pool_program: this.cubicPoolProgramId,
+      treasury: this.treasuryPda, admin, config, source, recipient, coffer_pool_program: this.cofferPoolProgramId,
     });
   }
 
@@ -548,25 +508,25 @@ export class AdminClient {
     return buildContractInstruction(this.config, "protocolAdmin", "pool_initialize_alt", { recent_slot: recentSlot }, {
       treasury: this.treasuryPda, admin, pool, config,
       lookup_table: deriveAltAddress(this.treasuryPda, recentSlot), system_program: SystemProgram.programId,
-      alt_program: AddressLookupTableProgram.programId, cubic_pool_program: this.cubicPoolProgramId,
+      alt_program: AddressLookupTableProgram.programId, coffer_pool_program: this.cofferPoolProgramId,
     });
   }
 
   poolInitiateProtocolAdminTransferIx(admin: PublicKey, config: PublicKey, newAdmin: PublicKey) {
     return buildContractInstruction(this.config, "protocolAdmin", "pool_initiate_protocol_admin_transfer", { new_admin: newAdmin }, {
-      treasury: this.treasuryPda, admin, config, cubic_pool_program: this.cubicPoolProgramId,
+      treasury: this.treasuryPda, admin, config, coffer_pool_program: this.cofferPoolProgramId,
     });
   }
 
   poolAcceptProtocolAdminTransferIx(admin: PublicKey, config: PublicKey) {
     return buildContractInstruction(this.config, "protocolAdmin", "pool_accept_protocol_admin_transfer", {}, {
-      treasury: this.treasuryPda, admin, config, cubic_pool_program: this.cubicPoolProgramId,
+      treasury: this.treasuryPda, admin, config, coffer_pool_program: this.cofferPoolProgramId,
     });
   }
 
   poolCancelProtocolAdminTransferIx(admin: PublicKey, config: PublicKey) {
     return buildContractInstruction(this.config, "protocolAdmin", "pool_cancel_protocol_admin_transfer", {}, {
-      treasury: this.treasuryPda, admin, config, cubic_pool_program: this.cubicPoolProgramId,
+      treasury: this.treasuryPda, admin, config, coffer_pool_program: this.cofferPoolProgramId,
     });
   }
 
@@ -582,7 +542,7 @@ export class AdminClient {
       admin,
       config,
       pool,
-      cubicPoolProgram: this.cubicPoolProgramId,
+      cofferPoolProgram: this.cofferPoolProgramId,
     };
   }
 

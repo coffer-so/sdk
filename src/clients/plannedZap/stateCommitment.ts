@@ -1,6 +1,6 @@
 /**
  * `plan::state_commitment` — the hash the program recomputes from the live
- * pool, BPT mint and token-mint accounts and compares to the signed plan's
+ * pool, LP mint and token-mint accounts and compares to the signed plan's
  * `expected_state`. Any byte of those accounts, their keys/owners or the
  * epoch changing between quote and execution makes the plan
  * `AllocationPlanStale`.
@@ -34,10 +34,10 @@ function hash(...parts: Uint8Array[]): Uint8Array {
   return sha256(Buffer.concat(parts.map((part) => Buffer.from(part))));
 }
 
-/** sha256 chain: `H(domain ‖ epoch)`, then `H(prev ‖ key ‖ owner ‖ data)` for pool, BPT mint, every token mint. */
-export function stateCommitment(pool: SnapshotAccount, bptMint: SnapshotAccount, mints: SnapshotAccount[], epoch: bigint): Uint8Array {
+/** sha256 chain: `H(domain ‖ epoch)`, then `H(prev ‖ key ‖ owner ‖ data)` for pool, LP mint, every token mint. */
+export function stateCommitment(pool: SnapshotAccount, lpMint: SnapshotAccount, mints: SnapshotAccount[], epoch: bigint): Uint8Array {
   let digest = hash(textBytes(PLAN_DOMAIN), u64le(epoch));
-  for (const account of [pool, bptMint, ...mints]) {
+  for (const account of [pool, lpMint, ...mints]) {
     digest = hash(digest, account.key.toBytes(), account.owner.toBytes(), account.data);
   }
   return digest;

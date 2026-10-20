@@ -22,7 +22,7 @@ const coders = new Map<ContractProgram, BorshInstructionCoder>();
  * This only builds an instruction. Required signatures, authority constraints,
  * remaining-account layouts and transaction size still apply. A Treasury PDA
  * can sign only during CPI: use the corresponding protocolAdmin wrapper for
- * governance, rather than sending a cubicPool instruction with a PDA signer.
+ * governance, rather than sending a cofferPool instruction with a PDA signer.
  */
 export function buildContractInstruction<P extends ContractProgram, I extends InstructionName<P>>(
   config: CofferConfig,

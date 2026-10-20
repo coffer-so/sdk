@@ -1,7 +1,7 @@
 import BN from "bn.js";
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { CubicPoolClient, getConfig, MintExtension } from "../src";
+import { CofferPoolClient, getConfig, MintExtension } from "../src";
 import { PoolInfo } from "../src/types/pool";
 import { SdkResult } from "../src/types/result";
 import rust from "./math/fixtures/deployed-v6-math.json";
@@ -24,19 +24,19 @@ function pool(count = 2): PoolInfo {
       variableFeeKinkPct: 0, previousSelloff: bn(0), currentSelloff: bn(0),
       windowStartTimestamp: bn(0), selloffVbSnapshot: bn(0), extensions: [], unsupportedExtensions: [],
     })),
-    bptMint: key(20), bptTokenProgram: TOKEN_PROGRAM_ID, bptTotalSupply: bn(1_000_000_000),
+    lpMint: key(20), lpTokenProgram: TOKEN_PROGRAM_ID, lpTotalSupply: bn(1_000_000_000),
     poolAdmin: creator, pendingPoolAdmin: PublicKey.default, rangeManager: PublicKey.default,
     rangeManagerEnabled: false, rangeManagerMaxVbChangePct: 0, rangeManagerMaxWeightChangePct: 0,
     rangeManagerMinUpdateIntervalSecs: 0, rangeManagerLastUpdated: bn(0),
     rangeManagerMinLeverageBps: 0, rangeManagerMaxLeverageBps: 0,
     swapFeeRate: 0, protocolFeeRate: 0, poolEnabled: true, swapsEnabled: true,
     createdAt: 0, chainTimestamp: 10030, lookupTable: PublicKey.default,
-    bannedExtensions: bn(0), unsupportedTokenIndices: [], syncedAt: 10030_000,
+    unsupportedTokenIndices: [], syncedAt: 10030_000,
   };
 }
 
-function client(state: PoolInfo): CubicPoolClient {
-  const c = new CubicPoolClient({ config: getConfig("devnet"), poolAddress: state.address });
+function client(state: PoolInfo): CofferPoolClient {
+  const c = new CofferPoolClient({ config: getConfig("devnet"), poolAddress: state.address });
   (c as unknown as { cache: PoolInfo }).cache = state;
   return c;
 }
@@ -97,36 +97,36 @@ describe("client swap quotes against deployed Rust behavior", () => {
 });
 
 describe("proportional liquidity quotes", () => {
-  test("full requested burn preserves 1000 BPT and does not subtract protocol fees twice", () => {
-    const state = pool(); state.bptTotalSupply = bn(5000);
+  test("full requested burn preserves 1000 LP and does not subtract protocol fees twice", () => {
+    const state = pool(); state.lpTotalSupply = bn(5000);
     state.tokens[0].actualBalance = bn(10000); state.tokens[0].protocolFeesOwed = bn(9900);
     state.tokens[1].actualBalance = bn(20000);
     expect(result(client(state).quoteRemove(bn(5000))).tokenOuts.map(String)).toEqual(["8000", "16000"]);
   });
 
   test("withdrawal uses Rust fixed-point ratio then multiplication, with two floors", () => {
-    const state = pool(); state.bptTotalSupply = bn(3000);
+    const state = pool(); state.lpTotalSupply = bn(3000);
     state.tokens[0].actualBalance = bn(3); state.tokens[1].actualBalance = bn(9);
     expect(result(client(state).quoteRemove(bn(1000))).tokenOuts.map(String)).toEqual(["0", "2"]);
   });
 
   test("an unsupported token is untouched when the double-rounded withdrawal is zero", () => {
-    const state = pool(); state.bptTotalSupply = bn(3000);
+    const state = pool(); state.lpTotalSupply = bn(3000);
     state.tokens[0].actualBalance = bn(3); state.tokens[1].actualBalance = bn(9);
     state.tokens[0].extensions = [MintExtension.NonTransferable];
     state.tokens[0].unsupportedExtensions = [MintExtension.NonTransferable];
     const c = client(state);
     expect(result(c.quoteRemove(bn(1000))).tokenOuts.map(String)).toEqual(["0", "2"]);
-    expect(c.buildRemoveLiquidityTx({ user: creator, bptAmount: bn(1000), minimumTokenAmounts: [bn(0), bn(2)] }).ok).toBe(true);
+    expect(c.buildRemoveLiquidityTx({ user: creator, lpAmount: bn(1000), minimumTokenAmounts: [bn(0), bn(2)] }).ok).toBe(true);
   });
 
   test.each(["0", "-1", "1000000001", (U64_MAX + 1n).toString()])("invalid withdrawal %s is refused", (amount) => {
     expect(client(pool()).quoteRemove(bn(amount)).ok).toBe(false);
   });
-  test("no withdrawal below the BPT reserve and no liquidity quotes when disabled", () => {
+  test("no withdrawal below the LP reserve and no liquidity quotes when disabled", () => {
     const state = pool(); const c = client(state);
-    state.bptTotalSupply = bn(1000); expect(c.quoteRemove(bn(1)).ok).toBe(false);
-    state.bptTotalSupply = bn(2000); state.poolEnabled = false;
+    state.lpTotalSupply = bn(1000); expect(c.quoteRemove(bn(1)).ok).toBe(false);
+    state.lpTotalSupply = bn(2000); state.poolEnabled = false;
     expect(c.quoteRemove(bn(1)).ok).toBe(false);
     expect(c.quoteAddLiquidity([bn(1000), bn(1000)]).ok).toBe(false);
   });
@@ -142,9 +142,9 @@ describe("proportional liquidity quotes", () => {
   test("v6: a thin live leg is credited UP from the ratio instead of being refused", () => {
     const state = pool(); state.tokens[0].actualBalance = bn(1); state.tokens[1].actualBalance = bn(2);
     state.tokens[0].virtualBalance = bn(5); state.tokens[1].virtualBalance = bn(4);
-    // ratio = min(1/1, 1/2) = 0.5, BPT = 500m; credits ceil(1·0.5) = 1 and ceil(2·0.5) = 1.
+    // ratio = min(1/1, 1/2) = 0.5, LP = 500m; credits ceil(1·0.5) = 1 and ceil(2·0.5) = 1.
     const q = result(client(state).quoteAddLiquidity([bn(1), bn(1)], 0));
-    expect(q.bptOut.toString()).toBe("500000000");
+    expect(q.lpOut.toString()).toBe("500000000");
     expect(q.creditedAmounts.map(String)).toEqual(["1", "1"]);
     expect(q.chargedAmounts.map(String)).toEqual(["1", "1"]);
     expect(q.limitingTokenIndex).toBe(1);
@@ -153,13 +153,13 @@ describe("proportional liquidity quotes", () => {
   });
 
   test("v6 join/exit virtual-balance round trip returns the original V (A=4, V=5, c=1)", () => {
-    const state = pool(); state.bptTotalSupply = bn(4000);
+    const state = pool(); state.lpTotalSupply = bn(4000);
     state.tokens[0].actualBalance = bn(4); state.tokens[0].virtualBalance = bn(5);
     state.tokens[1].actualBalance = bn(4); state.tokens[1].virtualBalance = bn(5);
     const join = result(client(state).quoteAddLiquidity([bn(1), bn(1)], 0));
-    expect(join.bptOut.toString()).toBe("1000");
+    expect(join.lpOut.toString()).toBe("1000");
     expect(join.virtualBalancesAfter.map(String)).toEqual(["7", "7"]);
-    const after = pool(); after.bptTotalSupply = bn(5000);
+    const after = pool(); after.lpTotalSupply = bn(5000);
     after.tokens.forEach((t) => { t.actualBalance = bn(5); t.virtualBalance = bn(7); });
     const exit = result(client(after).quoteRemove(bn(1000)));
     expect(exit.tokenOuts.map(String)).toEqual(["1", "1"]);
@@ -170,8 +170,8 @@ describe("proportional liquidity quotes", () => {
   test.each(["-1", (U64_MAX + 1n).toString()])("deposit amount %s must fit u64", (amount) => {
     expect(client(pool()).quoteAddLiquidity([bn(amount), bn(1000)]).ok).toBe(false);
   });
-  test("refuses BPT, reserve and virtual-balance overflow", () => {
-    const supply = pool(); supply.bptTotalSupply = bn(U64_MAX);
+  test("refuses LP, reserve and virtual-balance overflow", () => {
+    const supply = pool(); supply.lpTotalSupply = bn(U64_MAX);
     expect(client(supply).quoteAddLiquidity([bn(1_000_000_000), bn(1_000_000_000)]).ok).toBe(false);
     const reserve = pool(); reserve.tokens.forEach(t => { t.actualBalance = bn(U64_MAX); });
     expect(client(reserve).quoteAddLiquidity([bn(U64_MAX), bn(U64_MAX)]).ok).toBe(false);
@@ -182,19 +182,19 @@ describe("proportional liquidity quotes", () => {
 
 describe("creator-only seed quote", () => {
   function unseeded(): PoolInfo {
-    const state = pool(); state.bptTotalSupply = bn(0);
+    const state = pool(); state.lpTotalSupply = bn(0);
     state.tokens.forEach(t => { t.actualBalance = bn(0); });
     state.tokens[1].virtualBalance = bn(2_000_000_000);
     return state;
   }
-  test("BPT comes from virtual balances; zero seed legs stay sidelined", () => {
+  test("LP comes from virtual balances; zero seed legs stay sidelined", () => {
     const state = unseeded(); const c = client(state);
     const q = result(c.quoteSeedDeposit(creator, [bn(10_000_000), bn(0)], 0));
     // Native Rust calculate_invariant([1e9,2e9],[5000,5000],[9,9]).
-    expect(q.bptOut.toString()).toBe("1414213");
+    expect(q.lpOut.toString()).toBe("1414213");
     expect(q.depositAmounts.map(String)).toEqual(["10000000", "0"]);
     expect(q.refundAmounts.map(String)).toEqual(["0", "0"]);
-    expect(result(c.quoteSeedDeposit(creator, [bn(1), bn(0)], 0)).bptOut.toString()).toBe("1414213");
+    expect(result(c.quoteSeedDeposit(creator, [bn(1), bn(0)], 0)).lpOut.toString()).toBe("1414213");
   });
   test("rejects another wallet, disabled admin, zero seed, existing supply and bad u64", () => {
     const state = unseeded(); const c = client(state);
@@ -202,7 +202,7 @@ describe("creator-only seed quote", () => {
     expect(c.quoteSeedDeposit(creator, [bn(0), bn(0)]).ok).toBe(false);
     expect(c.quoteSeedDeposit(creator, [bn(U64_MAX + 1n), bn(0)]).ok).toBe(false);
     state.poolAdmin = PublicKey.default; expect(c.quoteSeedDeposit(creator, [bn(1), bn(0)]).ok).toBe(false);
-    state.poolAdmin = creator; state.bptTotalSupply = bn(1);
+    state.poolAdmin = creator; state.lpTotalSupply = bn(1);
     expect(c.quoteSeedDeposit(creator, [bn(1), bn(0)]).ok).toBe(false);
   });
 });
@@ -243,9 +243,9 @@ describe("v6 Token-2022 transfer fees in quotes", () => {
 
   test("join: ratio from the net ceilings, credit rounded up, debit grossed up by the inverse fee", () => {
     const q = result(client(feePool()).quoteAddLiquidity([bn(10_000_000), bn(10_000_000)], 0));
-    // net = [9_900_000, 9_999_950] → limiting leg 0 at ratio 0.0099 → BPT 9_900_000.
+    // net = [9_900_000, 9_999_950] → limiting leg 0 at ratio 0.0099 → LP 9_900_000.
     expect(q.limitingTokenIndex).toBe(0);
-    expect(q.bptOut.toString()).toBe("9900000");
+    expect(q.lpOut.toString()).toBe("9900000");
     expect(q.creditedAmounts.map(String)).toEqual(["9900000", "9900000"]);
     // Leg 0 is grossed up by 1 % (100_000); leg 1 by the 50-unit cap.
     expect(q.chargedAmounts.map(String)).toEqual(["10000000", "9900050"]);
@@ -277,21 +277,21 @@ describe("v6 Token-2022 transfer fees in quotes", () => {
     expect(odd.unspentAmounts.map(String)).toEqual(["1", "500000"]);
   });
 
-  test("seed deposit credits the net amounts and prices BPT on them", () => {
-    const state = feePool(); state.bptTotalSupply = bn(0); state.tokens.forEach((t) => { t.virtualBalance = bn(0); t.actualBalance = bn(0); });
+  test("seed deposit credits the net amounts and prices LP on them", () => {
+    const state = feePool(); state.lpTotalSupply = bn(0); state.tokens.forEach((t) => { t.virtualBalance = bn(0); t.actualBalance = bn(0); });
     const q = result(client(state).quoteSeedDeposit(creator, [bn(1_000_000_000), bn(1_000_000_000)], 0));
     expect(q.chargedAmounts.map(String)).toEqual(["1000000000", "1000000000"]);
     expect(q.creditedAmounts.map(String)).toEqual(["999000000", "999999950"]); // 1 % capped at 1e6; 2 % capped at 50
     expect(q.transferFees.map(String)).toEqual(["1000000", "50"]);
     expect(q.limitingTokenIndex).toBe(-1);
-    const clean = pool(); clean.bptTotalSupply = bn(0); clean.tokens.forEach((t) => { t.virtualBalance = bn(0); t.actualBalance = bn(0); });
+    const clean = pool(); clean.lpTotalSupply = bn(0); clean.tokens.forEach((t) => { t.virtualBalance = bn(0); t.actualBalance = bn(0); });
     const ref = result(client(clean).quoteSeedDeposit(creator, [bn(999_000_000), bn(999_999_950)], 0));
-    expect(q.bptOut.toString()).toBe(ref.bptOut.toString());
+    expect(q.lpOut.toString()).toBe(ref.lpOut.toString());
   });
 
   test("exit withholds each leg's transfer fee from what the user receives", () => {
     const q = result(client(feePool()).quoteRemove(bn(10_000_000)));
-    expect(q.effectiveBptIn.toString()).toBe("10000000");
+    expect(q.effectiveLpIn.toString()).toBe("10000000");
     expect(q.tokenOuts.map(String)).toEqual(["10000000", "10000000"]);
     expect(q.transferFees.map(String)).toEqual(["100000", "50"]);
     expect(q.receivedAmounts.map(String)).toEqual(["9900000", "9999950"]);
@@ -299,12 +299,12 @@ describe("v6 Token-2022 transfer fees in quotes", () => {
     expect(q.virtualBalancesAfter.map(String)).toEqual(["990000000", "990000000"]);
   });
 
-  test("exit near the floor keeps MINIMUM_INITIAL_BPT and floors V at one raw unit", () => {
-    const state = pool(); state.bptTotalSupply = bn(1_000_000);
+  test("exit near the floor keeps MIN_LP_SUPPLY and floors V at one raw unit", () => {
+    const state = pool(); state.lpTotalSupply = bn(1_000_000);
     state.tokens[0].actualBalance = bn(1000); state.tokens[0].virtualBalance = bn(1);
     state.tokens[1].actualBalance = bn(1000); state.tokens[1].virtualBalance = bn(1000);
     const q = result(client(state).quoteRemove(bn(1_000_000)));
-    expect(q.effectiveBptIn.toString()).toBe("999000");
+    expect(q.effectiveLpIn.toString()).toBe("999000");
     expect(q.tokenOuts.map(String)).toEqual(["999", "999"]);
     expect(q.virtualBalancesAfter.map(String)).toEqual(["1", "1"]);
   });

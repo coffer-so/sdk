@@ -44,7 +44,7 @@ export type SdkErrorCode =
   | "plan_invalid"
   /** v6 planned zap: the plan is older than 90 s or its slot passed. */
   | "plan_expired"
-  /** v6 planned zap: pool, BPT supply, a mint or the epoch changed since the quote. */
+  /** v6 planned zap: pool, LP supply, a mint or the epoch changed since the quote. */
   | "plan_stale"
   | "unknown";
 

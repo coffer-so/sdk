@@ -15,7 +15,7 @@ import {
   RpcClient,
   getConfig,
   deriveAta,
-  deriveBptMint,
+  deriveLpMint,
   IDLS,
   compilePlannedZapTransaction,
   replay,
@@ -30,24 +30,24 @@ const bn = (v: number | bigint | string) => new BN(v.toString());
 describe("stateCommitment", () => {
   test("matches the plan.rs known-answer vector and is sensitive to every input", () => {
     const account = (k: number, owner: number, data: Buffer): SnapshotAccount => ({ key: key(k), owner: key(owner), data });
-    const pool = account(1, 2, Buffer.alloc(64, 3)), bpt = account(4, 5, Buffer.alloc(82, 6));
+    const pool = account(1, 2, Buffer.alloc(64, 3)), lp = account(4, 5, Buffer.alloc(82, 6));
     const mints = [account(7, 8, Buffer.alloc(278, 9))];
-    const original = Buffer.from(stateCommitment(pool, bpt, mints, 17n)).toString("hex");
+    const original = Buffer.from(stateCommitment(pool, lp, mints, 17n)).toString("hex");
     expect(original).toBe(V6_PLAN_HASH_VECTOR);
-    for (const target of [pool, bpt, mints[0]]) {
+    for (const target of [pool, lp, mints[0]]) {
       const data = Buffer.from(target.data); data[36] ^= 1;
-      expect(Buffer.from(stateCommitment(target === pool ? { ...pool, data } : pool, target === bpt ? { ...bpt, data } : bpt, target === mints[0] ? [{ ...mints[0], data }] : mints, 17n)).toString("hex")).not.toBe(original);
+      expect(Buffer.from(stateCommitment(target === pool ? { ...pool, data } : pool, target === lp ? { ...lp, data } : lp, target === mints[0] ? [{ ...mints[0], data }] : mints, 17n)).toString("hex")).not.toBe(original);
     }
-    expect(Buffer.from(stateCommitment(pool, bpt, mints, 18n)).toString("hex")).not.toBe(original);
-    expect(Buffer.from(stateCommitment({ ...pool, key: key(12) }, bpt, mints, 17n)).toString("hex")).not.toBe(original);
-    expect(Buffer.from(stateCommitment({ ...pool, owner: key(12) }, bpt, mints, 17n)).toString("hex")).not.toBe(original);
+    expect(Buffer.from(stateCommitment(pool, lp, mints, 18n)).toString("hex")).not.toBe(original);
+    expect(Buffer.from(stateCommitment({ ...pool, key: key(12) }, lp, mints, 17n)).toString("hex")).not.toBe(original);
+    expect(Buffer.from(stateCommitment({ ...pool, owner: key(12) }, lp, mints, 17n)).toString("hex")).not.toBe(original);
   });
 });
 
-function accountsFor(n: number, opts: { bptProgram?: PublicKey; programs?: PublicKey[] } = {}): PlannedZapAccounts {
-  const bptTokenProgram = opts.bptProgram ?? TOKEN_PROGRAM_ID;
+function accountsFor(n: number, opts: { lpProgram?: PublicKey; programs?: PublicKey[] } = {}): PlannedZapAccounts {
+  const lpTokenProgram = opts.lpProgram ?? TOKEN_PROGRAM_ID;
   return {
-    pool: key(1), bptMint: key(2), userBptAccount: key(3), user: key(4), cubicPoolProgram: key(5), bptTokenProgram,
+    pool: key(1), lpMint: key(2), userLpAccount: key(3), user: key(4), cofferPoolProgram: key(5), lpTokenProgram,
     mints: Array.from({ length: n }, (_, i) => key(10 + i)),
     userTokenAccounts: Array.from({ length: n }, (_, i) => key(40 + i)),
     vaults: Array.from({ length: n }, (_, i) => key(70 + i)),
@@ -60,7 +60,7 @@ describe("buildPlannedZapIx", () => {
   const cfg = getConfig("devnet");
 
   test("Anchor wire layout (plan.rs::anchor_wire_layout_contains_exact_u64_budget_and_freshness)", () => {
-    const ix = buildPlannedZapIx(cfg, accountsFor(2), { amountIn: 33n, tokenInIndex: 0, minimumBpt: 7n, plan: plan([11n, 22n]) });
+    const ix = buildPlannedZapIx(cfg, accountsFor(2), { amountIn: 33n, tokenInIndex: 0, minimumLp: 7n, plan: plan([11n, 22n]) });
     expect(ix.programId.equals(cfg.programs.singleTokenLiquidity)).toBe(true);
     expect(ix.data.length).toBe(77 + 2 * 8);
     expect(ix.data.subarray(0, 8).toString("hex")).toBe(PLANNED_ZAP_DISCRIMINATOR_HEX);
@@ -80,17 +80,17 @@ describe("buildPlannedZapIx", () => {
   test("N=10: 157 data bytes, 36 keys with one token program, 37 with two", () => {
     const allocations = Array.from({ length: 10 }, (_, i) => BigInt(i + 1));
     const amountIn = allocations.reduce((a, b) => a + b, 0n);
-    const one = buildPlannedZapIx(cfg, accountsFor(10), { amountIn, tokenInIndex: 0, minimumBpt: 1n, plan: plan(allocations) });
+    const one = buildPlannedZapIx(cfg, accountsFor(10), { amountIn, tokenInIndex: 0, minimumLp: 1n, plan: plan(allocations) });
     expect(one.data.length).toBe(157);
     expect(one.keys).toHaveLength(36);
     const programs = Array.from({ length: 10 }, (_, i) => (i % 2 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID));
-    const two = buildPlannedZapIx(cfg, accountsFor(10, { programs }), { amountIn, tokenInIndex: 0, minimumBpt: 1n, plan: plan(allocations) });
+    const two = buildPlannedZapIx(cfg, accountsFor(10, { programs }), { amountIn, tokenInIndex: 0, minimumLp: 1n, plan: plan(allocations) });
     expect(two.keys).toHaveLength(37);
     expect(two.keys[36].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
-    // The suffix is the program that differs from the BPT program, whichever it is.
-    const flipped = buildPlannedZapIx(cfg, accountsFor(10, { programs, bptProgram: TOKEN_2022_PROGRAM_ID }), { amountIn, tokenInIndex: 0, minimumBpt: 1n, plan: plan(allocations) });
+    // The suffix is the program that differs from the LP program, whichever it is.
+    const flipped = buildPlannedZapIx(cfg, accountsFor(10, { programs, lpProgram: TOKEN_2022_PROGRAM_ID }), { amountIn, tokenInIndex: 0, minimumLp: 1n, plan: plan(allocations) });
     expect(flipped.keys[36].pubkey.equals(TOKEN_PROGRAM_ID)).toBe(true);
-    // Fixed layout: [pool w, bpt w, user_bpt w, user s, program, bpt program] + [mint, user_token w, vault w]×N
+    // Fixed layout: [pool w, lp w, user_lp w, user s, program, lp program] + [mint, user_token w, vault w]×N
     const flags = one.keys.slice(0, 6).map((k) => [k.isWritable, k.isSigner]);
     expect(flags).toEqual([[true, false], [true, false], [true, false], [false, true], [false, false], [false, false]]);
     for (let i = 0; i < 10; i++) {
@@ -101,16 +101,16 @@ describe("buildPlannedZapIx", () => {
   });
 
   test("refuses bad shapes, budgets, programs and tails", () => {
-    const base = { amountIn: 3n, tokenInIndex: 0, minimumBpt: 1n, plan: plan([1n, 2n]) };
+    const base = { amountIn: 3n, tokenInIndex: 0, minimumLp: 1n, plan: plan([1n, 2n]) };
     expect(() => buildPlannedZapIx(cfg, accountsFor(2), { ...base, plan: plan([1n, 1n]) })).toThrow(/sum to amountIn/);
-    expect(() => buildPlannedZapIx(cfg, accountsFor(2), { ...base, minimumBpt: 0n })).toThrow(/minimumBpt/);
+    expect(() => buildPlannedZapIx(cfg, accountsFor(2), { ...base, minimumLp: 0n })).toThrow(/minimumLp/);
     expect(() => buildPlannedZapIx(cfg, accountsFor(2), { ...base, tokenInIndex: 2 })).toThrow(/tokenInIndex/);
     expect(() => buildPlannedZapIx(cfg, accountsFor(1), { ...base, plan: plan([3n]) })).toThrow(/2\.\.10/);
     expect(() => buildPlannedZapIx(cfg, accountsFor(2, { programs: [TOKEN_PROGRAM_ID, pk()] }), base)).toThrow(/token program/);
     const dup = accountsFor(2); dup.mints[1] = dup.mints[0];
     expect(() => buildPlannedZapIx(cfg, dup, base)).toThrow(/duplicate mint/i);
-    const bptAsMint = accountsFor(2); bptAsMint.mints[0] = bptAsMint.bptMint;
-    expect(() => buildPlannedZapIx(cfg, bptAsMint, base)).toThrow(/BPT mint/);
+    const lpAsMint = accountsFor(2); lpAsMint.mints[0] = lpAsMint.lpMint;
+    expect(() => buildPlannedZapIx(cfg, lpAsMint, base)).toThrow(/LP mint/);
     for (const forbidden of [key(1), key(2), key(3), key(4)]) {
       expect(() => buildPlannedZapIx(cfg, { ...accountsFor(2), extraAccounts: [{ pubkey: forbidden, isSigner: false, isWritable: false }] }, base)).toThrow(/core accounts/);
     }
@@ -124,8 +124,8 @@ describe("buildPlannedZapIx", () => {
 
 // ---- Client quote on a synthetic bank snapshot ---------------------------
 
-type State = ContractAccountMap["cubicPool"]["CubicPool"];
-const fields = (name: string) => (IDLS.cubicPool.types.find((t) => t.name === name)!.type as any).fields as { name: string; type: any }[];
+type State = ContractAccountMap["cofferPool"]["CofferPool"];
+const fields = (name: string) => (IDLS.cofferPool.types.find((t) => t.name === name)!.type as any).fields as { name: string; type: any }[];
 function encode(value: any, type: any): Buffer {
   if (type === "pubkey") return value.toBuffer();
   if (type === "bool") return Buffer.from([Number(value)]);
@@ -137,7 +137,7 @@ function encode(value: any, type: any): Buffer {
   if (type.defined) return Buffer.concat(fields(type.defined.name).map((f) => encode(value[f.name], f.type)));
   throw new Error("Unknown fixture type");
 }
-const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cubicPool.accounts[0].discriminator), ...fields("CubicPool").map((f) => encode((state as any)[f.name], f.type))]);
+const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...fields("CofferPool").map((f) => encode((state as any)[f.name], f.type))]);
 function plainMint(decimals: number, supply: bigint): Buffer {
   const b = Buffer.alloc(82); b[44] = decimals; b[45] = 1; b.writeBigUInt64LE(supply, 36); return b;
 }
@@ -159,7 +159,7 @@ function syntheticPool(cfg: ReturnType<typeof getConfig>, address: PublicKey, n:
     pool_enabled: true, swaps_enabled: true, pool_admin: key(3), pending_pool_admin: PublicKey.default, range_manager: PublicKey.default,
     range_manager_enabled: false, range_manager_max_vb_change_pct: 0, range_manager_max_weight_change_pct: 0, range_manager_min_update_interval_secs: 0,
     range_manager_last_updated: bn(0), tokens: Array.from({ length: 10 }, (_, i) => (i < n ? slot(i) : empty())),
-    lookup_table: PublicKey.default, banned_extensions: bn(0), range_manager_max_leverage_bps: 0, range_manager_min_leverage_bps: 0,
+    lookup_table: PublicKey.default, _deprecated_banned_extensions: bn(0), range_manager_max_leverage_bps: 0, range_manager_min_leverage_bps: 0,
     reserved: [0x56, 0x35, 0x4d, 0x31, ...Array(12).fill(0)],
   } as unknown as State;
 }
@@ -169,10 +169,10 @@ function mockClient(n: number, feeIndices: number[] = []) {
   const address = key(1);
   const programs = Array.from({ length: n }, (_, i) => (feeIndices.includes(i) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID));
   const state = syntheticPool(cfg, address, n, programs);
-  const [bptMint] = deriveBptMint(cfg.programs.cubicPool, address);
+  const [lpMint] = deriveLpMint(cfg.programs.cofferPool, address);
   const infos = new Map<string, { data: Buffer; owner: PublicKey; executable: boolean; lamports: number }>();
-  infos.set(address.toBase58(), { data: poolBytes(state), owner: cfg.programs.cubicPool, executable: false, lamports: 1 });
-  infos.set(bptMint.toBase58(), { data: plainMint(9, 1_000_000_000n), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
+  infos.set(address.toBase58(), { data: poolBytes(state), owner: cfg.programs.cofferPool, executable: false, lamports: 1 });
+  infos.set(lpMint.toBase58(), { data: plainMint(9, 1_000_000_000n), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
   for (let i = 0; i < n; i++) infos.set(key(100 + i).toBase58(), { data: feeIndices.includes(i) ? feeMint(6, 100, 10_000n) : plainMint(6, 0n), owner: programs[i], executable: false, lamports: 1 });
   const clock = Buffer.alloc(40); clock.writeBigUInt64LE(445_105_299n, 0); clock.writeBigUInt64LE(1030n, 16); clock.writeBigInt64LE(1_788_799_999n, 32);
   infos.set(SYSVAR_CLOCK_PUBKEY.toBase58(), { data: clock, owner: key(55), executable: false, lamports: 1 });
@@ -184,7 +184,7 @@ function mockClient(n: number, feeIndices: number[] = []) {
     getSlot: async () => 445_105_299,
   }) as any });
   const client = new PlannedZapClient({ config: cfg, poolAddress: address, rpc });
-  return { cfg, client, address, bptMint, infos, calls, state, programs };
+  return { cfg, client, address, lpMint, infos, calls, state, programs };
 }
 
 describe("PlannedZapClient.quote", () => {
@@ -199,16 +199,16 @@ describe("PlannedZapClient.quote", () => {
     expect(q.plan.validUntilSlot).toBe(445_105_399n);
     expect(q.chainEpoch).toBe(1030n);
     expect(q.contextSlot).toBe(445_105_299);
-    expect(Buffer.from(q.plan.expectedState)).toEqual(Buffer.from(stateCommitment(q.snapshots.pool, q.snapshots.bptMint, q.snapshots.mints, 1030n)));
-    expect(q.estimatedBpt.toString()).toBe(q.economics.bpt.toString());
-    expect(q.minimumBpt.toString()).toBe(((q.economics.bpt * 9900n) / 10_000n).toString());
+    expect(Buffer.from(q.plan.expectedState)).toEqual(Buffer.from(stateCommitment(q.snapshots.pool, q.snapshots.lpMint, q.snapshots.mints, 1030n)));
+    expect(q.estimatedLp.toString()).toBe(q.economics.lp.toString());
+    expect(q.minimumLp.toString()).toBe(((q.economics.lp * 9900n) / 10_000n).toString());
     expect(q.expectedOuts[0].isZero()).toBe(true);
     expect(q.expectedOuts.slice(1).every((o) => o.gt(bn(0)))).toBe(true);
     // The quote is an exact replay of its own plan.
     const again = replay(q.quotePool, 0, 50_000_000n, q.plan.allocations);
-    expect(again.bpt).toBe(q.economics.bpt);
+    expect(again.lp).toBe(q.economics.lp);
     expect(q.layout.vaults[1].equals(deriveAta(m.address, key(101), TOKEN_PROGRAM_ID))).toBe(true);
-    expect(q.layout.bptMint.equals(m.bptMint)).toBe(true);
+    expect(q.layout.lpMint.equals(m.lpMint)).toBe(true);
   });
 
   test("nowSeconds re-prices the window but never the signed quotedAt", async () => {
@@ -250,23 +250,23 @@ describe("PlannedZapClient.quote", () => {
     expect(atas).toHaveLength(4);
   });
 
-  test("validation: index, amount, validity, sidelined input, disabled pool, unseeded supply, BPT with extensions", async () => {
+  test("validation: index, amount, validity, sidelined input, disabled pool, unseeded supply, LP with extensions", async () => {
     const m = mockClient(2);
     expect((await m.client.quote(2, 1n)).ok).toBe(false);
     expect((await m.client.quote(0, 0n)).ok).toBe(false);
     expect((await m.client.quote(0, 1n, { validForSlots: 151 })).ok).toBe(false);
     const sidelined = mockClient(2); sidelined.state.tokens[0].dynamics.actual_balance = bn(0);
-    sidelined.infos.set(sidelined.address.toBase58(), { data: poolBytes(sidelined.state), owner: sidelined.cfg.programs.cubicPool, executable: false, lamports: 1 });
+    sidelined.infos.set(sidelined.address.toBase58(), { data: poolBytes(sidelined.state), owner: sidelined.cfg.programs.cofferPool, executable: false, lamports: 1 });
     const r = await sidelined.client.quote(0, 1_000n);
     expect(r.ok).toBe(false);
     const disabled = mockClient(2); disabled.state.pool_enabled = false;
-    disabled.infos.set(disabled.address.toBase58(), { data: poolBytes(disabled.state), owner: disabled.cfg.programs.cubicPool, executable: false, lamports: 1 });
+    disabled.infos.set(disabled.address.toBase58(), { data: poolBytes(disabled.state), owner: disabled.cfg.programs.cofferPool, executable: false, lamports: 1 });
     const d = await disabled.client.quote(0, 1_000n);
     expect(!d.ok && d.error.code).toBe("pool_disabled");
-    const unseeded = mockClient(2); unseeded.infos.set(unseeded.bptMint.toBase58(), { data: plainMint(9, 0n), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
+    const unseeded = mockClient(2); unseeded.infos.set(unseeded.lpMint.toBase58(), { data: plainMint(9, 0n), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
     expect((await unseeded.client.quote(0, 1_000n)).ok).toBe(false);
-    const extBpt = mockClient(2); extBpt.infos.set(extBpt.bptMint.toBase58(), { data: feeMint(9, 0, 0n), owner: TOKEN_2022_PROGRAM_ID, executable: false, lamports: 1 });
-    const e = await extBpt.client.quote(0, 1_000n);
+    const extLp = mockClient(2); extLp.infos.set(extLp.lpMint.toBase58(), { data: feeMint(9, 0, 0n), owner: TOKEN_2022_PROGRAM_ID, executable: false, lamports: 1 });
+    const e = await extLp.client.quote(0, 1_000n);
     expect(!e.ok && e.error.code).toBe("unsupported_token_extension");
   });
 
@@ -286,7 +286,7 @@ describe("transaction budget", () => {
     const ix = m.client.buildIx(res.data, user);
     const accounts = m.client.accountsFor(res.data, user);
     const table = (key: PublicKey, addresses: PublicKey[]) => new AddressLookupTableAccount({ key, state: { deactivationSlot: (1n << 64n) - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: user, addresses } });
-    const poolAlt = table(pk(), [accounts.pool, accounts.bptMint, accounts.cubicPoolProgram, accounts.bptTokenProgram, ...accounts.mints, ...accounts.vaults, ...accounts.tokenPrograms]);
+    const poolAlt = table(pk(), [accounts.pool, accounts.lpMint, accounts.cofferPoolProgram, accounts.lpTokenProgram, ...accounts.mints, ...accounts.vaults, ...accounts.tokenPrograms]);
     const walletAlt = table(pk(), m.client.walletLookupAddresses(res.data, user));
     const compiled = compilePlannedZapTransaction({ payer: user, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [poolAlt, walletAlt] });
     expect(compiled.wireBytes + compiled.walletReserve).toBeLessThanOrEqual(1232);

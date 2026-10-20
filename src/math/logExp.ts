@@ -1,4 +1,4 @@
-/** Exact integer port of cubic-pool log_exp_math.rs (audit-fixes-excluded-SF). */
+/** Exact integer port of coffer-pool log_exp_math.rs (audit-fixes-excluded-SF). */
 import { ONE, assertI128, assertU128, mulDivDown } from "./fixedPoint";
 export const MAX_NATURAL_EXPONENT = 46000000000000000000n;
 export const MIN_NATURAL_EXPONENT = -41000000000000000000n;

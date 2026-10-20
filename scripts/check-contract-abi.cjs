@@ -10,7 +10,7 @@ if (arg < 0 || !process.argv[arg + 1]) {
 }
 const contracts = path.resolve(process.argv[arg + 1]);
 const sdk = path.resolve(__dirname, '..');
-const names = ['cubic_pool', 'protocol_admin', 'single_token_liquidity'];
+const names = ['coffer_pool', 'protocol_admin', 'single_token_liquidity'];
 const result = [];
 for (const name of names) {
   const actual = JSON.parse(fs.readFileSync(path.join(sdk, 'src/idl', `${name}.json`), 'utf8'));

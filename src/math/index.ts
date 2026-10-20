@@ -1,6 +1,6 @@
 export * from "./fixedPoint";
 export * from "./logExp";
-export * from "./cubicMath";
+export * from "./poolMath";
 export * from "./weightedMath";
 export * from "./singleToken";
 export * from "./slippage";

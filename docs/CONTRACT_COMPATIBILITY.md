@@ -1,15 +1,19 @@
 # Contract compatibility: v6
 
-Target: `contracts/v6`, commit `7d753b3` (`feat: allow swap and protocol fee
-rates anywhere in 0..=100%`). v6 is deployed as SEPARATE programs next to v5
+Target: `contracts` v6.1 — `contracts/v6` commit `7d753b3` (`feat: allow swap
+and protocol fee rates anywhere in 0..=100%`) plus T19 (Token-2022 extension
+policy removed: `set_banned_extensions`, `pool_set_banned_extensions`, their
+events and the `initialize_pool` override argument are gone) and T18 (BPT → LP,
+Cubic → Coffer rename; `initialize_cubic_pool` → `initialize_pool` with a new
+discriminator, everything else wire-identical). v6 is deployed as SEPARATE programs next to v5
 (mainnet since 2026-10; v5 `main` 0.5.1 keeps running and is tracked by
-`@coffer_so/sdk` 1.x). A pool belongs to the generation whose cubic_pool owns
+`@coffer_so/sdk` 1.x). A pool belongs to the generation whose coffer_pool owns
 its account — drive it with that generation's SDK.
 
 | Program | Instructions | Events | mainnet | devnet (2026-10-10) | localnet (`anchor build` declare_id) |
 | --- | ---: | ---: | --- | --- | --- |
-| cubic_pool | 28 | 30 | `6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9` | `Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1` | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` |
-| protocol_admin | 29 | 28 | `6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck` | `FPwMrsxYpgJsZRCTKJadP97AsNX1WwFBZwBbzTDcYmjU` | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` |
+| coffer_pool | 27 | 29 | `6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9` | `Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1` | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` |
+| protocol_admin | 28 | 27 | `6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck` | `FPwMrsxYpgJsZRCTKJadP97AsNX1WwFBZwBbzTDcYmjU` | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` |
 | single_token_liquidity | 4 | 3 | not deployed (reserved `Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy`) | `4Rk88MtVT6CjB5e2EPbzQ4Qs6zKtSFgVZYE79SVenVko` | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` |
 
 Protocol accounts: mainnet treasury `BaUyw2zVZx8TGCMDZtQKQxq2S9LCCzNubg8tNKWqh9yv`,
@@ -27,11 +31,11 @@ deployed by `contracts/scripts/run-v6-local.sh`.
 
 | v6 | SDK |
 | --- | --- |
-| Account layouts unchanged (`CubicPool` 1683 bytes); `migrate_to_v5` stamps `"V5M1"` into `reserved[0..4]` and is guarded (`UnsafeLegacyMigration`) | same decoders; `RawPoolAccount.v5Migrated`, `PoolInfo.v5Migrated` |
+| Account layouts unchanged (`CofferPool` 1683 bytes); `migrate_to_v5` stamps `"V5M1"` into `reserved[0..4]` and is guarded (`UnsafeLegacyMigration`) | same decoders; `RawPoolAccount.v5Migrated`, `PoolInfo.v5Migrated` |
 | Events appended: `Swap.transfer_fee_in/out`, `PoolInitialized.pool_id`, `RangeManagerConfigSet.old/new_min_leverage_bps`; new `SingleTokenDepositDirect` | typed fields, new decoder; legacy `SingleTokenDeposit` kept for history |
 | Token-2022: every transfer is `transfer_checked`; transfer fees netted on both legs; armed hooks and memo-requiring destinations served from a remaining-account tail | quotes net fees; `transferProfile.ts` resolves the tail; `extraAccounts` on swap/add/remove builders |
 | Fee ceilings 100 % | `MAX_SWAP_FEE_RATE = SWAP_FEE_PRECISION`, `MAX_PROTOCOL_FEE_RATE = PROTOCOL_FEE_PRECISION` |
-| Join/exit rounding: `calc_deposit_credit` (ceil), `virtual_balance_after_deposit` (ceil), `virtual_balance_after_withdrawal` (floor, ≥ 1), `calc_effective_bpt_burn`; equal weights skip ln/exp | `cubicMath.ts` ports; quotes rewritten |
+| Join/exit rounding: `calc_deposit_credit` (ceil), `virtual_balance_after_deposit` (ceil), `virtual_balance_after_withdrawal` (floor, ≥ 1), `calc_effective_lp_burn`; equal weights skip ln/exp | `poolMath.ts` ports; quotes rewritten |
 | Sell-off window: `rescale_window_on_vb_change` + `rebase_snapshot` on the output leg of swaps, every leg of join/exit and manager updates; rotation carry rounds up | `maxSelloff.ts` ports; `swapSim.ts` applies them |
 | Surge: `calc_surge_fee_rate` (1e18 trapezoids, fill ratio rounded up) + `calc_surge_fee_amount` (4 segments, one ceil) | `surgeFee.ts` port |
 | Admin: `collect_protocol_fees`/`debug_withdraw` take `[vault, recipient, mint, token_program]` per token + tail; protocol-admin `withdraw` takes `mint` | `AdminClient` |
@@ -62,7 +66,7 @@ The generic API does not supply authority signatures or waive contract checks.
 [State mapping](STATE_FIELDS.md) documents every pool/config/Treasury field, including
 the distinction between operational `PoolInfo` and the full raw ABI.
 
-`decodeContractAccount` decodes CubicPool, CubicPoolConfig and Treasury with exact
+`decodeContractAccount` decodes CofferPool, CofferPoolConfig and Treasury with exact
 IDL field names. Verify the RPC account owner before decoding.
 `parseContractEvents` returns `{ program, kind, data }` for every declared event,
 preserving BN values and exact field names. Verify transaction success and the
@@ -72,7 +76,7 @@ emitting program before indexing logs. The existing camelCase event API remains.
 
 - `sync()` loads the pool state, every mint's decimals, extensions, transfer-fee
   schedule (selected for the Clock epoch), armed hook program and pause flag,
-  the BPT token-program owner, and the Solana Clock slot/epoch/timestamp.
+  the LP token-program owner, and the Solana Clock slot/epoch/timestamp.
   Layout v3 (1154 bytes) is rejected explicitly.
 - Token policy (`utils/extensions.ts`): only `NonTransferable` mints, the
   Token-2022 native mint and extension types newer than the program knows are
@@ -92,14 +96,14 @@ emitting program before indexing logs. The existing camelCase event API remains.
   `ceil(actual · ratio)` and debits that credit grossed up by the inverse
   transfer fee. It reports `chargedAmounts` (= `depositAmounts`),
   `creditedAmounts`, `transferFees`, `unspentAmounts` (= `refundAmounts`),
-  `virtualBalancesAfter`, `bptOut` and `minimumBptAmount`. A credit above the
+  `virtualBalancesAfter`, `lpOut` and `minimumLpAmount`. A credit above the
   net ceiling or a gross-up above the ceiling is an error, not a quote.
-  `quoteSeedDeposit` credits the net amounts and prices BPT on them.
-- `quoteRemove` applies `calc_effective_bpt_burn`, floors the proportional
+  `quoteSeedDeposit` credits the net amounts and prices LP on them.
+- `quoteRemove` applies `calc_effective_lp_burn`, floors the proportional
   payouts, withholds each leg's transfer fee (`receivedAmounts`) and reports the
   post-exit virtual balances. Derive `minimumTokenAmounts` from `receivedAmounts`.
 - Hook/memo tails: `resolveSwapExtraAccounts`, `resolveAddLiquidityExtraAccounts`,
-  `resolveRemoveLiquidityExtraAccounts` (or the `CubicPoolClient.resolve*`
+  `resolveRemoveLiquidityExtraAccounts` (or the `CofferPoolClient.resolve*`
   wrappers) return the `AccountMeta[]` to pass as `extraAccounts`. Classic
   pools resolve to `[]` without an RPC read. A hook that needs an extra signer
   or one of the instruction's core accounts is outside the supported profile.
@@ -109,7 +113,7 @@ emitting program before indexing logs. The existing camelCase event API remains.
 Quotes use the synced state and Clock timestamp; swap and planned-zap quotes
 accept an explicit `nowSeconds` for an anticipated execution time. Other trades,
 window rotation or admin updates before execution can change the result. Always
-use the final minimum output/BPT amount and refresh the snapshot when needed.
+use the final minimum output/LP amount and refresh the snapshot when needed.
 
 Compatibility checks are not a security audit of the contracts.
 
