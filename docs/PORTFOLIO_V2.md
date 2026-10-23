@@ -275,7 +275,9 @@ if (res.ok) {
 Series for the chart card tabs. Requires auth. `options = { pool? }`
 narrows `pnl` / `il` to a single position — the expanded row of the
 positions table; `all` then starts at the first activity in that pool
-instead of spanning at least a year. Rejected for `networth` / `xp`.
+instead of spanning at least a year. Rejected for `networth` / `xp`. The
+response echoes the filter as `pool`; a pool the wallet never touched
+returns a flat zero series (no error).
 **Returns:** `SdkResult<PortfolioChartResponse>`
 
 ### `client.getPortfolioActivity(options?)`

@@ -566,6 +566,12 @@ export type PortfolioChartRange = "24h" | "1w" | "1m" | "1y" | "all";
 export interface PortfolioChartResponse {
   metric: PortfolioChartMetric;
   range: PortfolioChartRange;
+  /**
+   * Echo of `options.pool` when the chart was narrowed to one position —
+   * match a response to the positions-table row it belongs to. Absent on
+   * whole-portfolio charts.
+   */
+  pool?: string;
   /** Distance between series/line points, seconds. */
   granularitySec: number;
   /**
