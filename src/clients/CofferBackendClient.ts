@@ -1397,12 +1397,19 @@ export class CofferBackendClient {
    *
    * `all` range spans at least one year even for recent users, so it is
    * never shorter than `1y`.
+   *
+   * `options.pool` narrows `pnl` / `il` to that single position (the
+   * expanded row of the positions table); `all` then starts at the first
+   * activity in that pool, without the one-year floor. The backend rejects
+   * it for `networth` / `xp`.
    */
   getPortfolioChart(
     metric: PortfolioChartMetric,
     range: PortfolioChartRange,
+    options?: { pool?: string },
   ): Promise<SdkResult<PortfolioChartResponse>> {
     const qs = new URLSearchParams({ metric, range });
+    if (options?.pool) qs.set("pool", options.pool);
     return this.get<PortfolioChartResponse>(
       `/api/portfolio/v2/chart?${qs.toString()}`,
     );

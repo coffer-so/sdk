@@ -261,7 +261,7 @@ if (res.ok) {
 
 | Data | Freshness |
 |---|---|
-| Chart response | Cached 90 s per (wallet, metric, range) |
+| Chart response | Cached 90 s per (wallet, metric, range, pool) |
 | Price series behind networth/pnl | Shared across users, cached 10 min |
 | Activity feed | Cached 30 s per wallet |
 | Token holdings | Cached 30 s per wallet (wallet balances 30 s, pool state ≤5 min) |
@@ -271,8 +271,11 @@ if (res.ok) {
 
 ## API Reference
 
-### `client.getPortfolioChart(metric, range)`
-Series for the chart card tabs. Requires auth.
+### `client.getPortfolioChart(metric, range, options?)`
+Series for the chart card tabs. Requires auth. `options = { pool? }`
+narrows `pnl` / `il` to a single position — the expanded row of the
+positions table; `all` then starts at the first activity in that pool
+instead of spanning at least a year. Rejected for `networth` / `xp`.
 **Returns:** `SdkResult<PortfolioChartResponse>`
 
 ### `client.getPortfolioActivity(options?)`
