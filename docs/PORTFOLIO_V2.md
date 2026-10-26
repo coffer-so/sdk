@@ -68,27 +68,30 @@ move excluded).
 **`pnl` fixation semantics:** every EXIT is a profit-fixation moment —
 a withdrawal fixes `received USD − capital share`, a wallet transfer-out
 fixes `amount × LP price at that moment − capital share`. Fixed profit
-stays in the series (cumulative within the selected range), so the line
+stays in the series (every past fixation, not only the range's — the
+line is a LIFETIME level and a month is a zoomed slice of the year), so the line
 is CONTINUOUS at exits — profit moves from unrealized to realized
 instead of vanishing. Deposits/zaps/received transfers move value and
 capital together — no fake jumps on top-ups either. A position that was
 fully closed inside the range still shows its whole trajectory and the
 profit it locked in (not a flat zero).
 
-**`il` two lines:** `lines.profit` is cumulative LP fees earned inside
-the selected range (≥ 0, draw green), `lines.il` is the impermanent loss
-as a POSITIVE magnitude (≥ 0, draw red — the red colour already conveys
-"loss", so no minus sign), both on the same grid. IL is evaluated at every
+**`il` two lines (LIFETIME levels):** `lines.profit` is the LP fees the
+positions earned since their first deposit, as of each point (≥ 0, draw
+green); `lines.il` is the impermanent loss as a POSITIVE magnitude (≥ 0,
+draw red — the red colour already conveys "loss", so no minus sign): the
+divergence locked by every past withdrawal plus the open position's, as
+of each point. Both on the same grid, and the selected range only changes
+which slice you see — a month is a zoomed piece of the year. IL is evaluated at every
 point from historical prices: the HODL value of the deposited basket minus
 the position's value with its reinvested fees taken out — the same formula
 the positions table uses for its `il` column, so the last point of the red
 line matches the table and fees are never counted twice. Divergence locked
-in by a withdrawal stays on the line (a position closed inside the range
-still draws its whole trajectory). Reading the gap between the lines is
-the point — when green outweighs red, LPing beat holding. `current` and
-`change` report the NET (`profit − il`, the bottom line vs HODL), so the
-headline stays a single honest number that can be negative. There is no
-`series` for this metric.
+in by a withdrawal stays on the line forever. Reading the gap between the
+lines is the point — when green outweighs red, LPing beat holding.
+`current` is the lifetime NET (`profit − il` at the last point, the bottom
+line vs HODL) and `change` is how much that net moved over the selected
+range — the same split as `xp`. There is no `series` for this metric.
 
 **`xp` is cumulative:** each point is the user's total XP as of that
 moment — a monotonic, never-decreasing line (draw as an area/line, not
@@ -110,7 +113,7 @@ amounts are frozen at the oldest known values; for `pnl` — a position
 that predates the range and was fully closed inside it; for `il` — a
 basis token with no price history (valued flat at today's price), a
 position snapshot older than an LP event, an exit that could not be
-priced, or a position closed inside the range that predates it).
+priced, or pre-range history that could not be reconstructed exactly).
 Optionally show a subtle "approximate" hint.
 
 **`change.pct: null`** means the percentage is undefined — the range

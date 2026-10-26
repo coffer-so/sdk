@@ -609,7 +609,8 @@ export interface PortfolioChartResponse {
    * `il` metric ONLY: two lines to draw on the same chart, both
    * [unixSeconds, value] ascending on a shared grid, BOTH as POSITIVE
    * magnitudes.
-   * - `profit`: cumulative LP fees earned (≥ 0, draw green).
+   * - `profit`: LP fees earned since the position's first deposit, as of
+   *   each point — a LIFETIME level, not a per-range sum (≥ 0, draw green).
    * - `il`: impermanent loss as a positive number (≥ 0, draw red) — the
    *   red line already means "loss", so it carries no minus sign. Same
    *   formula as the positions table's `il` (HODL value of the deposited
