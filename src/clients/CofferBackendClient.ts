@@ -201,7 +201,39 @@ export interface CampaignPrizeTier {
   usd: number;
 }
 
-export interface CampaignInfoResponse {
+/** A pool a campaign is restricted to, with its display name (for links). */
+export interface CampaignPoolRef {
+  address: string;
+  name: string;
+}
+
+/** Flat prize split EQUALLY among every wallet whose swap volume in the window reaches `minVolumeUsd`. */
+export interface CampaignBonus {
+  minVolumeUsd: number;
+  usd: number;
+}
+
+/**
+ * Campaign rules beyond the prize tiers (backend ≥ 2026-10-27; absent on
+ * older backends — treat as a plain campaign). Shared by the live info,
+ * the history list and the frozen snapshot header.
+ */
+export interface CampaignRules {
+  /** Display name; derive one from the slug when null. */
+  title?: string | null;
+  /** Only swaps in these pools count. Null = every pool. */
+  pools?: CampaignPoolRef[] | null;
+  /**
+   * No opt-in: every wallet that swapped in the campaign's pools is a
+   * participant (`joinCampaign` is a no-op, `getCampaignStatus` always
+   * answers `participating: true`, `joinedAt` = its first qualifying swap).
+   */
+  openEntry?: boolean;
+  /** Paid on top of the place prizes; already included in snapshot `prizeUsd`. */
+  bonus?: CampaignBonus | null;
+}
+
+export interface CampaignInfoResponse extends CampaignRules {
   campaign: string;
   startsAt: string;
   endsAt: string;
@@ -303,7 +335,7 @@ export interface EpochSnapshotUser {
   totalUsers: number;
 }
 
-export interface CampaignHistoryEntry {
+export interface CampaignHistoryEntry extends CampaignRules {
   campaign: string;
   startsAt: string;
   endsAt: string;
@@ -333,7 +365,7 @@ export interface CampaignSnapshotTopEntry {
   joinedAt: string;
 }
 
-export interface CampaignSnapshotTopResponse {
+export interface CampaignSnapshotTopResponse extends CampaignRules {
   campaign: string;
   startsAt: string;
   /** Inclusive. */
@@ -594,6 +626,8 @@ export interface PortfolioChartResponse {
    * LP event, or an exit that could not be priced.
    */
   approximate: boolean;
+  /** Why `approximate` is set — one human line per cause. Absent when exact. */
+  approximateReasons?: string[];
   /**
    * The single line, [unixSeconds, value] pairs ascending — for
    * `networth`, `pnl` and `xp`. ABSENT for `il`, which returns two
