@@ -23,7 +23,7 @@ const history = await client.getCampaignHistory();
 // [{ campaign, ended, finalized, finalizedAt, prizes, totalRanked, ... }] newest first
 // Since 1.4.2 every entry (and the live info / frozen header) also carries the
 // campaign's rules: `title`, `pools` [{ address, name }] (null = every pool),
-// `openEntry` (no join needed) and `bonus` { minVolumeUsd, usd } (null = none).
+// `openEntry` (no join needed) and `bonus` { usd, minVolumeUsd?, minActiveDays? } (null = none).
 
 // Final standings with prizes already resolved per row
 const top = await client.getCampaignSnapshotTop("swap-xp-2", page, 10);

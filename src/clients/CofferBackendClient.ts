@@ -207,10 +207,16 @@ export interface CampaignPoolRef {
   name: string;
 }
 
-/** Flat prize split EQUALLY among every wallet whose swap volume in the window reaches `minVolumeUsd`. */
+/**
+ * Flat prize split EQUALLY among every wallet that meets the threshold(s):
+ * swap volume in the window (`minVolumeUsd`) and/or swaps on at least
+ * `minActiveDays` distinct campaign days (24-hour slots from `startsAt`).
+ * Both present = both required; at least one is set.
+ */
 export interface CampaignBonus {
-  minVolumeUsd: number;
   usd: number;
+  minVolumeUsd?: number | null;
+  minActiveDays?: number | null;
 }
 
 /**
@@ -262,6 +268,8 @@ export interface CampaignRankResponse {
   place: number | null;
   swapXp: number;
   swapVolumeUsd: number;
+  /** Distinct 24-hour campaign days with a qualifying swap (backend ≥ 2026-10-28; absent before). */
+  activeDays?: number;
   /** Size of the ranked table — for "you are N of M" UI. */
   totalRanked: number;
 }
