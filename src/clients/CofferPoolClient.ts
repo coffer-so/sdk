@@ -1,11 +1,11 @@
-import { simulatePoolSwap, quoteTimestamp, swapLegOf, u64 } from "./quote-math";
+import { simulatePoolSwap, quoteTimestamp, swapLegOf, u64, hasDynamicFeeHook, hookPaused, tokenSurgeBucket, pendingActionsStatusOf, PendingActionsStatus } from "./quote-math";
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { PublicKey, Commitment, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
 import BN from "bn.js";
 import { CofferConfig } from "../config";
 import { PoolInfo, PoolTokenInfo } from "../types/pool";
 import { SdkResult, err, ok } from "../types/result";
-import { AddLiquidityQuote, PlannedZapQuoteOptions, RemoveLiquidityQuote, SwapQuote } from "../types/tx";
+import { AddLiquidityQuote, LpPriceQuote, PlannedZapQuoteOptions, RemoveLiquidityQuote, SwapFeeSource, SwapQuote, SwapQuoteOptions } from "../types/tx";
 import { CofferPoolEvent } from "../types/events";
 import { RpcClient } from "./RpcClient";
 import { decodePoolAccount, RawPoolAccount } from "../parsers/poolAccount";
@@ -16,25 +16,28 @@ import { resolveKnownToken } from "../config/tokens";
 import { describeUnsupportedToken, isTokenTransferable, unsupportedMintExtensions } from "../utils/extensions";
 import { grossOfTransferFee, netOfTransferFee, selectEpochFee, transferFeeOf } from "../math/transferFee";
 import {
-  calcLpOutGivenExactTokensIn,
-  calcDepositCredit,
   calcEffectiveLpBurn,
   calcJoinRatioAndLp,
   calcTokensOutGivenLpIn,
   virtualBalanceAfterDeposit,
   virtualBalanceAfterWithdrawal,
 } from "../math/poolMath";
-import { divDown, mulDown } from "../math/fixedPoint";
-import { calculateInvariant } from "../math/weightedMath";
-import { rescaleWindowOnVbChange, computeSelloffWindow, projectSelloffWindow, SelloffWindowStatus } from "../math/maxSelloff";
+import { divDown } from "../math/fixedPoint";
+import { navBalances, splitDepositCredit, splitExitPayout } from "../math/surgeBucket";
+import { applyDepositFee, lpBurnNetOfWithdrawFee } from "../math/liquidityFee";
+import { lpPositionValue, lpPriceUsd } from "../math/lpPrice";
+import { rescaleWindowOnVbChange, computeSelloffWindow, SelloffWindowStatus } from "../math/maxSelloff";
 import { calcSurgeFeePct } from "../math/surgeFee";
 import { applySlippage, priceImpactHbps } from "../math/slippage";
-import { MIN_LP_SUPPLY, PERCENT_SCALE, SWAP_FEE_PRECISION } from "../config";
+import { DEFAULT_INITIAL_LP_SUPPLY, LIQUIDITY_FEE_LOCK_FROZEN, MAX_INITIAL_LP_SUPPLY, MAX_SWAP_FEE_RATE, MIN_INITIAL_LP_SUPPLY, PERCENT_SCALE, SWAP_FEE_PRECISION } from "../config";
 import {
   buildAddLiquidityTx,
+  buildFundSidelinedTokenTx,
   buildRemoveLiquidityTx,
+  buildSeedLiquidityTx,
   buildSwapTx,
 } from "./tx-builders";
+import type { FundSidelinedTokenParams, HookedParams, SeedLiquidityParams, TxBuildOptionsV61 } from "../types/tx-v61";
 import {
   AddLiquidityParams,
   BuiltTx,
@@ -195,6 +198,12 @@ export class CofferPoolClient {
         transferHookProgram:
           mintAcc.transferHook && !mintAcc.transferHook.programId.equals(PublicKey.default) ? mintAcc.transferHook.programId : null,
         paused: mintAcc.pausableConfig?.paused ?? false,
+        // v6.1 appended state (defaults on an unmigrated 1683-byte pool).
+        pinnedDecimals: raw.layoutVersion > 0 ? raw.tokenDecimals[i] : undefined,
+        pinnedDecimalsMismatch: raw.layoutVersion > 0 && raw.tokenDecimals[i] !== mintAcc.decimals,
+        creatorFeesOwed: raw.creatorFeesOwed[i],
+        surgeFeesOwed: raw.surgeFeesOwed[i],
+        sidelined: actualBalance.isZero(),
       });
     }
 
@@ -230,6 +239,36 @@ export class CofferPoolClient {
       rangeManagerMaxLeverageBps: raw.rangeManagerMaxLeverageBps,
       rangeManagerMinLeverageBps: raw.rangeManagerMinLeverageBps,
       syncedAt: Date.now(),
+      // ── v6.1 ──
+      dataLen: raw.dataLen,
+      layoutVersion: raw.layoutVersion,
+      needsLayoutMigration: raw.layoutVersion === 0,
+      tokenDecimals: raw.tokenDecimals.slice(0, n),
+      creatorFeeBps: raw.creatorFeeBps,
+      creatorFeesOwed: raw.creatorFeesOwed.slice(0, n),
+      surgeFeesOwed: raw.surgeFeesOwed.slice(0, n),
+      depositFeeBps: raw.depositFeeBps,
+      withdrawFeeBps: raw.withdrawFeeBps,
+      liquidityFeeLock: raw.liquidityFeeLock,
+      liquidityFeesLocked: (raw.liquidityFeeLock & LIQUIDITY_FEE_LOCK_FROZEN) !== 0,
+      rangeManagerLocked: raw.rangeManagerLocked,
+      poolAdminDelaySecs: raw.poolAdminDelaySecs,
+      poolAdminEpoch: raw.poolAdminEpoch,
+      pendingPoolAdminEta: raw.pendingPoolAdminEta,
+      pendingActions: raw.pendingActions,
+      pendingActionsMask: raw.pendingActionsMask,
+      hook: raw.hookProgram.equals(PublicKey.default) ? null : {
+        program: raw.hookProgram,
+        flags: raw.hookFlags,
+        disabled: raw.hookDisabled !== 0,
+        active: raw.hookDisabled === 0,
+        feeMin: raw.hookFeeMin,
+        feeMax: raw.hookFeeMax,
+        maxCu: raw.hookMaxCu,
+        accountsLen: raw.hookAccountsLen,
+      },
+      layoutDrift: raw.layoutDrift,
+      lpMetadata: lpMintAcc.tokenMetadata,
     };
     this.cache = info;
     this.rawAccount = raw;
@@ -239,24 +278,52 @@ export class CofferPoolClient {
   // ---------- Quote helpers (pure, require sync()) ----------
 
   /**
-   * Quote a swap. Requires the cache to be populated (call `sync()` first).
-   * Returns exact on-chain math result + spot bound + price impact +
-   * slippage-derived minAmountOut.
+   * Quote a swap (v6.1 `swap.rs`). Requires the cache to be populated
+   * (call `sync()` first). Returns the exact on-chain math — the T15/T14
+   * fee cascade (`protocol` / `creator` / `lp` shares of both the base fee
+   * and the surge), the T12 surge-bucket credit — plus the spot bound, the
+   * price impact and the slippage-derived `minAmountOut`.
+   *
+   * Positional form `(in, out, amountIn, slippage?, nowSeconds?, options?)`
+   * or `(in, out, amountIn, { slippageHundredthsBps, nowSeconds, hookFeeOverride })`.
+   *
+   * Dynamic-fee hooks (T9): when the pool's hook is active with
+   * `DYNAMIC_FEE` and no `hookFeeOverride` is supplied, the quote runs at
+   * the base `swapFeeRate` and reports `feeSource: "hook_dynamic_unknown"`
+   * — the program will run the cascade on whatever the hook returns
+   * (clamped into `[hook.feeMin, hook.feeMax]`). Read the real rate from a
+   * `simulateTransaction` `Swap.effective_fee_rate` log, or replicate the
+   * hook's rule off chain, and re-quote with `hookFeeOverride`.
+   *
+   * A sidelined output slot (`actualBalance == 0`, T10) is a typed
+   * `no_liquidity` error — the program reverts with `InsufficientLiquidity`.
    */
   quoteSwap(
     tokenInIndex: number,
     tokenOutIndex: number,
     amountIn: BN,
-    slippageHundredthsBps?: number,
-    nowSeconds?: number
+    slippageOrOptions?: number | SwapQuoteOptions,
+    nowSeconds?: number,
+    options: SwapQuoteOptions = {}
   ): SdkResult<SwapQuote> {
+    const opts: SwapQuoteOptions = typeof slippageOrOptions === "object" && slippageOrOptions !== null
+      ? { ...slippageOrOptions }
+      : { ...options, slippageHundredthsBps: slippageOrOptions ?? options.slippageHundredthsBps, nowSeconds: nowSeconds ?? options.nowSeconds };
     const pool = this.requireCache();
     if (!pool.ok) return pool;
     const unsupported = this.requireSupported([tokenInIndex, tokenOutIndex], "swap");
     if (!unsupported.ok) return unsupported;
-    const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
+    const slip = opts.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
+    const dynamic = hasDynamicFeeHook(pool.data);
+    if (opts.hookFeeOverride !== undefined) {
+      if (!Number.isSafeInteger(opts.hookFeeOverride) || opts.hookFeeOverride < 0 || opts.hookFeeOverride > MAX_SWAP_FEE_RATE) {
+        return err("invalid_input", `hookFeeOverride must be an integer in 0..=${MAX_SWAP_FEE_RATE} (hundredths of bps)`);
+      }
+      if (!dynamic) return err("invalid_input", "hookFeeOverride given but the pool has no active DYNAMIC_FEE hook; the program runs the cascade on swapFeeRate");
+    }
+    const feeSource: SwapFeeSource = opts.hookFeeOverride !== undefined ? "hook_override" : dynamic ? "hook_dynamic_unknown" : "pool";
     try {
-      const q = simulatePoolSwap(pool.data, tokenInIndex, tokenOutIndex, BigInt(amountIn.toString()), quoteTimestamp(pool.data, nowSeconds));
+      const q = simulatePoolSwap(pool.data, tokenInIndex, tokenOutIndex, BigInt(amountIn.toString()), quoteTimestamp(pool.data, opts.nowSeconds), false, { hookFeeOverride: opts.hookFeeOverride });
       // v5 display contract: post-trade window fill and static+surge fee
       // pct (span-average) — the same fields the pre-merge v5 SDK returned.
       const inTok = pool.data.tokens[tokenInIndex];
@@ -274,28 +341,35 @@ export class CofferPoolClient {
           kinkPct: inTok.variableFeeKinkPct ?? 0,
         });
       }
-      const effectiveFeePct =
-        (pool.data.swapFeeRate * PERCENT_SCALE) / SWAP_FEE_PRECISION + surgePct;
+      const effectiveFeePct = (q.effectiveFeeRate * PERCENT_SCALE) / SWAP_FEE_PRECISION + surgePct;
+      const b = (v: bigint) => new BN(v.toString());
       return ok({
         tokenInIndex,
         tokenOutIndex,
         amountIn,
-        transferFeeIn: new BN(q.transferFeeIn.toString()),
-        amountInNet: new BN(q.amountInNet.toString()),
-        amountOut: new BN(q.amountOut.toString()),
-        grossAmountOut: new BN(q.grossAmountOut.toString()),
-        transferFeeOut: new BN(q.transferFeeOut.toString()),
-        amountOutReceived: new BN(q.amountOutReceived.toString()),
-        surgeFeeAmount: new BN(q.surgeFeeAmount.toString()),
-        feeAmount: new BN(q.feeAmount.toString()),
-        protocolFeeAmount: new BN(q.protocolFeeAmount.toString()),
-        spotOut: new BN(q.spotOut.toString()),
+        transferFeeIn: b(q.transferFeeIn),
+        amountInNet: b(q.amountInNet),
+        amountOut: b(q.amountOut),
+        grossAmountOut: b(q.grossAmountOut),
+        transferFeeOut: b(q.transferFeeOut),
+        amountOutReceived: b(q.amountOutReceived),
+        surgeFeeAmount: b(q.surgeFeeAmount),
+        surgeProtocolFeeAmount: b(q.surgeProtocolFeeAmount),
+        surgeCreatorFeeAmount: b(q.surgeCreatorFeeAmount),
+        surgeLpFeeAmount: b(q.surgeLpFeeAmount),
+        feeAmount: b(q.feeAmount),
+        protocolFeeAmount: b(q.protocolFeeAmount),
+        creatorFeeAmount: b(q.creatorFeeAmount),
+        lpFeeAmount: b(q.lpFeeAmount),
+        effectiveFeeRate: q.effectiveFeeRate,
+        feeSource,
+        spotOut: b(q.spotOut),
         // Impact excludes fees and the surge charge (industry standard):
         // measured against the GROSS curve output.
         priceImpactHbps: priceImpactHbps(q.spotOut, q.grossAmountOut),
         // The program checks `minimum_amount_out` against what the user
         // actually receives (post-surge, post-transfer-fee).
-        minAmountOut: new BN(applySlippage(q.amountOutReceived, slip).toString()),
+        minAmountOut: b(applySlippage(q.amountOutReceived, slip)),
         effectiveFeePct,
         windowFillPct,
       });
@@ -308,18 +382,22 @@ export class CofferPoolClient {
         : msg === "PoolDisabled" ? "pool_disabled"
         : msg === "SwapsDisabled" ? "swaps_disabled"
         : msg === "AmountFullyConsumedByTransferFee" ? "amount_too_small"
+        : msg === "InsufficientLiquidity" ? "no_liquidity"
+        : msg === "HookPaused" ? "hook_rejected"
         : "invalid_input";
       const human =
-        code === "selloff_window_full"
-          ? "Token max-selloff threshold exceeded for current window"
-          : `Swap quote failed: ${msg}`;
+        code === "selloff_window_full" ? "Token max-selloff threshold exceeded for current window"
+        : code === "no_liquidity" ? `Output token ${tokenOutIndex} has no reserves (sidelined); the program reverts with InsufficientLiquidity`
+        : code === "hook_rejected" ? "The pool's hook is disabled and fail-closed (HookPaused): swaps are paused"
+        : `Swap quote failed: ${msg}`;
       return err(code, human, e);
     }
   }
 
   /**
-   * Read-only status of a token's max-selloff window at `now`
-   * (default: current unix seconds). Requires a prior `sync()`.
+   * Read-only status of a token's max-selloff window at `now` (default:
+   * the synced `chainTimestamp` — Clock seconds, never browser time).
+   * Requires a prior `sync()`.
    */
   getSelloffWindowStatus(tokenIndex: number, now?: number): SdkResult<SelloffWindowStatus> {
     const poolRes = this.requireCache();
@@ -332,6 +410,10 @@ export class CofferPoolClient {
     if (tokenIndex < 0 || tokenIndex >= pool.tokens.length) {
       return err("invalid_input", "Invalid tokenIndex");
     }
+    const at = now ?? pool.chainTimestamp;
+    if (at === undefined || !Number.isSafeInteger(at) || at < 0) {
+      return err("invalid_input", "Chain timestamp missing: sync the pool or pass `now` (Clock seconds)");
+    }
     const i = tokenIndex;
     return ok(
       computeSelloffWindow({
@@ -342,60 +424,130 @@ export class CofferPoolClient {
         windowStartTimestamp: raw.windowStartTimestamp[i],
         selloffVbSnapshot: raw.selloffVbSnapshot[i],
         virtualBalance: pool.tokens[i].virtualBalance,
-        now: now ?? Math.floor(Date.now() / 1000),
+        now: at,
       })
     );
   }
 
-  /** Seed deposit: creator-only, exact amounts, LP derived from virtual reserves. */
-  quoteSeedDeposit(user: PublicKey, tokenAmounts: BN[], slippageHundredthsBps?: number): SdkResult<AddLiquidityQuote> {
+  /**
+   * v6.1 (T3): status of every pool-admin pending slot at the chain clock
+   * (`chainNow` defaults to the synced `chainTimestamp`; never `Date.now()`).
+   * `directPathOpen` is `true` while `poolAdminDelaySecs == 0`.
+   */
+  pendingActionsStatus(chainNow?: number): SdkResult<PendingActionsStatus> {
+    const pool = this.requireCache();
+    if (!pool.ok) return pool;
+    try {
+      return ok(pendingActionsStatusOf(pool.data, chainNow));
+    } catch (e) {
+      return err("invalid_input", e instanceof Error ? e.message : String(e), e);
+    }
+  }
+
+  /**
+   * v6.1 (T2/T12): USD price of one LP token from per-mint spot prices
+   * (`prices[mintBase58]` = USD per whole token), valued on NAV
+   * (`actual_balance + surge_fees_owed` per slot) — never on `vault.amount`,
+   * which also holds the protocol's and the creator's claims.
+   */
+  quoteLpPriceUsd(prices: Record<string, number>): SdkResult<LpPriceQuote> {
+    const pool = this.requireCache();
+    if (!pool.ok) return pool;
+    if (pool.data.lpTotalSupply.isZero()) return err("unsupported_pool_state", "Pool is not seeded (LP supply is 0)");
+    try {
+      const v = lpPriceUsd(pool.data, prices);
+      return ok({ lpPriceUsd: v.lpPriceUsd, navUsd: v.navUsd, lpSupplyUi: v.lpSupplyUi, perToken: v.perToken.map((t) => ({ ...t, nav: new BN(t.nav.toString()) })) });
+    } catch (e) {
+      return err("invalid_input", `LP price failed: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /** v6.1 (T12): the per-token NAV share `lpAmount` LP represents (`floor(nav_i · lpAmount / supply)`, raw). A valuation, not an exit quote. */
+  quoteLpPositionValue(lpAmount: BN): SdkResult<BN[]> {
+    const pool = this.requireCache();
+    if (!pool.ok) return pool;
+    if (pool.data.lpTotalSupply.isZero()) return err("unsupported_pool_state", "Pool is not seeded (LP supply is 0)");
+    if (lpAmount.isNeg() || lpAmount.bitLength() > 64) return err("invalid_input", "lpAmount must be a u64");
+    try {
+      return ok(lpPositionValue(pool.data, lpAmount).map((v) => new BN(v.toString())));
+    } catch (e) {
+      return err("invalid_input", `LP position value failed: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /**
+   * Seed quote (v6.1 `seed_liquidity.rs`, T2): creator-only, runs exactly
+   * once (`lp_supply == 0`), takes `tokenAmounts` verbatim (zero legs stay
+   * sidelined, T10; the vault books the NET of any Token-2022 fee) and
+   * mints the creator-chosen `lpAmount` EXACTLY — no invariant, no pool
+   * ratio, no deposit fee, no `minimum_lp_amount`. The LP price is
+   * therefore `Σ seed value / lpAmount`. Gate order mirrors
+   * `check_seed_preconditions`.
+   */
+  quoteSeedDeposit(user: PublicKey, tokenAmounts: BN[], lpAmount: BN | bigint = DEFAULT_INITIAL_LP_SUPPLY): SdkResult<AddLiquidityQuote> {
     const state = this.requireCache();
     if (!state.ok) return state;
     const pool = state.data;
-    if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
-    if (!pool.lpTotalSupply.isZero()) return err("invalid_input", "Pool already seeded; use quoteAddLiquidity");
+    if (!pool.poolEnabled) return err("pool_disabled", "PoolDisabled");
+    if (!pool.lpTotalSupply.isZero()) return err("unsupported_pool_state", "PoolAlreadySeeded: use quoteAddLiquidity");
     if (!pool.poolAdmin) return err("invalid_input", "Pool admin missing: sync the pool before quoting");
-    if (pool.poolAdmin.equals(PublicKey.default)) return err("invalid_input", "PoolAdminDisabled");
-    if (!pool.poolAdmin.equals(user)) return err("invalid_input", "SeedDepositNotPoolAdmin");
-    if (tokenAmounts.length !== pool.tokenCount || tokenAmounts.some(a => a.isNeg() || a.bitLength() > 64)) return err("invalid_input", "Expected one u64 amount per token");
-    if (tokenAmounts.every(a => a.isZero())) return err("invalid_input", "FirstDepositRequiresNonzero");
-    const supported = this.requireSupported(tokenAmounts.flatMap((a,i) => a.isZero() ? [] : [i]), "seed deposit");
+    if (pool.poolAdmin.equals(PublicKey.default)) return err("unsupported_pool_state", "PoolAdminDisabled: the pool can never be seeded");
+    if (!pool.poolAdmin.equals(user)) return err("auth_failed", "SeedDepositNotPoolAdmin: only the pool admin can seed");
+    if (tokenAmounts.length !== pool.tokenCount) return err("invalid_input", "InvalidArrayLength: expected one amount per pool token");
+    if (tokenAmounts.some(a => a.isNeg() || a.bitLength() > 64)) return err("invalid_input", "Expected one u64 amount per token");
+    if (tokenAmounts.every(a => a.isZero())) return err("invalid_input", "FirstDepositRequiresNonzero: at least one seed leg must be non-zero");
+    const lp = typeof lpAmount === "bigint" ? lpAmount : BigInt(lpAmount.toString());
+    if (lp < MIN_INITIAL_LP_SUPPLY) return err("invalid_input", `InitialLiquidityTooSmall: lpAmount must be ≥ ${MIN_INITIAL_LP_SUPPLY} (1 LP)`);
+    if (lp > MAX_INITIAL_LP_SUPPLY) return err("invalid_input", `InitialLpSupplyTooLarge: lpAmount must be ≤ ${MAX_INITIAL_LP_SUPPLY}`);
+    if (hookPaused(pool)) return err("hook_rejected", "The pool's hook is disabled and fail-closed (HookPaused): deposits are paused");
+    const supported = this.requireSupported(tokenAmounts.flatMap((a, i) => a.isZero() ? [] : [i]), "seed deposit");
     if (!supported.ok) return supported;
     try {
-      // v6: the vault credits the fee-EXCLUDED amount; LP is invariant-based
-      // on the virtual balances (or on the net credits when all are zero).
       const amounts = tokenAmounts.map(a => BigInt(a.toString()));
       const credited = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, a));
       if (credited.some((c, i) => amounts[i] > 0n && c === 0n)) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
-      const virtual = pool.tokens.map(t => BigInt(t.virtualBalance.toString()));
-      const balances = virtual.every(v => v === 0n) ? credited : virtual;
-      const lpOut = u64(calculateInvariant(balances, pool.tokens.map(t => t.weightBps), pool.tokens.map(t => t.decimals)), "LP amount");
-      if (lpOut < MIN_LP_SUPPLY) return err("invalid_input", "InitialLiquidityTooSmall");
-      const zeros = tokenAmounts.map(() => new BN(0));
-      const charged = tokenAmounts.map(a => a.clone());
-      return ok({ tokenAmounts, depositAmounts: charged, refundAmounts: zeros, chargedAmounts: charged.map(a => a.clone()), unspentAmounts: zeros.map(z => z.clone()),
-        creditedAmounts: credited.map(c => new BN(c.toString())), transferFees: amounts.map((a, i) => new BN((a - credited[i]).toString())),
+      const bnList = (xs: bigint[]) => xs.map((x) => new BN(x.toString()));
+      const zeros = () => tokenAmounts.map(() => new BN(0));
+      const lpBn = new BN(lp.toString());
+      return ok({
+        tokenAmounts,
+        depositAmounts: tokenAmounts.map(a => a.clone()),
+        refundAmounts: zeros(),
+        chargedAmounts: tokenAmounts.map(a => a.clone()),
+        unspentAmounts: zeros(),
+        creditedAmounts: bnList(credited),
+        transferFees: bnList(amounts.map((a, i) => a - credited[i])),
+        surgeBuyIn: zeros(),
+        actualIn: bnList(credited),
+        navBalances: zeros(),
         virtualBalancesAfter: pool.tokens.map(t => t.virtualBalance.clone()),
-        lpOut: new BN(lpOut.toString()), minimumLpAmount: new BN(applySlippage(lpOut, slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps).toString()),
-        limitingTokenIndex: -1 });
+        lpGross: lpBn.clone(),
+        depositFeeLp: new BN(0),
+        depositFeeBps: 0,
+        lpOut: lpBn.clone(),
+        minimumLpAmount: lpBn.clone(),
+        limitingTokenIndex: -1,
+      });
     } catch (e) { return err("math_overflow", "Seed-deposit quote failed", e); }
   }
 
   /**
-   * Proportional-join quote (v6 `add_liquidity.rs`). `tokenAmounts` is a
+   * Proportional-join quote (v6.1 `add_liquidity.rs`). `tokenAmounts` is a
    * CEILING: the program nets each ceiling of its mint's transfer fee, takes
-   * the limiting ratio `min_i(net_i / actual_i)` over live legs, mints
-   * `floor(supply · ratio)` LP, credits each leg `ceil(actual_i · ratio)`
-   * and debits that credit grossed up by the transfer fee. Whatever is left
-   * of the ceiling stays in the wallet.
+   * the limiting ratio `min_i(net_i / nav_i)` over live legs — on NAV,
+   * `nav_i = actual_i + surge_fees_owed_i` (T12) — computes
+   * `lpGross = floor(supply · ratio)`, withholds the deposit fee
+   * (`lpOut = lpGross − ceil(lpGross · depositFeeBps / 1e4)`, T7), credits
+   * each leg `ceil(nav_i · ratio)` of which `floor(surge_i · ratio)` buys
+   * into the surge bucket (the WHOLE credit on a reserve-less slot) and the
+   * rest goes to the reserves, and debits that credit grossed up by the
+   * transfer fee. Whatever is left of the ceiling stays in the wallet.
    *
-   * Two program refusals are reported as errors rather than quotes: a
-   * credit above the net ceiling, or a gross-up above the ceiling itself
-   * (`MathOverflow` on-chain). Pass `chargedAmounts` as the ceilings to
-   * `buildAddLiquidityTx` for a basket that is exact at this state.
+   * Liveness is keyed on NAV: a slot with `nav_i > 0` needs a positive
+   * ceiling, a slot with `nav_i == 0` must be `0` (`TokenLivenessMismatch`).
+   * `DepositTooSmall` / `DepositFeeConsumesAll` are `amount_too_small`.
    *
-   * Not applicable to the seed deposit (LP supply == 0): the program
-   * mints invariant-based LP there and takes the full amounts.
+   * Not applicable to the seed deposit (LP supply == 0): see `quoteSeedDeposit`.
    */
   quoteAddLiquidity(tokenAmounts: BN[], slippageHundredthsBps?: number): SdkResult<AddLiquidityQuote> {
     const poolRes = this.requireCache();
@@ -408,39 +560,49 @@ export class CofferPoolClient {
       return err("invalid_input", "Pool has zero LP supply; use quoteSeedDeposit");
     }
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
+    if (hookPaused(pool)) return err("hook_rejected", "The pool's hook is disabled and fail-closed (HookPaused): deposits are paused");
     if (tokenAmounts.some((a) => a.isNeg() || a.bitLength() > 64)) {
       return err("invalid_input", "tokenAmounts must be u64 values");
     }
-    if (pool.tokens.some((t, i) => t.actualBalance.isZero() !== tokenAmounts[i].isZero())) {
-      return err("invalid_input", "TokenLivenessMismatch: live tokens need positive amounts; zero-balance tokens need zero amounts");
-    }
-    const unsupported = this.requireSupported(pool.tokens.filter(t => !t.actualBalance.isZero()).map(t => t.index), "add_liquidity");
-    if (!unsupported.ok) return unsupported;
     const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
     try {
-      const bals = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
+      const actual = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
+      const surge = pool.tokens.map((t) => tokenSurgeBucket(t, pool));
+      const navs = navBalances(actual, surge);
+      if (pool.tokens.some((_, i) => (navs[i] > 0n) !== !tokenAmounts[i].isZero())) {
+        return err("invalid_input", "TokenLivenessMismatch: live tokens (NAV > 0) need positive amounts; empty tokens need zero amounts");
+      }
+      const unsupported = this.requireSupported(pool.tokens.flatMap((t, i) => (navs[i] > 0n ? [t.index] : [])), "add_liquidity");
+      if (!unsupported.ok) return unsupported;
       const amounts = tokenAmounts.map((a) => BigInt(a.toString()));
       const supply = BigInt(pool.lpTotalSupply.toString());
       const net = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, a));
       if (net.some((n, i) => amounts[i] > 0n && n === 0n)) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
-      const { lp: lpOut, ratio } = calcJoinRatioAndLp(bals, net, supply);
+      const { lp: lpGross, ratio } = calcJoinRatioAndLp(navs, net, supply);
       let limiting = -1;
-      for (let i = 0; i < bals.length; i++) {
-        if (bals[i] > 0n && divDown(net[i], bals[i]) === ratio) { limiting = i; break; }
+      for (let i = 0; i < navs.length; i++) {
+        if (navs[i] > 0n && divDown(net[i], navs[i]) === ratio) { limiting = i; break; }
       }
-      if (lpOut === 0n) return err("amount_too_small", "DepositTooSmall");
+      if (lpGross === 0n) return err("amount_too_small", "DepositTooSmall");
+      const depositFeeBps = pool.depositFeeBps ?? 0;
+      const { net: lpOut, fee: depositFeeLp } = applyDepositFee(lpGross, depositFeeBps);
+      if (lpOut === 0n) return err("amount_too_small", "DepositFeeConsumesAll: the deposit fee withholds the whole LP mint");
       u64(supply + lpOut, "LP supply");
-      const credited: bigint[] = [], charged: bigint[] = [], virtualAfter: bigint[] = [];
-      for (let i = 0; i < bals.length; i++) {
-        const credit = bals[i] > 0n ? calcDepositCredit(bals[i], ratio) : 0n;
+      const credited: bigint[] = [], charged: bigint[] = [], virtualAfter: bigint[] = [], buyIn: bigint[] = [], actualIn: bigint[] = [];
+      for (let i = 0; i < navs.length; i++) {
+        const leg = splitDepositCredit(actual[i], surge[i], ratio);
+        const credit = leg.totalCredit;
         if (credit > net[i]) return err("invalid_input", `Credit exceeds the net ceiling at token index ${i} (program would fail with MathOverflow)`);
         const charge = grossOfTransferFee(pool.tokens[i].transferFee, credit);
         if (charge > amounts[i]) return err("invalid_input", `Transfer-fee gross-up exceeds the ceiling at token index ${i}; raise the ceiling by at least ${(charge - amounts[i]).toString()}`);
-        u64(bals[i] + credit, "reserve balance");
+        u64(actual[i] + leg.actualIn, "reserve balance");
+        u64(surge[i] + leg.bucketIn, "surge bucket");
         const vb = BigInt(pool.tokens[i].virtualBalance.toString());
-        const next = virtualBalanceAfterDeposit(vb, bals[i], credit, lpOut, supply);
-        rescaleWindowOnVbChange(swapLegOf(pool.tokens[i]).window, vb, next);
-        credited.push(credit); charged.push(charge); virtualAfter.push(next);
+        // `lpGross`, not the net mint, and the ACTUAL leg only: the bucket
+        // buy-in is outside the curve (add_liquidity.rs).
+        const next = virtualBalanceAfterDeposit(vb, actual[i], leg.actualIn, lpGross, supply);
+        rescaleWindowOnVbChange(swapLegOf(pool.tokens[i], pool).window, vb, next);
+        credited.push(credit); charged.push(charge); virtualAfter.push(next); buyIn.push(leg.bucketIn); actualIn.push(leg.actualIn);
       }
       const unspent = amounts.map((a, i) => a - charged[i]);
       const bnList = (xs: bigint[]) => xs.map((x) => new BN(x.toString()));
@@ -452,7 +614,13 @@ export class CofferPoolClient {
         unspentAmounts: bnList(unspent),
         creditedAmounts: bnList(credited),
         transferFees: bnList(charged.map((c, i) => c - credited[i])),
+        surgeBuyIn: bnList(buyIn),
+        actualIn: bnList(actualIn),
+        navBalances: bnList(navs),
         virtualBalancesAfter: bnList(virtualAfter),
+        lpGross: new BN(lpGross.toString()),
+        depositFeeLp: new BN(depositFeeLp.toString()),
+        depositFeeBps,
         lpOut: new BN(lpOut.toString()),
         minimumLpAmount: new BN(applySlippage(lpOut, slip).toString()),
         limitingTokenIndex: limiting,
@@ -463,11 +631,16 @@ export class CofferPoolClient {
   }
 
   /**
-   * Proportional-withdraw quote (v6 `remove_liquidity.rs`): the burn is
-   * clamped to keep `MIN_LP_SUPPLY` in supply, payouts are the
-   * floor-rounded proportional share of the raw actual balances, and each
-   * leg's transfer fee is withheld from the user. Derive
-   * `minimumTokenAmounts` from `receivedAmounts`.
+   * Proportional-withdraw quote (v6.1 `remove_liquidity.rs`): the burn is
+   * clamped to keep `MIN_LP_SUPPLY` in supply; per token the exit pays
+   * `floor(actual_i · burn / supply)` from the reserves PLUS
+   * `floor(surge_i · burn / supply)` from the LP surge bucket (T12), each
+   * net of the withdraw fee (`ceil`, T7), in ONE transfer; the Token-2022
+   * fee is then withheld from that transfer. Derive `minimumTokenAmounts`
+   * from `receivedAmounts`. Zero-payout slots (sidelined with an empty
+   * bucket, or dust) report `0` and need no user token account.
+   * `WithdrawFeeConsumesAll` (gross > 0 somewhere, nothing paid anywhere)
+   * is `amount_too_small`.
    */
   quoteRemove(lpIn: BN): SdkResult<RemoveLiquidityQuote> {
     const poolRes = this.requireCache();
@@ -478,25 +651,45 @@ export class CofferPoolClient {
     }
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
     try {
-      const bals = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
+      const actual = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
+      const surge = pool.tokens.map((t) => tokenSurgeBucket(t, pool));
       const supply = BigInt(pool.lpTotalSupply.toString());
       const requested = BigInt(lpIn.toString());
       if (requested <= 0n || requested > supply) return err("invalid_input", "InvalidLpAmount");
       let effective: bigint;
       try { effective = calcEffectiveLpBurn(requested, supply); } catch { return err("invalid_input", "InvalidLpAmount"); }
-      const outs = calcTokensOutGivenLpIn(bals, effective, supply);
-      const supported = this.requireSupported(outs.flatMap((amount,i) => amount > 0n ? [i] : []), "remove_liquidity");
+      const grossActual = calcTokensOutGivenLpIn(actual, effective, supply);
+      const grossSurge = calcTokensOutGivenLpIn(surge, effective, supply);
+      const withdrawFeeBps = pool.withdrawFeeBps ?? 0;
+      const legs = grossActual.map((g, i) => splitExitPayout(g, grossSurge[i], withdrawFeeBps));
+      const feeTookEverything = legs.some((l) => l.actualGross > 0n || l.surgeGross > 0n) && legs.every((l) => l.transferAmount === 0n);
+      if (feeTookEverything) return err("amount_too_small", "WithdrawFeeConsumesAll: the withdraw fee withholds every payout");
+      const supported = this.requireSupported(legs.flatMap((l, i) => (l.transferAmount > 0n ? [i] : [])), "remove_liquidity");
       if (!supported.ok) return supported;
-      const fees = outs.map((o, i) => transferFeeOf(pool.tokens[i].transferFee, o));
+      const lpBurnForSidelined = lpBurnNetOfWithdrawFee(effective, withdrawFeeBps);
+      const fees = legs.map((l, i) => transferFeeOf(pool.tokens[i].transferFee, l.transferAmount));
       const virtualAfter = pool.tokens.map((t, i) => {
         const vb = BigInt(t.virtualBalance.toString());
-        const next = virtualBalanceAfterWithdrawal(vb, bals[i], outs[i], effective, supply);
-        rescaleWindowOnVbChange(swapLegOf(t).window, vb, next);
+        // NET reserve payout only: the live leg's `virtual / actual` ratio
+        // is preserved and the bucket (outside the curve) never enters.
+        const next = virtualBalanceAfterWithdrawal(vb, actual[i], legs[i].actualPayout, lpBurnForSidelined, supply);
+        rescaleWindowOnVbChange(swapLegOf(t, pool).window, vb, next);
         return next;
       });
       const bnList = (xs: bigint[]) => xs.map((x) => new BN(x.toString()));
-      return ok({ tokenOuts: bnList(outs), transferFees: bnList(fees), receivedAmounts: bnList(outs.map((o, i) => o - fees[i])),
-        effectiveLpIn: new BN(effective.toString()), virtualBalancesAfter: bnList(virtualAfter) });
+      return ok({
+        tokenOuts: bnList(legs.map((l) => l.actualPayout)),
+        surgeOuts: bnList(legs.map((l) => l.surgePayout)),
+        grossAmounts: bnList(grossActual),
+        grossSurgeAmounts: bnList(grossSurge),
+        withdrawFeeAmounts: bnList(legs.map((l) => l.feeTotal)),
+        withdrawFeeBps,
+        transferAmounts: bnList(legs.map((l) => l.transferAmount)),
+        transferFees: bnList(fees),
+        receivedAmounts: bnList(legs.map((l, i) => l.transferAmount - fees[i])),
+        effectiveLpIn: new BN(effective.toString()),
+        virtualBalancesAfter: bnList(virtualAfter),
+      });
     } catch (e) {
       return err("math_overflow", `Remove quote failed: ${e instanceof Error ? e.message : String(e)}`, e);
     }
@@ -522,8 +715,13 @@ export class CofferPoolClient {
 
   // ---------- Transaction builders ----------
 
-  /** Build a swap transaction. Requires `sync()` first. */
-  buildSwapTx(params: SwapParams): SdkResult<BuiltTx> {
+  /**
+   * Build a swap transaction. Requires `sync()` first. v6.1: prepends
+   * `migrate_pool_layout_v61` on a 1683-byte pool unless `autoMigrate: false`
+   * (then `pool_layout_outdated`); a hooked pool needs `hookAccounts`
+   * (`hookAccountSlice` / `resolveHookSlice`).
+   */
+  buildSwapTx(params: SwapParams & HookedParams & TxBuildOptionsV61): SdkResult<BuiltTx> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     const unsupported = this.requireSupported([params.tokenInIndex, params.tokenOutIndex], "swap");
@@ -556,8 +754,8 @@ export class CofferPoolClient {
     }
   }
 
-  /** Build a proportional add-liquidity transaction. Requires `sync()` first. */
-  buildAddLiquidityTx(params: AddLiquidityParams): SdkResult<BuiltTx> {
+  /** Build a proportional add-liquidity transaction. Requires `sync()` first (v6.1: see `buildSwapTx` for the migration / hook options). */
+  buildAddLiquidityTx(params: AddLiquidityParams & HookedParams & TxBuildOptionsV61): SdkResult<BuiltTx> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     if (params.tokenAmounts.length !== poolRes.data.tokenCount) {
@@ -572,8 +770,12 @@ export class CofferPoolClient {
     }
   }
 
-  /** Build a proportional remove-liquidity transaction. Requires `sync()` first. */
-  buildRemoveLiquidityTx(params: RemoveLiquidityParams): SdkResult<BuiltTx> {
+  /**
+   * Build a proportional remove-liquidity transaction. Requires `sync()`
+   * first. v6.1: `bypassHooks: true` emits `remove_liquidity_bypass_hooks`
+   * (same math, no hook CPI — the exit that always works, T9).
+   */
+  buildRemoveLiquidityTx(params: RemoveLiquidityParams & HookedParams & TxBuildOptionsV61 & { bypassHooks?: boolean }): SdkResult<BuiltTx> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     if (!params.minimumTokenAmounts) {
@@ -591,6 +793,33 @@ export class CofferPoolClient {
       return ok(buildRemoveLiquidityTx(this.config, poolRes.data, params));
     } catch (e) {
       return err("tx_build_failed", "Failed to build remove_liquidity tx", e);
+    }
+  }
+
+  /**
+   * v6.1 (T2/T10): the creator's seed deposit — exact amounts, zeros allowed
+   * for sidelined slots, creator-chosen `lpAmount`. Requires `sync()`.
+   */
+  buildSeedLiquidityTx(params: SeedLiquidityParams): SdkResult<BuiltTx> {
+    const poolRes = this.requireCache();
+    if (!poolRes.ok) return poolRes;
+    const quote = this.quoteSeedDeposit(params.user, params.tokenAmounts, params.lpAmount);
+    if (!quote.ok) return quote;
+    try {
+      return ok(buildSeedLiquidityTx(this.config, poolRes.data, params));
+    } catch (e) {
+      return err("tx_build_failed", "Failed to build seed_liquidity tx", e);
+    }
+  }
+
+  /** v6.1 (T10): pool-admin funding of a sidelined slot (no LP minted). Requires `sync()`. */
+  buildFundSidelinedTokenTx(params: FundSidelinedTokenParams & TxBuildOptionsV61): SdkResult<BuiltTx> {
+    const poolRes = this.requireCache();
+    if (!poolRes.ok) return poolRes;
+    try {
+      return ok(buildFundSidelinedTokenTx(this.config, poolRes.data, params));
+    } catch (e) {
+      return err("tx_build_failed", "Failed to build fund_sidelined_token tx", e);
     }
   }
 

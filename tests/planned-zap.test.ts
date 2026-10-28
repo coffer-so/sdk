@@ -137,7 +137,11 @@ function encode(value: any, type: any): Buffer {
   if (type.defined) return Buffer.concat(fields(type.defined.name).map((f) => encode(value[f.name], f.type)));
   throw new Error("Unknown fixture type");
 }
-const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...fields("CofferPool").map((f) => encode((state as any)[f.name], f.type))]);
+// The synthetic state is the v5 (1683-byte) prefix of the v6.1 account: the
+// decoder accepts it (every appended v6.1 field reads as 0 / empty), and the
+// recorded fixtures were produced from exactly these bytes.
+const v5Fields = (name: string) => { const all = fields(name); return all.slice(0, all.findIndex((f) => f.name === "reserved") + 1); };
+const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...v5Fields("CofferPool").map((f) => encode((state as any)[f.name], f.type))]);
 function plainMint(decimals: number, supply: bigint): Buffer {
   const b = Buffer.alloc(82); b[44] = decimals; b[45] = 1; b.writeBigUInt64LE(supply, 36); return b;
 }

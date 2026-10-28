@@ -603,14 +603,96 @@
         "## Storage layout — DO NOT REORDER",
         "Backends (`onchainPoolFetcher.ts`, indexer) read fields by raw offset.",
         "Adding fields is OK if appended at the END (before the trailing",
-        "`reserved`) and `reserved` shrinks accordingly. Inserting in the",
-        "middle would require rewriting existing accounts.",
+        "reserve of the CURRENT block) and that reserve shrinks accordingly.",
+        "Inserting in the middle would require rewriting existing accounts.",
+        "",
+        "## v6.1 layout bump (L0): 1683 → 2304 bytes",
+        "Every pre-v6.1 field keeps its byte offset; the legacy `reserved: [u8;",
+        "16]` block (with its `V5M1` marker) is untouched. A v6.1 block is",
+        "APPENDED after it: `layout_version`, `token_decimals`, `reserved_v61`.",
+        "Existing 1683-byte pools are grown in place by the permissionless",
+        "`migrate_pool_layout_v61` instruction; until then every other",
+        "instruction fails with `LayoutVersionMismatch` (see",
+        "`AccountDeserialize` below — the account SIZE is the version marker).",
+        "",
+        "### Carve-out order for `reserved_v61` (later v6.1 tasks)",
+        "New fields are inserted immediately BEFORE `reserved_v61`, in this",
+        "order, and `reserved_v61` shrinks by the same amount so `LEN` stays",
+        "2304 and every earlier offset is stable. Byte estimates:",
+        "",
+        "| task | fields                                                       | bytes | offsets | status |",
+        "|------|--------------------------------------------------------------|-------|---------|--------|",
+        "| T14  | `creator_fee_bps: u16` @1694, `creator_fees_owed: [u64; MAX_TOKENS]` @1696 |  82   | 1694..1776 | carved (first: T14 landed before T12) |",
+        "| T12  | `surge_fees_owed: [u64; MAX_TOKENS]` @1776 (LP-claimable NAV bucket) |  80   | 1776..1856 | carved |",
+        "| T7   | `deposit_fee_bps: u16` @1856, `withdraw_fee_bps: u16` @1858, `liquidity_fee_lock: u8` @1860 |   5   | 1856..1861 | carved |",
+        "| T6   | `range_manager_locked: bool`                                 |   1   | 1861 | carved |",
+        "| T3   | `pool_admin_delay_secs: u32` @1862, `pool_admin_epoch: u32` @1866, `pending_pool_admin_eta: i64` @1870, 10 typed pending slots (`eta: i64` + absolute payload) @1878..2054 — see `COOLDOWN_BLOCK_LEN` | 192 | 1862..2054 | carved |",
+        "| T9   | `hook_program: Pubkey` @2054, `hook_flags: u16` @2086, `hook_disabled: u8` @2088, `hook_fee_min: u32` @2089, `hook_fee_max: u32` @2093, `hook_max_cu: u32` @2097, `hook_accounts_len: u8` @2101 — see `HOOK_BLOCK_LEN` | 48 | 2054..2102 | carved (AFTER T3) |",
+        "| T2/T10 | `seeded: bool` + pad                                       |   2   | | |",
+        "| total carved (estimate)                                             | ≈ 410 | | 408 done (82 T14 + 80 T12 + 5 T7 + 1 T6 + 192 T3 + 48 T9, all real fields) |",
+        "| left in `reserved_v61` after all of the above                       | ≈ 200 (≥ 200 required) | | 202 now |",
+        "",
+        "The T9 hook block (48 B) sits AFTER the T3 block @2054..2102 (the T9",
+        "branch carved it @1862 on a T3-less base and it was relocated at the",
+        "merge), leaving 202 B (T2/T10's 2 B ⇒ exactly the 200 B floor). Nothing",
+        "else may be carved without packing the T3 slots (e.g.",
+        "`PendingSetRangeManagerConfig` 24 → 22, `PendingSetTokenActive` eta as",
+        "`u32`).",
+        "",
+        "T3 slot order inside the cooldown block (all `eta` fields are `i64`,",
+        "`0` = empty; the pool-admin transfer reuses `pending_pool_admin` for its",
+        "payload and only adds an `eta`):",
+        "",
+        "| kind | field | payload | offset | size |",
+        "|---|---|---|---|---|",
+        "| — | `pool_admin_delay_secs: u32` | | 1862 | 4 |",
+        "| — | `pool_admin_epoch: u32` | | 1866 | 4 |",
+        "| 0 TransferPoolAdmin | `pending_pool_admin_eta` | (`pending_pool_admin` @98) | 1870 | 8 |",
+        "| 1 SetDelay | `pending_set_delay` | `secs: u32` | 1878 | 12 |",
+        "| 2 SetSwapFeeRate | `pending_set_swap_fee_rate` | `rate: u32` | 1890 | 12 |",
+        "| 3 SetCreatorFeeBps | `pending_set_creator_fee_bps` | `bps: u16` | 1902 | 10 |",
+        "| 4 SetLiquidityFees | `pending_set_liquidity_fees` | `deposit_fee_bps: u16, withdraw_fee_bps: u16` | 1912 | 12 |",
+        "| 5 LockLiquidityFees | `pending_lock_liquidity_fees` | — | 1924 | 8 |",
+        "| 6 LockRangeManager | `pending_lock_range_manager` | — | 1932 | 8 |",
+        "| 7 SetRangeManager | `pending_set_range_manager` | `manager: Pubkey, enabled: bool` | 1940 | 41 |",
+        "| 8 SetRangeManagerConfig | `pending_set_range_manager_config` | `u16, u16, u32, u32, u32` | 1981 | 24 |",
+        "| 9 SetMaxSelloff | `pending_set_max_selloff` | `params_hash: [u8; 32]` | 2005 | 40 |",
+        "| 10 SetTokenActive | `pending_set_token_active` | `token_index: u8` (always `true`) | 2045 | 9 |",
+        "| | T9 hook block (`HOOK_BLOCK_LEN`) | | 2054 | 48 |",
+        "| | `reserved_v61` | | 2102 | 202 |",
+        "",
+        "The absolute offsets above are the contract between branches: the T12",
+        "block (80 B @1776) was held by a same-sized placeholder on the T7 / T6",
+        "branches so the T7 fields sit at 1856..1861 and `range_manager_locked`",
+        "at 1861; the T12 merge replaced the placeholder with `surge_fees_owed`",
+        "at the same offset. The T3 cooldown block sits at 1862..2054 directly",
+        "after the T6 flag and the T9 hook block follows it at 2054..2102 (the T9",
+        "branch had carved @1862 on a T3-less base; the merge moved the block",
+        "behind T3 as the carve table always said). Offsets of landed fields",
+        "never moved.",
+        "",
+        "### Vault bookkeeping (v6.1, T14 + T12)",
+        "For every slot `i`: `vault_i.amount == actual_balance_i +",
+        "protocol_fees_owed_i + creator_fees_owed_i + surge_fees_owed_i`",
+        "(`vault_bookkeeping_total`). A vault may hold MORE (a direct transfer",
+        "credits nobody), never less while the pool is not bricked. Only",
+        "`actual_balance` prices trades; the two owed buckets are claimable by",
+        "the protocol admin (`collect_protocol_fees`) and the pool admin",
+        "(`claim_creator_fees`) respectively and never by each other. The T12",
+        "surge bucket belongs to the LP holders collectively: it is outside the",
+        "curve (never traded, never priced) but it IS LP capital — a deposit",
+        "buys into it pro rata and a burn pays it out pro rata, so the LP token's",
+        "net asset value per unit is `(actual + surge_fees_owed) / supply`",
+        "(`nav_balances`). The T7 deposit / withdraw fees never create a bucket:",
+        "the withheld LP (deposit) and the withheld tokens (withdraw) stay in the",
+        "reserves, i.e. in `actual_balance`.",
         "",
         "## Derived (not stored) state",
         "- `lp_mint`        — derived as `[LP_MINT_SEED, pool]` PDA.",
         "- `lp_total_supply`— read from `lp_mint.supply` at runtime.",
         "- `token_vaults[i]` — derived as ATA(pool, mint, tokens[i].config.token_program).",
-        "- `token_decimals`  — read from each mint account at runtime."
+        "- `token_decimals`  — pinned on the pool since v6.1 (FIX-6); the live",
+        "mint must still agree with it on every transfer."
       ],
       "type": {
         "kind": "struct",
@@ -757,15 +839,19 @@
               "The LP-owned portion of this token's vault, in raw units.",
               "",
               "It does NOT equal the vault's `amount`. The invariant is",
-              "`vault.amount == actual_balance + protocol_fees_owed`: protocol fees",
-              "sit in the same vault but are not LP capital, and `collect_protocol_fees`",
-              "pays them out without touching `actual_balance`. Sizing a withdrawal or",
-              "a deposit ratio against the raw vault balance would therefore hand LPs",
-              "the protocol's uncollected fees.",
+              "`vault.amount == actual_balance + protocol_fees_owed +",
+              "creator_fees_owed[i] + surge_fees_owed[i]`",
+              "(`CofferPool::vault_bookkeeping_total`): the protocol's and the pool",
+              "admin's fee buckets sit in the same vault but are not LP capital, and",
+              "`collect_protocol_fees` / `claim_creator_fees` pay them out without",
+              "touching `actual_balance`; the surge bucket (v6.1 T12) is LP capital",
+              "that is kept OUT of the curve and paid pro rata on `remove_liquidity`.",
+              "Sizing a withdrawal or a deposit ratio against the raw vault balance",
+              "would therefore hand LPs the uncollected fees.",
               "",
-              "Reads of the vault should either use this field or subtract",
-              "`protocol_fees_owed` explicitly; the two are only equal on a pool whose",
-              "fees have just been collected."
+              "Reads of the vault should either use this field or subtract every",
+              "owed bucket explicitly; they are only equal on a pool whose fees",
+              "have just been collected and whose surge bucket is empty."
             ],
             "type": "u64"
           },
@@ -818,6 +904,14 @@
     },
     {
       "name": "CofferPool",
+      "docs": [
+        "The account traits are implemented by hand (instead of `#[account]`) so",
+        "that `AccountDeserialize::try_deserialize` can refuse a pool whose",
+        "`data_len != LEN` with the explicit `LayoutVersionMismatch` error. The",
+        "expansion mirrors `anchor_attribute_account` 0.32.1 exactly apart from",
+        "that one length check; `Discriminator`, `Owner`, `AccountSerialize` and",
+        "the Borsh derives are unchanged."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -1052,15 +1146,379 @@
           {
             "name": "reserved",
             "docs": [
-              "Forward-compat padding for pool-level fields. Shrank 24 → 20 when",
-              "`range_manager_max_leverage_bps` was carved out of it, then 20 → 16 for",
-              "`range_manager_min_leverage_bps`, keeping `LEN` at the",
-              "mainnet-compatible 1683."
+              "LEGACY padding block (bytes 1667..1683 of the account). Shrank 24 → 20",
+              "when `range_manager_max_leverage_bps` was carved out of it, then",
+              "20 → 16 for `range_manager_min_leverage_bps`. Since v6.1 it is FROZEN:",
+              "`reserved[..4]` holds the one-shot `V5M1` migration marker and the",
+              "remaining 12 bytes are part of the `migrate_to_v5` \"untouched legacy",
+              "layout\" proof (I-11). Nothing new is ever carved from here; new",
+              "fields come out of `reserved_v61` below."
             ],
             "type": {
               "array": [
                 "u8",
                 16
+              ]
+            }
+          },
+          {
+            "name": "layout_version",
+            "docs": [
+              "Version of the appended block. `1` = v6.1 (`LAYOUT_VERSION_V61`).",
+              "Never `0` on a decodable account: a pool that has not been through",
+              "`migrate_pool_layout_v61` is still 1683 bytes and fails",
+              "`AccountDeserialize` with `LayoutVersionMismatch` before any handler",
+              "runs, so the account SIZE is the real marker and this byte is a sanity",
+              "pin for off-chain decoders and future bumps."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "token_decimals",
+            "docs": [
+              "Per-slot mint decimals (audit FIX-6), pinned at `initialize_pool` and",
+              "filled by `migrate_pool_layout_v61` from the live mint accounts (the",
+              "only on-chain source: token accounts do not carry decimals). Every",
+              "transfer-profile build asserts the live mint still reports the pinned",
+              "value, so a mint closed (`MintCloseAuthority`) and re-created at the",
+              "same address with different decimals is refused instead of mis-scaled.",
+              "Slots past `token_count` are 0."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                10
+              ]
+            }
+          },
+          {
+            "name": "creator_fee_bps",
+            "docs": [
+              "Pool admin's (\"creator's\") share of the LP remainder of every swap",
+              "fee and surge fee, in basis points of `CREATOR_FEE_PRECISION`",
+              "(`0..=MAX_CREATOR_FEE_BPS`, i.e. up to 100% of what is left after the",
+              "protocol's cut). `0` = off. Set at `initialize_pool` (default 0) and",
+              "by the pool admin via `set_creator_fee_bps`; cleared to 0 by",
+              "`disable_pool_admin`. Layout-migrated pre-v6.1 pools decode `0`.",
+              "Never changes the trader's price: it only re-splits the fee."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "creator_fees_owed",
+            "docs": [
+              "Per-slot accrual of the creator share (raw units, slot order), owed",
+              "to the CURRENT `pool_admin` and swept by `claim_creator_fees`. Part",
+              "of the vault bookkeeping (`vault_bookkeeping_total`), never part of",
+              "`actual_balance`, so it is excluded from pricing and LP payouts.",
+              "Slots past `token_count` stay 0."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                10
+              ]
+            }
+          },
+          {
+            "name": "surge_fees_owed",
+            "docs": [
+              "v6.1 (T12): the LP holders' share of every MaxSellOff surge fee, per",
+              "slot (raw units, slot order; 80 B @1776). On `swap` the surge charged",
+              "on the OUTPUT token goes through the same cascade as the base fee",
+              "(`math::split_fee`: protocol ceil → creator floor → LP remainder) and",
+              "the LP remainder lands HERE instead of in the reserves. The bucket is",
+              "part of the vault bookkeeping (`vault_bookkeeping_total`) and of the",
+              "LP token's NAV (`nav_balances`), but NOT of `actual_balance`: it is",
+              "never traded (swaps are bounded by `actual_balance`), never priced",
+              "and never moved by the range manager.",
+              "",
+              "Entitlement is pro rata by LP supply AT BURN and travels with the LP",
+              "token: `remove_liquidity` pays `floor(surge_fees_owed_i · burn /",
+              "supply)` next to the reserve share (one transfer per token), and",
+              "`add_liquidity` buys in (`floor(surge_fees_owed_i · ratio)` of the",
+              "NAV-based credit is booked here) so a deposit-then-burn in the same",
+              "slot extracts nothing (JIT-neutral). No standalone claim instruction;",
+              "a partial burn is the claim. Zero on every migrated pool",
+              "(`migrate_pool_layout_v61` zeroes the tail) and at birth. Slots past",
+              "`token_count` stay 0."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                10
+              ]
+            }
+          },
+          {
+            "name": "deposit_fee_bps",
+            "docs": [
+              "v6.1 (T7): deposit fee as a haircut on the LP minted by",
+              "`add_liquidity`, in `LIQUIDITY_FEE_PRECISION` units (10_000 = 100%).",
+              "`lp_minted = lp_gross − ceil(lp_gross · bps / 10_000)`; the full",
+              "basket is still credited to the reserves, so the withheld LP's share",
+              "of it accrues to the existing LP holders. 100% closes deposits",
+              "(`DepositFeeConsumesAll`). `seed_liquidity`, `fund_sidelined_token`",
+              "and the STLD zap's own swaps are exempt (the zap's final join is an",
+              "`add_liquidity` CPI and pays it). Byte 1856. Pool-admin setter",
+              "`set_liquidity_fees`, frozen for ever by `lock_liquidity_fees`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "withdraw_fee_bps",
+            "docs": [
+              "v6.1 (T7): withdraw fee as a haircut on every token payout of",
+              "`remove_liquidity`, same units: `payout_i = gross_i − ceil(gross_i ·",
+              "bps / 10_000)`. The withheld tokens stay in `actual_balance`",
+              "(remaining LPs' reserves; never a protocol or creator bucket). 100%",
+              "closes withdrawals (`WithdrawFeeConsumesAll`). Bytes 1858..1860."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "liquidity_fee_lock",
+            "docs": [
+              "v6.1 (T7): bit `LIQUIDITY_FEE_LOCK_FROZEN` (0x01) ⇒ `set_liquidity_fees`",
+              "is rejected for ever (lowering included). Set once by",
+              "`lock_liquidity_fees`, never cleared by any instruction; survives",
+              "admin transfers and `disable_pool_admin`. Other bits reserved (0).",
+              "Byte 1860."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "range_manager_locked",
+            "docs": [
+              "v6.1 (T6): one-way \"no range manager, ever\" flag (@1861). Set only",
+              "by `lock_range_manager` (pool admin; requires `range_manager ==",
+              "Pubkey::default()` and `!range_manager_enabled`); no instruction",
+              "clears it. While set, `set_range_manager` (every caller, including",
+              "the protocol-admin disable path), `set_range_manager_config` and",
+              "`range_manager_update` fail with `RangeManagerLocked`. `false` on",
+              "every migrated pool (zeroed tail) and on every fresh pool."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "pool_admin_delay_secs",
+            "docs": [
+              "Seconds every D-class pool-admin action must wait between proposal",
+              "and execution. `0` (fresh and migrated pools) ⇒ the direct",
+              "instructions work as before; `> 0` ⇒ they fail with",
+              "`CooldownRequired` and only `propose_pool_action` → `execute_*`",
+              "applies. Changed by `set_pool_admin_delay` (direct at 0) or through",
+              "the queue (waits `max(old, new)`); `0..=MAX_DELAY_SECS`. @1862."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "pool_admin_epoch",
+            "docs": [
+              "Incremented on every pool-admin change (`accept_pool_admin_transfer`,",
+              "`disable_pool_admin`); every pending slot is cleared at the same",
+              "time, so a proposal never survives the key that made it. @1866."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "pending_pool_admin_eta",
+            "docs": [
+              "`eta` of the in-flight pool-admin transfer (`pending_pool_admin`",
+              "@98 holds the successor): `accept_pool_admin_transfer` requires",
+              "`eta <= now <= eta + GRACE`. `0` when no transfer is pending. @1870."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pending_set_delay",
+            "docs": [
+              "kind 1 @1878."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetDelay"
+              }
+            }
+          },
+          {
+            "name": "pending_set_swap_fee_rate",
+            "docs": [
+              "kind 2 @1890."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetSwapFeeRate"
+              }
+            }
+          },
+          {
+            "name": "pending_set_creator_fee_bps",
+            "docs": [
+              "kind 3 @1902."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetCreatorFeeBps"
+              }
+            }
+          },
+          {
+            "name": "pending_set_liquidity_fees",
+            "docs": [
+              "kind 4 @1912."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetLiquidityFees"
+              }
+            }
+          },
+          {
+            "name": "pending_lock_liquidity_fees",
+            "docs": [
+              "kind 5 @1924."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingLock"
+              }
+            }
+          },
+          {
+            "name": "pending_lock_range_manager",
+            "docs": [
+              "kind 6 @1932."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingLock"
+              }
+            }
+          },
+          {
+            "name": "pending_set_range_manager",
+            "docs": [
+              "kind 7 @1940."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetRangeManager"
+              }
+            }
+          },
+          {
+            "name": "pending_set_range_manager_config",
+            "docs": [
+              "kind 8 @1981."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetRangeManagerConfig"
+              }
+            }
+          },
+          {
+            "name": "pending_set_max_selloff",
+            "docs": [
+              "kind 9 @2005."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetMaxSelloff"
+              }
+            }
+          },
+          {
+            "name": "pending_set_token_active",
+            "docs": [
+              "kind 10 @2045."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetTokenActive"
+              }
+            }
+          },
+          {
+            "name": "hook_program",
+            "docs": [
+              "Hook program the pool CPIs before / after swaps and liquidity",
+              "operations (`Pubkey::default()` = no hook; every migrated pool). Set",
+              "once by `initialize_pool(.., hook_config)`; immutable — there is no",
+              "setter, so nothing for the admin cooldown to gate. @2054."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "hook_flags",
+            "docs": [
+              "`coffer_hook_interface::flags` bitmap: which callbacks run, whether",
+              "`before-swap` may override the swap fee (`DYNAMIC_FEE`) and whether a",
+              "disabled hook pauses swaps / adds (`PAUSE_WHEN_DISABLED`). Bits 8..15",
+              "are 0. Immutable. @2086."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "hook_disabled",
+            "docs": [
+              "Protocol-admin emergency switch (`set_hook_disabled`, instant, no",
+              "cooldown): `1` ⇒ no callback is invoked; swaps / adds proceed with the",
+              "base fee, or fail with `HookPaused` when `PAUSE_WHEN_DISABLED` is set.",
+              "Removes always proceed. While disabled the hook account slice is NOT",
+              "part of the remaining-accounts tail. @2088."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "hook_fee_min",
+            "docs": [
+              "Lower bound of a `before-swap` fee override (hundredths of bps,",
+              "`SWAP_FEE_PRECISION`); an override below it is clamped up. Floor 0",
+              "(`HOOK_FEE_FLOOR`, revisit with H-09). Immutable. @2089."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "hook_fee_max",
+            "docs": [
+              "Upper bound of a fee override (≤ `MAX_SWAP_FEE_RATE`); an override",
+              "above it is clamped down. Immutable. @2093."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "hook_max_cu",
+            "docs": [
+              "Compute-unit ceiling per callback, measured around the CPI (incl. the",
+              "invoke base cost); above it the operation fails with `HookCuExceeded`.",
+              "`HOOK_MIN_CU..=HOOK_MAX_CU_CAP`. Immutable. @2097."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "hook_accounts_len",
+            "docs": [
+              "Number of accounts in the hook slice (`[hook_program, hook_caller,",
+              "extras..]`) that every hooked instruction's remaining-accounts tail",
+              "begins with while the hook is active. `HOOK_MIN_ACCOUNTS..=",
+              "HOOK_MAX_ACCOUNTS`. Immutable. @2101."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved_v61",
+            "docs": [
+              "v6.1 reserve. See the struct doc for the carve-out order and the byte",
+              "budget. Zero on every v6.1 account (fresh or migrated); later tasks",
+              "insert their fields directly before it and shrink it, keeping `LEN`",
+              "at 2304."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                202
               ]
             }
           }
@@ -1095,9 +1553,12 @@
           {
             "name": "default_protocol_fee_rate",
             "docs": [
-              "Default `protocol_fee_rate` (in basis points, max 5000 = 50%) seeded",
-              "onto every new pool created against this config. Pools may diverge",
-              "later via `set_protocol_fee_rate`."
+              "Stored by `initialize_config` (basis points, ≤ `MAX_PROTOCOL_FEE_RATE`).",
+              "Until v6.1 it was copied onto every new pool; since T15 the pool",
+              "field is the only source of truth — `initialize_pool` writes the",
+              "program constant `DEFAULT_PROTOCOL_FEE_RATE` and **no code path reads",
+              "this field**. Kept in the layout (ABI, `ConfigInitialized` event) and",
+              "informational for off-chain readers only."
             ],
             "type": "u16"
           },
@@ -1137,6 +1598,209 @@
                 112
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingLock",
+      "docs": [
+        "Payload-less slot (`LockLiquidityFees` kind 5, `LockRangeManager` kind 6)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetCreatorFeeBps",
+      "docs": [
+        "Slot for `SetCreatorFeeBps` (kind 3)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetDelay",
+      "docs": [
+        "Slot for `SetDelay` (kind 1): the new `pool_admin_delay_secs`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "secs",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetLiquidityFees",
+      "docs": [
+        "Slot for `SetLiquidityFees` (kind 4)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "deposit_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "withdraw_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetMaxSelloff",
+      "docs": [
+        "Slot for `SetMaxSelloff` (kind 9). Up to 10 × 15-byte `SelloffParams`",
+        "do not fit inline, so the slot pins `sha256(borsh(params))`; the full",
+        "vector travels in `PoolActionProposed.payload` and must be resent to",
+        "`execute_set_max_selloff`, which re-hashes and re-validates it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "params_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetRangeManager",
+      "docs": [
+        "Slot for `SetRangeManager` (kind 7). Only the pool-admin path is queued;",
+        "the exact disable `(current, false)` is an emergency action and stays",
+        "direct."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetRangeManagerConfig",
+      "docs": [
+        "Slot for `SetRangeManagerConfig` (kind 8), same five arguments."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "max_vb_change_pct",
+            "type": "u16"
+          },
+          {
+            "name": "max_weight_change_pct",
+            "type": "u16"
+          },
+          {
+            "name": "min_update_interval_secs",
+            "type": "u32"
+          },
+          {
+            "name": "max_leverage_bps",
+            "type": "u32"
+          },
+          {
+            "name": "min_leverage_bps",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetSwapFeeRate",
+      "docs": [
+        "Slot for `SetSwapFeeRate` (kind 2)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "rate",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetTokenActive",
+      "docs": [
+        "Slot for the pool admin's `SetTokenActive(index, true)` (kind 10).",
+        "Re-enabling is the relaxing direction and therefore delayed; disabling",
+        "is an emergency action and stays direct."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "token_index",
+            "type": "u8"
           }
         ]
       }

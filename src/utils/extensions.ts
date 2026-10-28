@@ -154,7 +154,7 @@ export function unsupportedMintExtensions(extensions: number[]): number[] {
 }
 
 type TransferPolicyToken = Pick<PoolTokenInfo, "index" | "mint" | "unsupportedExtensions" | "metadata"> &
-  Partial<Pick<PoolTokenInfo, "paused" | "tokenProgram">>;
+  Partial<Pick<PoolTokenInfo, "paused" | "tokenProgram" | "pinnedDecimalsMismatch">>;
 
 /**
  * Why the v6 program would refuse to transfer this token right now, one
@@ -169,6 +169,7 @@ export function tokenTransferBlockers(t: TransferPolicyToken): string[] {
     reasons.push(`unsupported Token-2022 extension(s): ${unsupported.map(mintExtensionName).join(", ")}`);
   }
   if (t.paused) reasons.push("mint is paused (Pausable)");
+  if (t.pinnedDecimalsMismatch) reasons.push("live mint decimals differ from the pool's pinned value (PinnedDecimalsMismatch)");
   if (t.mint.equals(NATIVE_MINT_2022) && (t.tokenProgram === undefined || t.tokenProgram.equals(TOKEN_2022_PROGRAM_ID))) {
     reasons.push("Token-2022 native mint cannot be pooled");
   }

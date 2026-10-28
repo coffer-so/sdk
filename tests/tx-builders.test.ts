@@ -159,6 +159,7 @@ describe("tx-builders discriminators", () => {
       weightsBps: [5000, 5000],
       virtualBalances: [new BN(1000), new BN(1000)],
       swapFeeRate: 3000,
+      lpMetadata: { name: "Coffer LP", symbol: "cLP", uri: "https://coffer.so/lp.json" },
     });
     const deploy = deployTx.instructions[deployTx.instructions.length - 1];
     const initConfig = buildInitializeConfigIx(cfg, {

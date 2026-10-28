@@ -3,6 +3,80 @@
 Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 `cubic_pool`); they were not rewritten.
 
+## 0.2.0 — v6.1: layout, builders, quotes, events
+
+Targets `contracts` branch `v6.1` at `9094945` (T3) with the T9 hooks merge.
+Additive on top of the rename below; the v6 wire formats keep working on
+1683-byte pools until they are migrated.
+
+### Added
+
+- **Layout (L0)**: `decodePoolAccount` reads 1683 (`layoutVersion 0`) and 2304
+  (`layoutVersion 1`) bytes; `RawPoolAccount` / `PoolInfo` carry every v6.1
+  field (`tokenDecimals`, `creatorFeeBps`, `creatorFeesOwed`, `surgeFeesOwed`,
+  `depositFeeBps`, `withdrawFeeBps`, `liquidityFeesLocked`,
+  `rangeManagerLocked`, `poolAdminDelaySecs`, `poolAdminEpoch`,
+  `pendingActions`, `hook`, `lpMetadata`, `needsLayoutMigration`).
+  `parsers/layout.ts` pins every offset; `decodeTreasuryAccount` reads the
+  786 / 818 / 1624-byte Treasury. `buildMigratePoolLayoutV61Ix`; every
+  `build*Tx` prepends the migration (`autoMigrate`, default `true`) or throws
+  `PoolLayoutOutdatedError`.
+- **Builders**: `buildSeedLiquidityIx/Tx` (+ raw form), `buildFundSidelinedTokenIx/Tx`,
+  `buildInitializePoolIx` with `DeployPoolParamsV61` (LP metadata, creator /
+  deposit / withdraw fee bps, `Option<HookConfig>`, hook slice),
+  `buildSetCreatorFeeBpsIx`, `buildSetLiquidityFeesIx`, `buildLockLiquidityFeesIx`,
+  `buildLockRangeManagerIx`, `buildSetPoolAdminDelayIx`, `buildSetSwapsEnabledIx`,
+  `buildRemoveLiquidityBypassHooksIx` (`bypassHooks` on `buildRemoveLiquidityTx`),
+  `hookAccounts` on swap / add / seed / remove.
+- **Cooldown (T3)**: `clients/cooldown.ts` — `PoolActions` / `ProtocolActions`
+  payload constructors, kind tables, `buildProposePoolActionIx`,
+  `buildCancelPoolActionIx`, `buildExecutePoolActionIx`;
+  `AdminClient` wrappers for every protocol-admin propose / execute / cancel
+  route; `CofferPoolClient.pendingActionsStatus()`.
+- **Fee claims (T5 / T14)**: `clients/feeClaim.ts` — recipients forced to the
+  Treasury vault PDAs, v5 (3n) and v6.1 (4n + tail) ABIs, placeholders for
+  zero-owed slots, `buildClaimCreatorFeesIx`, `buildRegisterTokenIx`,
+  `buildTreasuryWithdrawIx`, `chooseTxForm` (legacy / v0 / aux ALT).
+- **Atomic deploy (T8)**: `buildAtomicDeploy` (single / alt-1 / alt-2 layouts
+  under the 1232-byte packet and 62-slot trace budgets, paused launch, Jito
+  `jitodontfront` marker, hooked deploy), `sendAtomicDeploy`,
+  `verifyCreatedPool` / `validatePoolIdentity` (I-08),
+  `PoolFactoryClient.buildAtomicDeploy`.
+- **Hooks (T9)**: `utils/hooks.ts` — `validateHookConfig`, `encodeHookConfig`,
+  `hookCallerPda`, `hookAccountSlice`, `requireHookSlice`, the fixture
+  resolver, `hookCuBudget`. Quotes accept `hookFeeOverride` (clamped to
+  `[feeMin, feeMax]`) and report `feeSource`.
+- **LP metadata (T1)**: `validateLpMetadata`, `encodeLpMetadataArgs`,
+  `fetchLpMetadata` / `decodeLpMintAccount` (token program from the mint
+  owner; legacy SPL LP mints → `null` metadata), `defaultLpMetadata`.
+- **Math / quotes**: `splitFee` (protocol ceil → creator floor → LP),
+  `applyLiquidityFee` family, `nav` / `splitDepositCredit` / `splitExitPayout`
+  (T12 buckets), `lpPriceUsd`; `quoteSwap` runs the full cascade incl. the
+  surge split; `quoteAddLiquidity` prices on NAV with the bucket buy-in and
+  the deposit-fee haircut; `quoteRemove` pays the bucket share net of the
+  withdraw fee; `quoteSeedDeposit`, `quoteLpPriceUsd`, `quoteLpPositionValue`;
+  the planner (`quoteZap` / `replay`) carries the same cascade. Sidelined
+  outputs are typed `no_liquidity` errors.
+- **Events**: every v6.1 tail decoded tolerantly (`v61Tail` flags); new
+  `PoolInfo`, cooldown, hook, creator-fee and liquidity-fee events.
+- **Errors**: coffer_pool 6070–6103, protocol_admin 6010–6018; SDK codes
+  `pool_layout_outdated`, `no_liquidity`, `cooldown`, `hook_rejected`.
+- `MAINNET_V51_FACTORY_PROGRAMS`; `npm run abi:check -- --idl-dir … --ignore-address`.
+
+### Changed
+
+- `calculateInvariant` removed (unused since v6).
+- `PoolFactoryClient.buildDeployPoolTx` takes `DeployPoolParamsV61` (LP
+  metadata is required; the LP mint must be Token-2022).
+- `legacyTxSize` is computed analytically (no 1232-byte serialize guard).
+
+### Known limits
+
+- A `DYNAMIC_FEE` hook decides the fee on chain; quotes without
+  `hookFeeOverride` run at the base rate and say `feeSource: "hook_dynamic_unknown"`.
+- Hook extras are resolved per hook program (no on-chain resolver in v6.1);
+  the fixture rule ships as `fixtureHookExtras`.
+
 ## 0.2.0 — rename BPT → LP, Cubic → Coffer; drop the extension policy
 
 Targets `contracts` v6.1 after T18 (rename) and T19 (banned-extension policy

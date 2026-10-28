@@ -13,7 +13,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { BorshAccountsCoder, Idl } from "@coral-xyz/anchor";
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
-import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import * as sdk from "../src";
 import {
@@ -157,7 +157,7 @@ describe("T18 PDA seeds are the legacy byte strings", () => {
     const configKey = pk();
     const result = factory.buildDeployPoolTx({
       payer: pk(), configKey, poolId: new BN(7), tokens: [pk(), pk()], weightsBps: [5000, 5000],
-      virtualBalances: [new BN(1), new BN(1)], swapFeeRate: 3000,
+      virtualBalances: [new BN(1), new BN(1)], swapFeeRate: 3000, lpMetadata: { name: "Coffer LP", symbol: "cLP", uri: "https://coffer.so/lp.json" },
     });
     if (!result.ok) throw new Error(result.error.humanMessage);
     const [pool] = derivePoolPda(cfg.programs.cofferPool, configKey, new BN(7));
@@ -186,11 +186,12 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(hex(sha8("account:CubicPoolConfig"))).toBe("041df30a8e40e876");
   });
 
-  test("initialize_pool carries the re-cut discriminator and four args", () => {
+  test("initialize_pool carries the re-cut discriminator; the four v6 args are followed by the v6.1 tail", () => {
     expect(hex(ix("initialize_pool").discriminator)).toBe("5fb40aac54aee828");
     expect(hex(ix("initialize_pool").discriminator)).toBe(hex(sha8("global:initialize_pool")));
     expect(ix("initialize_pool").args.map((a: any) => a.name)).toEqual([
       "normalized_weights", "initial_virtual_balances", "swap_fee_rate", "pool_id",
+      "lp_metadata", "creator_fee_bps", "deposit_fee_bps", "withdraw_fee_bps", "hook_config",
     ]);
   });
 
@@ -233,7 +234,8 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(ix("deposit_single_token_planned", SINGLE_TOKEN_LIQUIDITY_IDL).accounts.map((a: any) => a.name)).toContain("coffer_pool_program");
     expect(ix("pool_set_pool_enabled", PROTOCOL_ADMIN_IDL).accounts.map((a: any) => a.name)).toContain("coffer_pool_program");
     const poolInit = (COFFER_POOL_IDL as any).types.find((t: any) => t.name === "PoolInitialized").type.fields.map((f: any) => f.name);
-    expect(poolInit).toEqual(["pool", "config", "token_count", "lp_mint", "timestamp", "banned_extensions", "pool_id"]);
+    expect(poolInit.slice(0, 7)).toEqual(["pool", "config", "token_count", "lp_mint", "timestamp", "banned_extensions", "pool_id"]);
+    expect(poolInit.slice(7, 11)).toEqual(["lp_name", "lp_symbol", "lp_uri", "lp_token_program"]); // v6.1 T1 tail
   });
 
   test("error names are renamed while their numeric codes stay", () => {
@@ -248,10 +250,10 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(describeProgramError(6025)?.name).toBe("BannedExtension");
   });
 
-  test("ABI size after T19: 59 instructions and 59 events across the three programs", () => {
+  test("ABI size after v6.1: 104 instructions and 79 events across the three programs (59 / 59 after T19)", () => {
     const programs = Object.values(IDLS) as any[];
-    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(59);
-    expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(59);
+    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(104);
+    expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(79);
   });
 });
 
@@ -289,7 +291,8 @@ describe("T18/T19 account layouts", () => {
   });
 
   test("generic CofferPool decoding agrees with the manual decoder on the deprecated slot", () => {
-    const buf = poolBytes({ deprecated: new BN(6), maxLev: 1, minLev: 2 });
+    // The generic (strict-size) decoder wants the 2304-byte v6.1 account; the legacy bytes are its prefix.
+    const buf = Buffer.alloc(2304); poolBytes({ deprecated: new BN(6), maxLev: 1, minLev: 2 }).copy(buf); buf[1683] = 1;
     const decoded = decodeContractAccount("cofferPool", "CofferPool", buf) as any;
     expect(decoded._deprecated_banned_extensions.toNumber()).toBe(6);
     expect(decoded.range_manager_max_leverage_bps).toBe(1);
@@ -298,18 +301,22 @@ describe("T18/T19 account layouts", () => {
 });
 
 describe("T19 deploy builder encodes no Option<u64> policy argument", () => {
+  const LP_META = { name: "Coffer LP", symbol: "cLP", uri: "https://coffer.so/lp.json" };
+  const LP_META_LEN = 12 + LP_META.name.length + LP_META.symbol.length + LP_META.uri.length;
   const params = () => ({
     payer: pk(), configKey: pk(), poolId: new BN(99), tokens: [pk(), pk(), pk()],
-    weightsBps: [2000, 3000, 5000], virtualBalances: [new BN(1), new BN(2), new BN(3)], swapFeeRate: 3000,
+    weightsBps: [2000, 3000, 5000], virtualBalances: [new BN(1), new BN(2), new BN(3)], swapFeeRate: 3000, lpMetadata: LP_META,
   });
 
-  test("instruction data is exactly disc + Vec<u64> + Vec<u64> + u32 + u64 and ends with pool_id", () => {
+  test("instruction data is disc + Vec<u64> + Vec<u64> + u32 + u64 (pool_id) + the v6.1 tail (lp_metadata, 3 × u16, Option<HookConfig> = None)", () => {
     const p = params();
     const built = buildInitializePoolIx(cfg, p);
     const n = p.tokens.length;
-    expect(built.data.length).toBe(8 + (4 + 8 * n) + (4 + 8 * n) + 4 + 8);
+    const prefix = 8 + (4 + 8 * n) + (4 + 8 * n) + 4 + 8;
+    expect(built.data.length).toBe(prefix + LP_META_LEN + 2 + 2 + 2 + 1);
     expect(hex(built.data.subarray(0, 8))).toBe("5fb40aac54aee828");
-    expect(built.data.subarray(-8).equals(u64(99))).toBe(true);
+    expect(built.data.subarray(prefix - 8, prefix).equals(u64(99))).toBe(true);
+    expect(built.data[built.data.length - 1]).toBe(0); // no hook
   });
 
   test("hand-built data equals the IDL-driven encoder's data for initialize_pool", () => {
@@ -319,9 +326,9 @@ describe("T19 deploy builder encodes no Option<u64> policy argument", () => {
     const [lpMint] = deriveLpMint(cfg.programs.cofferPool, pool);
     const generic = buildContractInstruction(cfg, "cofferPool", "initialize_pool", {
       normalized_weights: p.weightsBps.map((w) => new BN(w)), initial_virtual_balances: p.virtualBalances,
-      swap_fee_rate: p.swapFeeRate, pool_id: p.poolId,
+      swap_fee_rate: p.swapFeeRate, pool_id: p.poolId, lp_metadata: LP_META, creator_fee_bps: 0, deposit_fee_bps: 0, withdraw_fee_bps: 0, hook_config: null,
     }, {
-      config: p.configKey, pool, lp_mint: lpMint, payer: p.payer, token_program: TOKEN_PROGRAM_ID,
+      config: p.configKey, pool, lp_mint: lpMint, payer: p.payer, lp_token_program: TOKEN_2022_PROGRAM_ID,
       associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID, system_program: SystemProgram.programId,
     });
     expect(built.data.equals(generic.data)).toBe(true);
@@ -344,7 +351,9 @@ describe("T18 event parsers expose lp_* / lp* fields", () => {
   const pool = pk(), user = pk();
 
   test("LiquidityAdded → lpAmount (camelCase API) and lp_amount (IDL API)", () => {
-    const payload = Buffer.concat([pool.toBuffer(), user.toBuffer(), vecU64([new BN(10), new BN(20)]), u64(5), u64(1_700_000_000)]);
+    // v6.1 tails (T2 / T7 / T12) appended so the strict IDL decoder accepts the log.
+    const tail = Buffer.concat([Buffer.from([0]), vecU64([new BN(10), new BN(20)]), u64(0), u64(5), u64(0), u64(0), Buffer.from([0, 0]), vecU64([new BN(0), new BN(0)])]);
+    const payload = Buffer.concat([pool.toBuffer(), user.toBuffer(), vecU64([new BN(10), new BN(20)]), u64(5), u64(1_700_000_000), tail]);
     const line = log(ev("LiquidityAdded").discriminator, payload);
     const [camel] = parseCofferPoolEvents([line]) as any[];
     expect(camel.kind).toBe("LiquidityAdded");
@@ -363,7 +372,10 @@ describe("T18 event parsers expose lp_* / lp* fields", () => {
 
   test("PoolInitialized → lpMint, deprecatedBannedExtensions (0 from a v6.1 program), poolId", () => {
     const config = pk(), lpMint = pk();
-    const payload = Buffer.concat([pool.toBuffer(), config.toBuffer(), u8(2), lpMint.toBuffer(), u64(1), u64(0), u64(77)]);
+    const str = (x: string) => { const b = Buffer.from(x); const l = Buffer.alloc(4); l.writeUInt32LE(b.length); return Buffer.concat([l, b]); };
+    // v6.1 tails (T1 strings + lp_token_program, T14, T7, T9 zero hook block) so the strict IDL decoder accepts the log.
+    const tail = Buffer.concat([str("LP"), str("cLP"), str("https://x"), pk().toBuffer(), Buffer.alloc(6), Buffer.alloc(32), Buffer.alloc(2 + 4 + 4 + 4 + 1)]);
+    const payload = Buffer.concat([pool.toBuffer(), config.toBuffer(), u8(2), lpMint.toBuffer(), u64(1), u64(0), u64(77), tail]);
     const line = log(ev("PoolInitialized").discriminator, payload);
     const [camel] = parseCofferPoolEvents([line]) as any[];
     expect(camel.lpMint.equals(lpMint)).toBe(true);

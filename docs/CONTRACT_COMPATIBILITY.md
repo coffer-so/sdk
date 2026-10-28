@@ -1,45 +1,59 @@
-# Contract compatibility: v6
+# Contract compatibility: v6.1
 
-Target: `contracts` v6.1 — `contracts/v6` commit `7d753b3` (`feat: allow swap
-and protocol fee rates anywhere in 0..=100%`) plus T19 (Token-2022 extension
-policy removed: `set_banned_extensions`, `pool_set_banned_extensions`, their
-events and the `initialize_pool` override argument are gone) and T18 (BPT → LP,
-Cubic → Coffer rename; `initialize_cubic_pool` → `initialize_pool` with a new
-discriminator, everything else wire-identical). v6 is deployed as SEPARATE programs next to v5
-(mainnet since 2026-10; v5 `main` 0.5.1 keeps running and is tracked by
-`@coffer_so/sdk` 1.x). A pool belongs to the generation whose coffer_pool owns
-its account — drive it with that generation's SDK.
+Target: `contracts` **v6.1** — branch `v6.1` at `9094945` (T3 admin-cooldown
+merge) plus the T9 native-hooks merge (IDLs carry `hook_config`). SDK 0.2.0
+drives every v6.1 feature: the 2304-byte pool layout (L0), LP metadata (T1),
+seed deposit (T2), admin cooldowns (T3), vault-PDA fee claims (T5), range
+manager lock (T6), deposit / withdraw fees (T7), atomic deploy (T8), hooks
+(T9), sidelined tokens (T10), surge buckets (T12), creator fees (T14), the
+per-pool protocol fee rate (T15) and the T18 / T19 rename / policy removal.
 
-| Program | Instructions | Events | mainnet | devnet (2026-10-10) | localnet (`anchor build` declare_id) |
+v6.1 ships as NEW program ids next to v6 and v5 (the v6 mainnet factory keeps
+running on the 1683-byte layout until `migrate_pool_layout_v61` runs per
+pool). A pool belongs to the generation whose coffer_pool owns its account —
+drive it with that generation's SDK; `MAINNET_V51_FACTORY_PROGRAMS` names the
+v6.1 factory ids (`8iQt…` / `7Bpd…` / `3jio…`), `NETWORK_PROGRAMS.mainnet`
+the v6 ones, and `CofferConfigOverrides.programs` switches between them.
+
+| Program | Instructions | Events | v6 mainnet | v6.1 mainnet factory | devnet (2026-10-10) |
 | --- | ---: | ---: | --- | --- | --- |
-| coffer_pool | 27 | 29 | `6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9` | `Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1` | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` |
-| protocol_admin | 28 | 27 | `6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck` | `FPwMrsxYpgJsZRCTKJadP97AsNX1WwFBZwBbzTDcYmjU` | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` |
-| single_token_liquidity | 4 | 3 | not deployed (reserved `Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy`) | `4Rk88MtVT6CjB5e2EPbzQ4Qs6zKtSFgVZYE79SVenVko` | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` |
+| coffer_pool | 50 | 42 | `6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9` | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` | `Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1` |
+| protocol_admin | 50 | 34 | `6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck` | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` | `FPwMrsxYpgJsZRCTKJadP97AsNX1WwFBZwBbzTDcYmjU` |
+| single_token_liquidity | 4 | 3 | reserved `Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy` | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` | `4Rk88MtVT6CjB5e2EPbzQ4Qs6zKtSFgVZYE79SVenVko` |
 
-Protocol accounts: mainnet treasury `BaUyw2zVZx8TGCMDZtQKQxq2S9LCCzNubg8tNKWqh9yv`,
+104 instructions / 79 events in total; `npm run abi:check -- --idl-dir
+../contracts-v6.1/idl --ignore-address` diffs the vendored IDLs against a
+contracts checkout (the `address` fields are the SDK's and differ on purpose).
+
+Protocol accounts (v6): mainnet treasury `BaUyw2zVZx8TGCMDZtQKQxq2S9LCCzNubg8tNKWqh9yv`,
 config `HkYKaa4ARjeqPZsVb7bHKuNLJHhM7Dntzh9oLWg8xvhb`; devnet treasury
 `HLpyYUeWmz7VfNgJG5ZMj4vnpqiJXYUSY9SNwy3u1NVW`, config
-`5GTgLMeodBEovfDnwYjpt8ndw8hUcifQJVMVnGRwWEYp`. The mainnet binaries were
-built from a state with re-declared ids that `origin/v6` does not carry yet.
+`5GTgLMeodBEovfDnwYjpt8ndw8hUcifQJVMVnGRwWEYp`. The v6.1 factory needs its
+own Treasury / config (hard-coded ids); fill them in when it is initialised.
 
-The v6 IDLs still declare `metadata.version = "0.5.1"`; the SDK pins the
-revision by commit, not by that field. (Contracts: please bump it to 0.6.0.)
-`CofferConfigOverrides.programs` overrides any program id, e.g. for a stand
-deployed by `contracts/scripts/run-v6-local.sh`.
+## What changed on-chain (v6.1) and how the SDK follows
 
-## What changed on-chain and how the SDK follows
-
-| v6 | SDK |
+| v6.1 | SDK 0.2.0 |
 | --- | --- |
-| Account layouts unchanged (`CofferPool` 1683 bytes); `migrate_to_v5` stamps `"V5M1"` into `reserved[0..4]` and is guarded (`UnsafeLegacyMigration`) | same decoders; `RawPoolAccount.v5Migrated`, `PoolInfo.v5Migrated` |
-| Events appended: `Swap.transfer_fee_in/out`, `PoolInitialized.pool_id`, `RangeManagerConfigSet.old/new_min_leverage_bps`; new `SingleTokenDepositDirect` | typed fields, new decoder; legacy `SingleTokenDeposit` kept for history |
-| Token-2022: every transfer is `transfer_checked`; transfer fees netted on both legs; armed hooks and memo-requiring destinations served from a remaining-account tail | quotes net fees; `transferProfile.ts` resolves the tail; `extraAccounts` on swap/add/remove builders |
-| Fee ceilings 100 % | `MAX_SWAP_FEE_RATE = SWAP_FEE_PRECISION`, `MAX_PROTOCOL_FEE_RATE = PROTOCOL_FEE_PRECISION` |
-| Join/exit rounding: `calc_deposit_credit` (ceil), `virtual_balance_after_deposit` (ceil), `virtual_balance_after_withdrawal` (floor, ≥ 1), `calc_effective_lp_burn`; equal weights skip ln/exp | `poolMath.ts` ports; quotes rewritten |
-| Sell-off window: `rescale_window_on_vb_change` + `rebase_snapshot` on the output leg of swaps, every leg of join/exit and manager updates; rotation carry rounds up | `maxSelloff.ts` ports; `swapSim.ts` applies them |
-| Surge: `calc_surge_fee_rate` (1e18 trapezoids, fill ratio rounded up) + `calc_surge_fee_amount` (4 segments, one ceil) | `surgeFee.ts` port |
-| Admin: `collect_protocol_fees`/`debug_withdraw` take `[vault, recipient, mint, token_program]` per token + tail; protocol-admin `withdraw` takes `mint` | `AdminClient` |
-| STLD: legacy `deposit_single_token*` always fail (`AllocationPlanRequired`); the only route is `deposit_single_token_planned` with a client-computed `AllocationPlan` | `PlannedZapClient` + TypeScript planner; see [PLANNED_ZAP.md](PLANNED_ZAP.md) |
+| L0: `CofferPool` grows 1683 → 2304 bytes (`layout_version`, pinned decimals, creator / surge buckets, liquidity fees, locks, cooldown block, hook block, 202 reserved). `migrate_pool_layout_v61` is permissionless; until it runs every instruction fails with `LayoutVersionMismatch` (6070) | `decodePoolAccount` reads both lengths (1683 = `layoutVersion 0`, read-only); `PoolInfo.needsLayoutMigration`; `build*Tx` prepend `migrate_pool_layout_v61` (`autoMigrate`, default on) or throw `PoolLayoutOutdatedError`; `parsers/layout.ts` pins every offset |
+| T1: LP mint is Token-2022 with in-mint `TokenMetadata` (`name`, `symbol`, `uri`, `("pool", <pool>)`, authority revoked); `initialize_pool` takes `LpMetadataArgs` | `validateLpMetadata` (program rules + shared fixture table), `encodeLpMetadataArgs`, `fetchLpMetadata` / `decodeLpMintAccount` (token program from the mint OWNER; legacy SPL LP mints → `null`), `PoolInfo.lpMetadata` |
+| T2: `seed_liquidity(token_amounts, lp_amount)` — the creator's first deposit, creator-chosen supply `1 LP ≤ x ≤ 1e7 LP`, no `pow`; `add_liquidity` refuses an unseeded pool | `buildSeedLiquidityIx/Tx`, `quoteSeedDeposit(user, amounts, lpAmount = 1_000 LP)`, `MIN/MAX/DEFAULT_INITIAL_LP_SUPPLY` |
+| T3: pool-admin and protocol-admin cooldowns — `propose_*` / `execute_*` / `cancel_*`, one typed slot per kind, 14-day grace, epoch-invalidated | `clients/cooldown.ts` (`PoolActions` / `ProtocolActions` constructors, kind tables, builders), `AdminClient.propose/execute/cancelAction*`, `PoolInfo.pendingActions` + `pendingActionsStatus()` (chain clock, never `Date.now()`), Treasury v3 decoder |
+| T5: `collect_protocol_fees` recipients MUST be the Treasury vault PDAs `[b"vault", mint]`; `register_token` cap lifted | `buildCollectProtocolFeesIx` (recipients forced, placeholders for zero-owed slots, v5 3n vs v6.1 4n ABIs), `chooseTxForm` (legacy / v0 / aux ALT) |
+| T6: `lock_range_manager` (irreversible) | builder + `PoolInfo.rangeManagerLocked` |
+| T7: deposit fee (LP haircut, ceil) / withdraw fee (per-leg payout haircut), `lock_liquidity_fees` | `applyDepositFee` / `applyWithdrawFee` / `splitExitPayout`; quotes report `depositFeeLp`, `withdrawFeeAmounts`; `DepositFeeConsumesAll` / `WithdrawFeeConsumesAll` at 100 % |
+| T8: one-approval deploy (init + ATAs + seed [+ pause]) in 1–3 transactions, Jito `jitodontfront` marker, identity verification | `buildAtomicDeploy` / `sendAtomicDeploy`, `verifyCreatedPool`, `PoolFactoryClient.buildAtomicDeploy` |
+| T9: immutable native hooks (`HookConfig` at init; `set_hook_disabled`; `remove_liquidity_bypass_hooks`); the slice `[hook_program, HOOK_CALLER, extras…]` leads the remaining-accounts tail | `utils/hooks.ts` (config validation / encoding, slice, `requireHookSlice`, CU heuristic), `hookAccounts` on swap / add / seed / remove, `bypassHooks`, quotes take `hookFeeOverride` (clamped to `[feeMin, feeMax]`; `feeSource` reports `hook_dynamic_unknown` when the hook decides on chain) |
+| T10: sidelined slots (`actual_balance == 0`): never a swap output, no payout on exit, `fund_sidelined_token` by the pool admin | `PoolTokenInfo.sidelined`, `no_liquidity` quotes, `buildFundSidelinedTokenIx/Tx` |
+| T12: the LP share of surge fees accrues in `surge_fees_owed[out]`; NAV = actual + surge; joins buy into the bucket, exits pay their share | `nav` / `splitDepositCredit` / `splitExitPayout`; quotes on NAV (`navBalances`, `surgeBuyIn`, `surgeOuts`); `quoteLpPriceUsd` |
+| T14: `creator_fee_bps` share of the LP remainder → `creator_fees_owed`, `claim_creator_fees` | `splitFee` cascade (protocol ceil → creator floor → LP), `buildClaimCreatorFeesIx`, `creatorFeeAmount` in quotes |
+| T15: `pool_set_protocol_fee_rate` per pool (0..=10_000 bps) | `AdminClient.poolSetProtocolFeeRateIx` / cooldown payload |
+| Events: v6.1 fields appended to `Swap`, `LiquidityAdded`, `LiquidityRemoved`, `PoolInitialized`, …; new `PoolInfo`, cooldown, hook, creator-fee events | tolerant tails (`v61Tail` flags), typed decoders for every event |
+| Errors 6070–6103 (coffer_pool) and 6010–6018 (protocol_admin) | `describeProgramError`, `CLAIM_ERROR_NAMES`, SDK codes `pool_layout_outdated`, `no_liquidity`, `cooldown`, `hook_rejected` |
+
+Legacy rows (v6) still hold: `transfer_checked` everywhere with transfer-fee
+netting and hook / memo tails, 100 % fee ceilings, v6 join / exit rounding,
+sell-off windows and the four-segment surge curve, and the planned STLD route.
 
 ## Full instruction API
 

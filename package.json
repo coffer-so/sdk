@@ -23,7 +23,7 @@
     "lint": "tsc --noEmit",
     "types:generate": "node scripts/generate-contract-types.cjs",
     "types:check": "node scripts/generate-contract-types.cjs --check",
-    "abi:check": "node scripts/check-contract-abi.cjs --contracts-dir ../contracts",
+    "abi:check": "node scripts/check-contract-abi.cjs --contracts-dir ../contracts-v6.1 --idl-dir idl --ignore-address",
     "fixtures:rust": "python3 tests/math/generate-rust-reference.py ../contracts"
   },
   "repository": {
@@ -47,7 +47,8 @@
     "@coral-xyz/anchor": "^0.32.1",
     "@noble/hashes": "^1.4.0",
     "@solana/spl-token": "^0.4.14",
-    "bn.js": "^5.2.1"
+    "bn.js": "^5.2.1",
+    "@solana/spl-token-metadata": "^0.1.6"
   },
   "devDependencies": {
     "@solana/web3.js": "^1.95.0",

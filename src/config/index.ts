@@ -111,6 +111,69 @@ export const MIN_LP_SUPPLY = 1_000n;
 export const SLIPPAGE_PRECISION = 1_000_000;
 export const MIN_SLIPPAGE_HBPS = 10; // 0.001 %
 
+// ── v6.1 constants (mirrored from `programs/coffer-pool/src/constants.rs`) ──
+
+/** T15: every new pool is born with this protocol share of swap + surge fees (bps). */
+export const DEFAULT_PROTOCOL_FEE_RATE = 1_000; // 10 %
+/** T14: pool admin's share of the LP fee remainder, bps; 100 % allowed. */
+export const CREATOR_FEE_PRECISION = 10_000;
+export const MAX_CREATOR_FEE_BPS = 10_000;
+export const DEFAULT_CREATOR_FEE_BPS = 0;
+/** T7: deposit / withdraw fee precision and cap (100 % = closed). */
+export const LIQUIDITY_FEE_PRECISION = 10_000;
+export const MAX_LIQUIDITY_FEE_BPS = 10_000;
+/** T7: `CofferPool.liquidity_fee_lock` bit — once set, `set_liquidity_fees` is rejected for ever. */
+export const LIQUIDITY_FEE_LOCK_FROZEN = 0x01;
+/** T2: creator-chosen initial LP supply bounds (raw, 9 decimals). */
+export const MIN_INITIAL_LP_SUPPLY = 1_000_000_000n; // 1 LP
+export const MAX_INITIAL_LP_SUPPLY = 10_000_000_000_000_000n; // 1e7 LP
+/** T8: the atomic deploy's default seed supply (1_000 LP). */
+export const DEFAULT_INITIAL_LP_SUPPLY = 1_000_000_000_000n;
+/** T1: LP metadata limits (bytes). */
+export const LP_NAME_MAX_LEN = 32;
+export const LP_SYMBOL_MAX_LEN = 10;
+export const LP_URI_MAX_LEN = 200;
+export const LP_METADATA_POOL_KEY = "pool";
+/** T9: `coffer_hook_interface::flags` — `CofferPool.hook_flags` bits. */
+export const HOOK_FLAGS = {
+  BEFORE_ADD_LIQUIDITY: 1 << 0,
+  AFTER_ADD_LIQUIDITY: 1 << 1,
+  /** informational: verdict logged, never enforced */
+  BEFORE_REMOVE_LIQUIDITY: 1 << 2,
+  /** informational: verdict logged, never enforced */
+  AFTER_REMOVE_LIQUIDITY: 1 << 3,
+  BEFORE_SWAP: 1 << 4,
+  AFTER_SWAP: 1 << 5,
+  /** before-swap may return a fee override (requires BEFORE_SWAP) */
+  DYNAMIC_FEE: 1 << 6,
+  /** fail-closed: while disabled, swaps / deposits fail with HookPaused */
+  PAUSE_WHEN_DISABLED: 1 << 7,
+  ALL_CALLBACKS: 0b11_1111,
+  VALID_MASK: 0xff,
+} as const;
+/** T9: `HookConfig` bounds. */
+export const HOOK_MIN_CU = 5_000;
+export const HOOK_MAX_CU_CAP = 200_000;
+export const HOOK_DEFAULT_MAX_CU = 50_000;
+export const HOOK_MIN_ACCOUNTS = 2;
+export const HOOK_MAX_ACCOUNTS = 12;
+export const HOOK_FEE_FLOOR = 0;
+export const HOOK_INTERFACE_VERSION = 1;
+/** T9: PDA `[b"coffer_hook_caller"]` under coffer-pool — the only signer of a hook CPI (never the pool PDA). */
+export const HOOK_CALLER_SEED = Buffer.from("coffer_hook_caller");
+/** T9: `sha256("coffer-hook-interface:<name>")[..8]` per callback (`HookInvoked.callback` index order). */
+export const HOOK_CALLBACKS = [
+  { index: 0, name: "on-register", discriminator: "5f3032ad60eac0cb" },
+  { index: 1, name: "before-swap", discriminator: "40e0cf9c6cdc2499" },
+  { index: 2, name: "after-swap", discriminator: "3e93c139b56784aa" },
+  { index: 3, name: "before-add-liquidity", discriminator: "11e260373a9e354e" },
+  { index: 4, name: "after-add-liquidity", discriminator: "f8950d93727aea93" },
+  { index: 5, name: "before-remove-liquidity", discriminator: "741994cb063e0dad" },
+  { index: 6, name: "after-remove-liquidity", discriminator: "b1af63ec704ede05" },
+] as const;
+/** T5: Treasury vault PDA seed `[b"vault", mint]` under protocol_admin — the only accepted protocol-fee recipient. */
+export const TREASURY_VAULT_SEED = Buffer.from("vault");
+
 export type ProgramIdKind = "cofferPool" | "singleTokenLiquidity" | "protocolAdmin";
 
 export function programId(cfg: CofferConfig, kind: ProgramIdKind): PublicKey {

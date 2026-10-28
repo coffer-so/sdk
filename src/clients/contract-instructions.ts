@@ -85,6 +85,7 @@ function validateType(value: any, type: any, idl: any, path: string): void {
     if (type === "pubkey") { publicKey(value, path); return; }
     if (type === "bool") { if (typeof value !== "boolean") throw new Error(`${path} must be boolean`); return; }
     if (type === "bytes") { if (!Buffer.isBuffer(value)) throw new Error(`${path} must be a Buffer`); return; }
+    if (type === "string") { if (typeof value !== "string") throw new Error(`${path} must be a string`); return; }
     const integer = /^([ui])(\d+)$/.exec(type);
     if (integer) {
       const width = Number(integer[2]);
@@ -107,6 +108,17 @@ function validateType(value: any, type: any, idl: any, path: string): void {
   }
   if (type.defined) {
     const definition = idl.types.find((t: any) => t.name === type.defined.name);
+    if (definition && definition.type.kind === "enum") {
+      // Borsh enum: `{ <ExactVariantName>: { ...fields } }` (unit variants take `{}`).
+      if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1) {
+        throw new Error(`${path} must be an object with exactly one variant key of ${type.defined.name}`);
+      }
+      const [variantName] = Object.keys(value);
+      const variant = definition.type.variants.find((v: any) => v.name === variantName);
+      if (!variant) throw new Error(`${path}.${variantName} is not a variant of ${type.defined.name}`);
+      validateFields((value as any)[variantName], variant.fields ?? [], idl, `${path}.${variantName}`);
+      return;
+    }
     if (!definition || definition.type.kind !== "struct") throw new Error(`Unsupported ABI type ${type.defined.name}`);
     validateFields(value, definition.type.fields, idl, path);
     return;

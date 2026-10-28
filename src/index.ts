@@ -262,6 +262,72 @@ export { calculateSwapFee, calculateProtocolFee } from "./math/slippage";
 export { checkAndAdvanceSelloff, rebaseSnapshot, rescaleWindowOnVbChange } from "./math/maxSelloff";
 export type { SelloffState, SelloffResult } from "./math/maxSelloff";
 export type { SurgeCurve } from "./math/surgeFee";
-export { calculateInvariant } from "./math/weightedMath";
 
 export { MintExtension, MAX_KNOWN_MINT_EXTENSION, HARD_UNSUPPORTED_MINT_EXTENSIONS, MINT_TLV_OFFSET, mintExtensionName, parseMintExtensions, unsupportedMintExtensions, tokenTransferBlockers, isTokenTransferable, describeUnsupportedToken, assertTokensSupported } from "./utils/extensions";
+
+// ─── v6.1 (SDK 0.2.0): layout, builders, quotes, events ─────────────────────
+export { POOL_LEN_V5, POOL_LEN_V61, POOL_LEN_V3, POOL_DECODABLE_LENS, POOL_LAYOUT_VERSION_V61, POOL_LAYOUT, TOKEN_SLOT_LAYOUT, TREASURY_LAYOUT, POOL_ACTION_KINDS, POOL_ACTION_KIND, PROTOCOL_ACTION_KINDS, PROTOCOL_ACTION_KIND, GRACE_PERIOD_SECS, pendingStatus } from "./parsers/layout";
+export type { PoolActionKindName, ProtocolActionKindName, PendingStatus } from "./parsers/layout";
+export { isDecodablePoolLen, poolNeedsLayoutMigration, decodePoolCooldownBlock } from "./parsers/poolAccount";
+export { decodeTreasuryAccount, decodeTreasuryCooldownBlock, treasuryNeedsLayoutMigration, TREASURY_DISCRIMINATOR } from "./parsers/treasuryAccount";
+export type { RawTreasuryAccount } from "./parsers/treasuryAccount";
+export { parseTokenMetadataExtension, lpMetadataOf } from "./parsers/mintAccount";
+export {
+  MAINNET_V51_FACTORY_PROGRAMS,
+} from "./config/networks";
+export {
+  MIN_INITIAL_LP_SUPPLY, MAX_INITIAL_LP_SUPPLY, DEFAULT_INITIAL_LP_SUPPLY, MAX_CREATOR_FEE_BPS, MAX_LIQUIDITY_FEE_BPS,
+  LP_NAME_MAX_LEN, LP_SYMBOL_MAX_LEN, LP_URI_MAX_LEN, LP_METADATA_POOL_KEY, HOOK_FLAGS, HOOK_MIN_CU, HOOK_MAX_CU_CAP, HOOK_DEFAULT_MAX_CU,
+  HOOK_MIN_ACCOUNTS, HOOK_MAX_ACCOUNTS, TREASURY_VAULT_SEED,
+} from "./config";
+export { splitFee, nonLpShare, feeSplitTotal } from "./math/feeSplit";
+export type { FeeSplit } from "./math/feeSplit";
+export { applyLiquidityFee, applyDepositFee, applyWithdrawFee, lpBurnNetOfWithdrawFee } from "./math/liquidityFee";
+export { nav, navBalances, splitDepositCredit, splitExitPayout } from "./math/surgeBucket";
+export { poolNavBalances, lpPositionValue, lpPriceUsd } from "./math/lpPrice";
+export { simulatePoolSwap, swapLegOf, tokenSurgeBucket, hasDynamicFeeHook, hookPaused, pendingActionsStatusOf } from "./clients/quote-math";
+export { clampHookFeeOverride, effectiveSwapFeeRate } from "./math/swapSim";
+export {
+  buildSeedLiquidityRawIx, buildSeedLiquidityIx, buildSeedLiquidityTx, buildFundSidelinedTokenIx, buildFundSidelinedTokenTx,
+  buildMigratePoolLayoutV61Ix, prependLayoutMigration, buildRemoveLiquidityBypassHooksIx, buildSetSwapsEnabledIx,
+  buildSetCreatorFeeBpsIx, buildSetLiquidityFeesIx, buildLockLiquidityFeesIx, buildLockRangeManagerIx, buildSetPoolAdminDelayIx,
+} from "./clients/tx-builders";
+export {
+  PoolActions, ProtocolActions, poolActionKindOf, poolActionKindName, protocolActionKindOf, protocolActionKindName,
+  POOL_EXECUTE_INSTRUCTION, PROTOCOL_EXECUTE_INSTRUCTIONS, buildProposePoolActionIx, buildCancelPoolActionIx, buildExecutePoolActionIx,
+  proposeActionRemainingAccounts, selloffParamsArg,
+} from "./clients/cooldown";
+export type { PoolAction, ProtocolAction } from "./clients/cooldown";
+export {
+  treasuryVaultPda, buildClaimAccounts, buildCreatorClaimAccounts, buildCollectProtocolFeesIx, buildClaimCreatorFeesIx, buildRegisterTokenIx,
+  buildTreasuryWithdrawIx, legacyTxSize, v0TxSize, uniqueKeys, chooseTxForm, claimComputeBudgetIx, MAX_TX_BYTES, CLAIM_CU_LIMIT, CLAIM_ACCOUNTS_PER_TOKEN, CLAIM_ERROR_NAMES,
+} from "./clients/feeClaim";
+export type { CollectProtocolFeesParams, TxForm, TxFormOptions } from "./clients/feeClaim";
+export { validatePoolIdentity, verifyCreatedPool, randomPoolIdU64, POOL_ACCOUNT_DISCRIMINATOR } from "./clients/poolIdentity";
+export type { PoolAccountReader } from "./clients/poolIdentity";
+export {
+  buildAtomicDeploy, sendAtomicDeploy, sendSignedDeploy, waitForNextSlot, computeUnitsOf, bundleTransactions, assertDontFrontReadOnly, deployHookAccounts,
+  v0WireSize, v0AccountCount, randomPoolId, SOLANA_TX_LIMIT, TRACE_BUDGET, ATA_CREATE_TRACE, INIT_POOL_TRACE, seedTrace, JITO_DONT_FRONT, POOL_CONFIG_LEN, POOL_CONFIG_DISCRIMINATOR,
+} from "./clients/atomicDeploy";
+export type { DeployBuildConnection, DeploySendConnection } from "./clients/atomicDeploy";
+export {
+  HOOK_CONFIG_LEN, hookCallerPda, HOOK_CALLER_LOCALNET, validateHookConfig, encodeHookConfig, encodeOptionHookConfig, hookConfigArg, hookAccountSlice, hookAccountSliceFor,
+  requireHookSlice, HOOK_FIXTURE_PROGRAM_ID, hookFixtureCfgAddress, hookFixtureKycAddress, fixtureHookExtras, resolveHookSlice, hookOpFlags, hookCallbackCount,
+  HOOK_BASE_CU, HOOK_CALLBACK_OVERHEAD_CU, hookCuBudget, readonlyMeta, writableMeta,
+} from "./utils/hooks";
+export {
+  LP_URI_SCHEMES, LP_TOKEN_PROGRAM_ID, LP_METADATA_ERRORS, byteLength, isValidLpName, isValidLpSymbol, isValidLpUri, firstInvalidLpMetadataField, validateLpMetadata,
+  encodeLpMetadataArgs, lpMetadataArgsSize, LP_METADATA_ARGS_MAX_SIZE, lpMintAccountSize, LP_MINT_BASE_SIZE, rentExemptLamports, defaultLpMetadata,
+  LP_METADATA_GOOD, LP_METADATA_MAX, LP_METADATA_FIXTURES, fetchLpMetadata, decodeLpMintAccount,
+} from "./utils/lpMetadata";
+export type { MintAccountReader, FetchedLpMetadata } from "./utils/lpMetadata";
+export { PoolLayoutOutdatedError } from "./types/tx-v61";
+export type {
+  LpMetadataArgs, LpMetadataField, HookConfigArgs, HookOp, HookExtrasResolver, HookExtrasContext, HookedParams, DeployPoolParamsV61, MigratePoolLayoutParams,
+  TxBuildOptionsV61, SeedLiquidityParams, SeedLiquidityRawParams, FundSidelinedTokenParams, ActionKind, ClaimAbi, ClaimSlot, ClaimAccounts, DeployLayout,
+  ExpectedPoolIdentity, VerifiedPoolIdentity, AtomicDeployParams, AtomicDeployResult, SendDeployResult,
+} from "./types/tx-v61";
+export type { PendingPoolAction, PoolHookInfo, LpMetadata } from "./types/pool";
+export type { SwapQuoteOptions, LpPriceQuote } from "./types/tx";
+export type { PendingActionsStatus, PendingActionStatus } from "./clients/quote-math";
+export type { PoolInfoEvent } from "./types/events";

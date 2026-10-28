@@ -20,7 +20,6 @@ import { computeAllocations } from "../../src/math/singleToken";
 import { calcSurgeFeeRate, calcSurgeFeePct, calcSurgeFeeAmount, SurgeCurve } from "../../src/math/surgeFee";
 import { checkAndAdvanceSelloff, rebaseSnapshot, rescaleWindowOnVbChange } from "../../src/math/maxSelloff";
 import { calculateSwapFee, calculateProtocolFee } from "../../src/math/slippage";
-import { calculateInvariant } from "../../src/math/weightedMath";
 import { ONE, U128_MAX, mulDown, mulDivDown, MathError } from "../../src/math/fixedPoint";
 
 type Vector = {
@@ -28,7 +27,9 @@ type Vector = {
   expected: string | string[];
   [key: string]: unknown;
 };
-const vectors = fixtures.vectors as Vector[];
+// v6.1 (T2): `seed_liquidity` mints the creator-chosen `lp_amount`; the
+// weighted invariant no longer exists on chain or in the SDK.
+const vectors = (fixtures.vectors as Vector[]).filter((v) => v.kind !== "invariant");
 
 function evaluate(v: Vector): bigint | bigint[] {
   const b = (k: string) => BigInt(v[k] as string), n = (k: string) => Number(v[k]);
@@ -73,7 +74,6 @@ function evaluate(v: Vector): bigint | bigint[] {
     case "effectiveBurn": return calcEffectiveLpBurn(b("requested"), b("supply"));
     case "swapFee": return calculateSwapFee(b("amount"), n("rate"));
     case "protocolFee": return calculateProtocolFee(b("fee"), n("rate"));
-    case "invariant": return calculateInvariant([1000000000n, 2000000000n], [5000, 5000], [n("decimals"), n("decimals")]);
     case "joinRounding": {
       const { lp, ratio } = calcJoinRatioAndLp([3n, 3n], [1n, 1n], b("supply"));
       return [ratio, lp, calcDepositCredit(3n, ratio)];

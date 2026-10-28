@@ -22,15 +22,17 @@ Pick by the program version you talk to:
 
 ## Contract compatibility
 
-This release targets `contracts` **v6.1** — `contracts/v6` at `7d753b3`
-(`feat: allow swap and protocol fee rates anywhere in 0..=100%`) plus T19
-(extension policy removed) and T18 (rename). All three IDLs match the v6.1
-rename sweep; `address` fields carry the v6 deployment ids. Typed
-`buildContractInstruction` covers all 59 instructions, `parseContractEvents`
-covers all 59 events, and `decodeContractAccount` decodes their declared
-accounts. See [the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for
-usage and limits, and [the exact state-field mapping](docs/STATE_FIELDS.md)
-for decoded account data.
+This release targets `contracts` **v6.1** (branch `v6.1`, `9094945` + the T9
+hooks merge): the 2304-byte pool layout, LP metadata, seed deposits, admin
+cooldowns, vault-PDA fee claims, deposit / withdraw / creator fees, surge
+buckets, sidelined tokens, native hooks and the atomic deploy. The vendored
+IDLs match that revision; `address` fields carry the v6 deployment ids and
+`MAINNET_V51_FACTORY_PROGRAMS` the v6.1 factory. Typed
+`buildContractInstruction` covers all 104 instructions, `parseContractEvents`
+all 79 events, and `decodeContractAccount` every declared account. See
+[the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for usage and
+limits, and [the exact state-field mapping](docs/STATE_FIELDS.md) for decoded
+account data.
 
 ## Install
 

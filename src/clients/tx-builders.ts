@@ -13,7 +13,14 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
 } from "@solana/spl-token";
 import BN from "bn.js";
-import { CofferConfig, MIN_LP_SUPPLY } from "../config";
+import {
+  CofferConfig,
+  MAX_CREATOR_FEE_BPS,
+  MAX_INITIAL_LP_SUPPLY,
+  MAX_LIQUIDITY_FEE_BPS,
+  MIN_INITIAL_LP_SUPPLY,
+  MIN_LP_SUPPLY,
+} from "../config";
 import { COFFER_POOL_IDL, PROTOCOL_ADMIN_IDL, SINGLE_TOKEN_LIQUIDITY_IDL } from "../idl";
 import { PoolInfo } from "../types/pool";
 import {
@@ -28,11 +35,24 @@ import {
   SelloffParams,
   TokenChange,
 } from "../types/tx";
+import {
+  DeployPoolParamsV61,
+  FundSidelinedTokenParams,
+  HookedParams,
+  MigratePoolLayoutParams,
+  PoolLayoutOutdatedError,
+  SeedLiquidityParams,
+  SeedLiquidityRawParams,
+  TxBuildOptionsV61,
+} from "../types/tx-v61";
 import { deriveAta, deriveLpMint, derivePoolPda } from "../utils/pda";
 import { buildContractInstruction } from "./contract-instructions";
 import { calcTokensOutGivenLpIn, calcLpOutGivenExactTokensIn } from "../math/poolMath";
 import { netOfTransferFee } from "../math/transferFee";
 import { assertTokensSupported } from "../utils/extensions";
+import { encodeLpMetadataArgs, validateLpMetadata } from "../utils/lpMetadata";
+import { encodeOptionHookConfig, hookCuBudget, requireHookSlice, validateHookConfig } from "../utils/hooks";
+
 
 /**
  * Low-level transaction builders. Emit raw `TransactionInstruction`s suitable
@@ -69,6 +89,18 @@ const PINNED: Record<string, string> = {
   set_range_manager_config: "67d300c8a4bdf5cd",
   range_manager_update: "f5b72345c80aac2c",
   pool_initialize_config: "d06eadbc279990b9",
+  // v6.1 additions (contracts idl/abi-pins.json `addedInstructions`).
+  migrate_pool_layout_v61: "9408318da470c1c7",
+  seed_liquidity: "b4395e2349300d0b",
+  fund_sidelined_token: "103bfef8cb10bcc2",
+  set_creator_fee_bps: "9c0a977111fab10d",
+  claim_creator_fees: "00177dea9c768659",
+  lock_range_manager: "fd1d12cec0dece9b",
+  set_liquidity_fees: "1d1b91f9fa1bce18",
+  lock_liquidity_fees: "83f537885078fe72",
+  set_pool_admin_delay: "21e7c161237d218c",
+  remove_liquidity_bypass_hooks: "6182e9862d4f6f24",
+  set_swaps_enabled: "909acd3af1a94028",
 };
 
 function computeDiscriminator(
@@ -108,6 +140,13 @@ const COFFER_POOL_DISC = {
   setRangeManager: computeDiscriminator("set_range_manager"),
   setRangeManagerConfig: computeDiscriminator("set_range_manager_config"),
   rangeManagerUpdate: computeDiscriminator("range_manager_update"),
+  // v6.1
+  migratePoolLayoutV61: computeDiscriminator("migrate_pool_layout_v61"),
+  seedLiquidity: computeDiscriminator("seed_liquidity"),
+  fundSidelinedToken: computeDiscriminator("fund_sidelined_token"),
+  claimCreatorFees: computeDiscriminator("claim_creator_fees"),
+  removeLiquidityBypassHooks: computeDiscriminator("remove_liquidity_bypass_hooks"),
+  setSwapsEnabled: computeDiscriminator("set_swaps_enabled"),
 };
 
 const PROTOCOL_ADMIN_DISC = {
@@ -161,12 +200,24 @@ function requireExplicitMinimums(
 // Swap
 // ============================================================
 
+/**
+ * `swap`. v6.1 (T9): when `pool.hook.active` the remaining-accounts tail
+ * MUST start with the hook slice (`params.hookAccounts`, see
+ * `utils/hooks.ts`); the Token-2022 `extraAccounts` follow it. A hooked pool
+ * built without a slice throws here (the program would fail with
+ * `HookAccountsInvalid`). Raw: never prepends the layout migration.
+ */
 export function buildSwapIx(
   cfg: CofferConfig,
   pool: PoolInfo,
-  params: SwapParams & { minAmountOut: BN }
+  params: SwapParams & { minAmountOut: BN } & HookedParams
 ): TransactionInstruction {
   assertTokensSupported(pool, [params.tokenInIndex, params.tokenOutIndex], "swap");
+  if (params.tokenInIndex === params.tokenOutIndex) throw new Error("swap: tokenInIndex and tokenOutIndex must differ");
+  if (pool.tokens[params.tokenOutIndex]?.sidelined) {
+    // T10: a sidelined slot (`actual_balance == 0`) cannot be a swap output.
+    throw new Error(`swap: token ${params.tokenOutIndex} is sidelined (no reserves) — InsufficientLiquidity`);
+  }
   const inTok = pool.tokens[params.tokenInIndex];
   const outTok = pool.tokens[params.tokenOutIndex];
 
@@ -192,6 +243,7 @@ export function buildSwapIx(
     { pubkey: params.user, isSigner: true, isWritable: true },
     { pubkey: inTok.tokenProgram, isSigner: false, isWritable: false },
     { pubkey: outTok.tokenProgram, isSigner: false, isWritable: false },
+    ...requireHookSlice(cfg, pool, params.hookAccounts, "swap"),
     ...tail(params.extraAccounts, "swap"),
   ];
 
@@ -217,17 +269,31 @@ function tail(extraAccounts: AccountMeta[] | undefined, ixName: string): Account
   });
 }
 
+/**
+ * v6.1 (L0): `autoMigrate` handling shared by the `build*Tx` helpers. On a
+ * 1683-byte pool (`layoutVersion === 0`) returns the permissionless
+ * `migrate_pool_layout_v61` to run first, or throws when the caller opted
+ * out. `undefined` layoutVersion (manually supplied v5 snapshot) = no-op.
+ */
+function layoutMigrationPrefix(cfg: CofferConfig, pool: PoolInfo, payer: PublicKey, options: TxBuildOptionsV61 | undefined): TransactionInstruction[] {
+  if (pool.layoutVersion !== 0) return [];
+  if (options?.autoMigrate === false) throw new PoolLayoutOutdatedError(pool.address);
+  return [buildMigratePoolLayoutV61Ix(cfg, { pool: pool.address, payer, mints: pool.tokens.map((t) => t.mint), tokenPrograms: pool.tokens.map((t) => t.tokenProgram) })];
+}
+
 export function buildSwapTx(
   cfg: CofferConfig,
   pool: PoolInfo,
-  params: SwapParams & { minAmountOut: BN }
+  params: SwapParams & { minAmountOut: BN } & HookedParams & TxBuildOptionsV61
 ): BuiltTx {
+  const units = hookCuBudget(pool, "swap", 400_000);
   return {
     instructions: [
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units }),
+      ...layoutMigrationPrefix(cfg, pool, params.user, params),
       buildSwapIx(cfg, pool, params),
     ],
-    suggestedCuLimit: 400_000,
+    suggestedCuLimit: units,
   };
 }
 
@@ -251,7 +317,7 @@ export function buildSwapTx(
 export function buildAddLiquidityIx(
   cfg: CofferConfig,
   pool: PoolInfo,
-  params: AddLiquidityParams
+  params: AddLiquidityParams & HookedParams
 ): TransactionInstruction {
   assertTokensSupported(pool, params.tokenAmounts.flatMap((amount, i) => amount.gt(new BN(0)) ? [i] : []), "add_liquidity");
   const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
@@ -311,6 +377,7 @@ export function buildAddLiquidityIx(
     { pubkey: params.user, isSigner: true, isWritable: true },
     { pubkey: lpProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
+    ...requireHookSlice(cfg, pool, params.hookAccounts, "add_liquidity"),
     ...tail(params.extraAccounts, "add_liquidity"),
   ];
 
@@ -324,12 +391,14 @@ export function buildAddLiquidityIx(
 export function buildAddLiquidityTx(
   cfg: CofferConfig,
   pool: PoolInfo,
-  params: AddLiquidityParams
+  params: AddLiquidityParams & HookedParams & TxBuildOptionsV61
 ): BuiltTx {
   const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
+  const units = hookCuBudget(pool, "add", 600_000);
   return {
     instructions: [
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units }),
+      ...layoutMigrationPrefix(cfg, pool, params.user, params),
       createAssociatedTokenAccountIdempotentInstruction(
         params.user,
         userLp,
@@ -339,8 +408,207 @@ export function buildAddLiquidityTx(
       ),
       buildAddLiquidityIx(cfg, pool, params),
     ],
-    suggestedCuLimit: 600_000,
+    suggestedCuLimit: units,
   };
+}
+
+// ============================================================
+// Seed liquidity (v6.1, T2 / T10)
+// ============================================================
+
+/**
+ * `seed_liquidity(token_amounts, lp_amount)` from raw accounts — what the
+ * atomic deploy uses before a `PoolInfo` exists. Remaining accounts: the
+ * add_liquidity ×4 layout `[user_i, vault_i]×n, mint×n, program×n` then the
+ * tail (hook slice first iff the pool has a hook, then Token-2022 extras).
+ */
+export function buildSeedLiquidityRawIx(cfg: CofferConfig, p: SeedLiquidityRawParams): TransactionInstruction {
+  const n = p.mints.length;
+  if (n < 2 || n > 10) throw new Error(`seed_liquidity: token count ${n} outside [2, 10]`);
+  if (p.tokenPrograms.length !== n || p.userTokenAccounts.length !== n || p.vaults.length !== n || p.amounts.length !== n) {
+    throw new Error("seed_liquidity: tokenPrograms / userTokenAccounts / vaults / amounts must match mints length");
+  }
+  const amounts = p.amounts.map((a) => (BN.isBN(a) ? a : new BN(a.toString())));
+  const lpAmount = BN.isBN(p.lpAmount) ? p.lpAmount : new BN(p.lpAmount.toString());
+  if (!amounts.some((a) => !a.isZero())) throw new Error("seed_liquidity: at least one amount must be non-zero (FirstDepositRequiresNonzero)");
+  requireInitialLpSupply(lpAmount);
+  const lpTokenProgram = p.lpTokenProgram ?? TOKEN_2022_PROGRAM_ID;
+  if (!lpTokenProgram.equals(TOKEN_PROGRAM_ID) && !lpTokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+    throw new Error("seed_liquidity: LP mint must be owned by SPL Token or Token-2022");
+  }
+  const remaining: AccountMeta[] = [];
+  for (let i = 0; i < n; i++) {
+    remaining.push({ pubkey: p.userTokenAccounts[i], isSigner: false, isWritable: true });
+    remaining.push({ pubkey: p.vaults[i], isSigner: false, isWritable: true });
+  }
+  for (let i = 0; i < n; i++) remaining.push({ pubkey: p.mints[i], isSigner: false, isWritable: false });
+  for (let i = 0; i < n; i++) remaining.push({ pubkey: p.tokenPrograms[i], isSigner: false, isWritable: false });
+  for (const extra of p.extraAccounts ?? []) {
+    if (extra.isSigner) throw new Error(`seed_liquidity: tail accounts cannot be signers (${extra.pubkey.toBase58()})`);
+    remaining.push({ pubkey: extra.pubkey, isSigner: false, isWritable: extra.isWritable });
+  }
+  return new TransactionInstruction({
+    programId: cfg.programs.cofferPool,
+    keys: [
+      { pubkey: p.pool, isSigner: false, isWritable: true },
+      { pubkey: p.lpMint, isSigner: false, isWritable: true },
+      { pubkey: p.userLpAccount, isSigner: false, isWritable: true },
+      { pubkey: p.user, isSigner: true, isWritable: false },
+      { pubkey: lpTokenProgram, isSigner: false, isWritable: false },
+      ...remaining,
+    ],
+    data: Buffer.concat([COFFER_POOL_DISC.seedLiquidity, encodeVecU64(amounts), encodeU64(lpAmount)]),
+  });
+}
+
+function requireInitialLpSupply(lpAmount: BN): void {
+  const min = new BN(MIN_INITIAL_LP_SUPPLY.toString());
+  const max = new BN(MAX_INITIAL_LP_SUPPLY.toString());
+  if (!BN.isBN(lpAmount) || lpAmount.isNeg() || lpAmount.bitLength() > 64) throw new Error("seed_liquidity: lpAmount must be an unsigned 64-bit BN");
+  if (lpAmount.lt(min)) throw new Error(`seed_liquidity: lpAmount ${lpAmount} < MIN_INITIAL_LP_SUPPLY ${min} (InitialLiquidityTooSmall)`);
+  if (lpAmount.gt(max)) throw new Error(`seed_liquidity: lpAmount ${lpAmount} > MAX_INITIAL_LP_SUPPLY ${max} (InitialLpSupplyTooLarge)`);
+}
+
+/**
+ * `seed_liquidity` against a synced pool: the creator's first deposit,
+ * exactly once (`lp_mint.supply == 0`), minting a creator-chosen LP supply.
+ * Zero slots are allowed (they start sidelined, T10) as long as one amount
+ * is non-zero. `params.user` must be the pool admin (checked when the
+ * snapshot carries `poolAdmin`). Hooked pools carry the slice
+ * (`before/after-add-liquidity` run with `is_seed = true`).
+ */
+export function buildSeedLiquidityIx(cfg: CofferConfig, pool: PoolInfo, params: SeedLiquidityParams): TransactionInstruction {
+  if (params.tokenAmounts.length !== pool.tokenCount) {
+    throw new Error(`seed_liquidity: tokenAmounts length (${params.tokenAmounts.length}) must equal the pool's token count (${pool.tokenCount})`);
+  }
+  if (pool.poolAdmin) {
+    if (pool.poolAdmin.equals(PublicKey.default)) throw new Error("seed_liquidity: PoolAdminDisabled");
+    if (!pool.poolAdmin.equals(params.user)) throw new Error("seed_liquidity: user must be the pool admin (SeedDepositNotPoolAdmin)");
+  }
+  if (!pool.lpTotalSupply.isZero()) throw new Error("seed_liquidity: pool already seeded (PoolAlreadySeeded); use add_liquidity");
+  assertTokensSupported(pool, params.tokenAmounts.flatMap((a, i) => (a.isZero() ? [] : [i])), "seed_liquidity");
+  const slice = requireHookSlice(cfg, pool, params.hookAccounts, "seed_liquidity");
+  return buildSeedLiquidityRawIx(cfg, {
+    pool: pool.address,
+    lpMint: pool.lpMint,
+    userLpAccount: deriveAta(params.user, pool.lpMint, lpProgram(pool)),
+    user: params.user,
+    mints: pool.tokens.map((t) => t.mint),
+    tokenPrograms: pool.tokens.map((t) => t.tokenProgram),
+    userTokenAccounts: pool.tokens.map((t) => deriveAta(params.user, t.mint, t.tokenProgram)),
+    vaults: pool.tokens.map((t) => t.vault),
+    amounts: params.tokenAmounts,
+    lpAmount: params.lpAmount,
+    lpTokenProgram: lpProgram(pool),
+    extraAccounts: [...slice, ...tail(params.extraAccounts, "seed_liquidity")],
+  });
+}
+
+/**
+ * Seed transaction: idempotent vault ATAs for the NON-ZERO slots only (a
+ * zero slot's vault is created when it is funded), the user's LP ATA, then
+ * `seed_liquidity`. Never migrates (a pool that needs seeding is a v6.1 pool).
+ */
+export function buildSeedLiquidityTx(cfg: CofferConfig, pool: PoolInfo, params: SeedLiquidityParams): BuiltTx {
+  const ixs: TransactionInstruction[] = [];
+  pool.tokens.forEach((t, i) => {
+    if (params.tokenAmounts[i]?.isZero()) return;
+    ixs.push(createAssociatedTokenAccountIdempotentInstruction(params.user, t.vault, pool.address, t.mint, t.tokenProgram));
+  });
+  const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
+  ixs.push(createAssociatedTokenAccountIdempotentInstruction(params.user, userLp, params.user, pool.lpMint, lpProgram(pool)));
+  ixs.push(buildSeedLiquidityIx(cfg, pool, params));
+  const units = hookCuBudget(pool, "seed", Math.min(1_400_000, 200_000 + pool.tokenCount * 60_000));
+  return { instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units }), ...ixs], suggestedCuLimit: units };
+}
+
+// ============================================================
+// Fund a sidelined slot (v6.1, T10)
+// ============================================================
+
+/**
+ * `fund_sidelined_token(token_index, amount)`: pool-admin only; transfers
+ * `amount` into a slot whose `actual_balance == 0` at the curve price,
+ * minting no LP. Fixed accounts `[pool w, lp_mint, authority s, user_token w,
+ * vault w, mint, token_program]`; remaining = Token-2022 tail only (no hook
+ * slice — T9 runs no hook for it). Data = 8 + 1 + 8 = 17 bytes.
+ */
+export function buildFundSidelinedTokenIx(cfg: CofferConfig, pool: PoolInfo, params: FundSidelinedTokenParams): TransactionInstruction {
+  const t = pool.tokens[params.tokenIndex];
+  if (!t || params.tokenIndex >= pool.tokenCount) throw new Error(`fund_sidelined_token: tokenIndex ${params.tokenIndex} out of range (InvalidTokenIndex)`);
+  if (t.sidelined === false || (t.sidelined === undefined && !t.actualBalance.isZero())) {
+    throw new Error(`fund_sidelined_token: slot ${params.tokenIndex} is not sidelined (TokenNotSidelined)`);
+  }
+  if (pool.poolAdmin && !pool.poolAdmin.equals(params.authority)) throw new Error("fund_sidelined_token: authority must be the pool admin (Unauthorized)");
+  if (!BN.isBN(params.amount) || params.amount.isZero()) throw new Error("fund_sidelined_token: amount must be > 0 (ZeroAmount)");
+  assertTokensSupported(pool, [params.tokenIndex], "fund_sidelined_token");
+  const userToken = params.userToken ?? deriveAta(params.authority, t.mint, t.tokenProgram);
+  const data = Buffer.concat([COFFER_POOL_DISC.fundSidelinedToken, encodeU8(params.tokenIndex), encodeU64(params.amount)]);
+  const keys: AccountMeta[] = [
+    { pubkey: pool.address, isSigner: false, isWritable: true },
+    { pubkey: pool.lpMint, isSigner: false, isWritable: false },
+    { pubkey: params.authority, isSigner: true, isWritable: false },
+    { pubkey: userToken, isSigner: false, isWritable: true },
+    { pubkey: t.vault, isSigner: false, isWritable: true },
+    { pubkey: t.mint, isSigner: false, isWritable: false },
+    { pubkey: t.tokenProgram, isSigner: false, isWritable: false },
+    ...tail(params.extraAccounts, "fund_sidelined_token"),
+  ];
+  return new TransactionInstruction({ programId: cfg.programs.cofferPool, keys, data });
+}
+
+/** `fund_sidelined_token` with the idempotent vault ATA creation in front. */
+export function buildFundSidelinedTokenTx(cfg: CofferConfig, pool: PoolInfo, params: FundSidelinedTokenParams & TxBuildOptionsV61): BuiltTx {
+  const t = pool.tokens[params.tokenIndex];
+  if (!t) throw new Error(`fund_sidelined_token: tokenIndex ${params.tokenIndex} out of range (InvalidTokenIndex)`);
+  return {
+    instructions: [
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }),
+      ...layoutMigrationPrefix(cfg, pool, params.authority, params),
+      createAssociatedTokenAccountIdempotentInstruction(params.authority, t.vault, pool.address, t.mint, t.tokenProgram),
+      buildFundSidelinedTokenIx(cfg, pool, params),
+    ],
+    suggestedCuLimit: 200_000,
+  };
+}
+
+// ============================================================
+// Layout migration (v6.1, L0)
+// ============================================================
+
+/**
+ * `migrate_pool_layout_v61`: grow a 1683-byte v4/v5 pool to 2304 bytes in
+ * place. Permissionless, one-shot, no semantic change; `payer` funds the
+ * rent delta. Accounts `[pool w, payer w s, system_program]`; remaining =
+ * the pool's mints in slot order (read-only; the handler pins decimals from
+ * them). Until it runs every other instruction fails with
+ * `LayoutVersionMismatch` (6070).
+ */
+export function buildMigratePoolLayoutV61Ix(cfg: CofferConfig, params: MigratePoolLayoutParams): TransactionInstruction {
+  const n = params.mints.length;
+  if (n < 2 || n > 10) throw new Error(`migrate_pool_layout_v61: expected 2..10 mints, got ${n}`);
+  if (params.tokenPrograms && params.tokenPrograms.length !== n) throw new Error("migrate_pool_layout_v61: tokenPrograms length mismatch");
+  return buildContractInstruction(
+    cfg,
+    "cofferPool",
+    "migrate_pool_layout_v61",
+    {},
+    { pool: params.pool, payer: params.payer, system_program: SystemProgram.programId },
+    params.mints.map((mint) => ({ pubkey: mint, isSigner: false, isWritable: false })),
+  );
+}
+
+/**
+ * Prepend `migrate_pool_layout_v61` to `instructions` when `pool` is still
+ * on the v5 layout (`layoutVersion === 0`); returns `instructions` unchanged
+ * otherwise. Pure.
+ */
+export function prependLayoutMigration(cfg: CofferConfig, pool: PoolInfo, payer: PublicKey, instructions: TransactionInstruction[]): TransactionInstruction[] {
+  if (pool.layoutVersion !== 0) return instructions;
+  return [
+    buildMigratePoolLayoutV61Ix(cfg, { pool: pool.address, payer, mints: pool.tokens.map((t) => t.mint), tokenPrograms: pool.tokens.map((t) => t.tokenProgram) }),
+    ...instructions,
+  ];
 }
 
 // ============================================================
@@ -350,8 +618,32 @@ export function buildAddLiquidityTx(
 export function buildRemoveLiquidityIx(
   cfg: CofferConfig,
   pool: PoolInfo,
-  params: RemoveLiquidityParams
+  params: RemoveLiquidityParams & HookedParams
 ): TransactionInstruction {
+  return buildRemoveLiquidityIxInner(cfg, pool, params, false);
+}
+
+/**
+ * v6.1 (T9) `remove_liquidity_bypass_hooks`: same accounts, data layout and
+ * math (exit fee, surge bucket) as `remove_liquidity`, but NO hook slice and
+ * no hook CPI — always available, so a broken / denying / paused hook can
+ * never trap an LP. A `hookAccounts` value is refused.
+ */
+export function buildRemoveLiquidityBypassHooksIx(
+  cfg: CofferConfig,
+  pool: PoolInfo,
+  params: RemoveLiquidityParams & HookedParams
+): TransactionInstruction {
+  return buildRemoveLiquidityIxInner(cfg, pool, params, true);
+}
+
+function buildRemoveLiquidityIxInner(
+  cfg: CofferConfig,
+  pool: PoolInfo,
+  params: RemoveLiquidityParams & HookedParams,
+  bypass: boolean,
+): TransactionInstruction {
+  const ixName = bypass ? "remove_liquidity_bypass_hooks" : "remove_liquidity";
   const supply = pool.lpTotalSupply;
   const maxBurn = BN.max(supply.sub(new BN(MIN_LP_SUPPLY.toString())), new BN(0));
   const effectiveBurn = BN.min(params.lpAmount, maxBurn);
@@ -359,12 +651,12 @@ export function buildRemoveLiquidityIx(
     ? calcTokensOutGivenLpIn(pool.tokens.map(token => BigInt(token.actualBalance.toString())), BigInt(effectiveBurn.toString()), BigInt(supply.toString()))
         .flatMap((amount, i) => amount > 0n ? [i] : [])
     : [];
-  assertTokensSupported(pool, transferred, "remove_liquidity");
+  assertTokensSupported(pool, transferred, ixName);
   const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
-  const mins = requireExplicitMinimums(params.minimumTokenAmounts, pool.tokenCount, "remove_liquidity");
+  const mins = requireExplicitMinimums(params.minimumTokenAmounts, pool.tokenCount, ixName);
 
   const data = Buffer.concat([
-    COFFER_POOL_DISC.removeLiquidity,
+    bypass ? COFFER_POOL_DISC.removeLiquidityBypassHooks : COFFER_POOL_DISC.removeLiquidity,
     encodeU64(params.lpAmount),
     encodeVecU64(mins),
   ]);
@@ -392,7 +684,8 @@ export function buildRemoveLiquidityIx(
     { pubkey: params.user, isSigner: true, isWritable: true },
     { pubkey: lpProgram(pool), isSigner: false, isWritable: false },
     ...remaining,
-    ...tail(params.extraAccounts, "remove_liquidity"),
+    ...requireHookSlice(cfg, pool, params.hookAccounts, ixName, bypass),
+    ...tail(params.extraAccounts, ixName),
   ];
 
   return new TransactionInstruction({
@@ -405,16 +698,21 @@ export function buildRemoveLiquidityIx(
 export function buildRemoveLiquidityTx(
   cfg: CofferConfig,
   pool: PoolInfo,
-  params: RemoveLiquidityParams
+  params: RemoveLiquidityParams & HookedParams & TxBuildOptionsV61 & { bypassHooks?: boolean }
 ): BuiltTx {
+  const bypass = params.bypassHooks === true;
+  const units = bypass ? cfg.defaults.cuLimit : hookCuBudget(pool, "remove", cfg.defaults.cuLimit);
   const ixs: TransactionInstruction[] = [
-    ComputeBudgetProgram.setComputeUnitLimit({ units: cfg.defaults.cuLimit }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units }),
+    ...layoutMigrationPrefix(cfg, pool, params.user, params),
   ];
 
   // The contract transfers every pool token to the user's ATA. Include
   // idempotent creates so a proportional burn works even when the user never
-  // held one of the receive tokens before.
+  // held one of the receive tokens before. Sidelined slots (T10) pay
+  // nothing and are skipped.
   for (const t of pool.tokens) {
+    if (t.sidelined) continue;
     const userAta = deriveAta(params.user, t.mint, t.tokenProgram);
     ixs.push(
       createAssociatedTokenAccountIdempotentInstruction(
@@ -427,11 +725,11 @@ export function buildRemoveLiquidityTx(
     );
   }
 
-  ixs.push(buildRemoveLiquidityIx(cfg, pool, params));
+  ixs.push(bypass ? buildRemoveLiquidityBypassHooksIx(cfg, pool, params) : buildRemoveLiquidityIx(cfg, pool, params));
 
   return {
     instructions: ixs,
-    suggestedCuLimit: cfg.defaults.cuLimit,
+    suggestedCuLimit: units,
   };
 }
 
@@ -526,41 +824,98 @@ export function buildPoolInitializeConfigIx(
   });
 }
 
+/** Range check shared by the three bps arguments of `initialize_pool` / the setters. */
+function u16Bps(value: number, name: string, max: number, errorName: string): Buffer {
+  if (!Number.isInteger(value) || value < 0 || value > max) {
+    throw new Error(`${name} must be an integer 0..=${max} (${errorName})`);
+  }
+  return encodeU16(value);
+}
+
+/**
+ * `initialize_pool` — v6.1 ABI:
+ *
+ * ```text
+ *   (normalized_weights: Vec<u64>, initial_virtual_balances: Vec<u64>,
+ *    swap_fee_rate: u32, pool_id: u64,
+ *    lp_metadata: LpMetadataArgs,            // T1  (3 Borsh strings)
+ *    creator_fee_bps: u16,                   // T14
+ *    deposit_fee_bps: u16, withdraw_fee_bps: u16,   // T7
+ *    hook_config: Option<HookConfig>)        // T9  (1 tag byte [+ 47])
+ * ```
+ *
+ * Accounts `[config, pool w, lp_mint w, payer w s, lp_token_program,
+ * associated_token_program, system_program]`; remaining = one mint per
+ * token (THE token set, in `weightsBps` order) then — iff `hookConfig` —
+ * the `hookConfig.accountsLen` accounts of the hook slice.
+ *
+ * `lpTokenProgram` MUST be Token-2022 (v6.1 LP mints carry in-mint
+ * metadata); the LP mint's decimals are pinned to 9 on-chain. The metadata
+ * and the three bps are validated with the program's rules before encoding
+ * (`LpNameInvalid` 6076 / `LpSymbolInvalid` 6077 / `LpUriInvalid` 6078,
+ * `CreatorFeeBpsMaxExceeded` 6079, `LiquidityFeeMaxExceeded` 6083,
+ * `HookInvalidConfig` 6098).
+ */
 export function buildInitializePoolIx(
   cfg: CofferConfig,
-  params: DeployPoolParams
+  params: DeployPoolParamsV61
 ): TransactionInstruction {
-  const tokenProgram = params.lpTokenProgram ?? TOKEN_PROGRAM_ID;
+  const lpTokenProgram = params.lpTokenProgram ?? TOKEN_2022_PROGRAM_ID;
+  if (!lpTokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+    throw new Error("initialize_pool: lpTokenProgram must be Token-2022 — v6.1 LP mints carry in-mint metadata (TokenProgramMismatch)");
+  }
+  const n = params.tokens.length;
+  if (n < 2 || n > 10) throw new Error(`initialize_pool: token count ${n} outside [2, 10] (InvalidTokenCount)`);
+  if (params.weightsBps.length !== n || params.virtualBalances.length !== n) {
+    throw new Error("initialize_pool: tokens / weightsBps / virtualBalances must have the same length");
+  }
+  const lpMetadata = validateLpMetadata(params.lpMetadata);
+  const hookConfig = params.hookConfig ?? null;
+  if (hookConfig) validateHookConfig(hookConfig, cfg.programs.cofferPool);
+  const hookAccounts = hookConfig ? (params.hookAccounts ?? []) : [];
+  if (hookConfig && hookAccounts.length !== hookConfig.accountsLen) {
+    throw new Error(`initialize_pool: hookAccounts length ${hookAccounts.length} != hookConfig.accountsLen ${hookConfig.accountsLen} (HookAccountsInvalid)`);
+  }
+  if (!hookConfig && params.hookAccounts?.length) {
+    throw new Error("initialize_pool: hookAccounts given without a hookConfig — they would be read as extra mints");
+  }
+  if (hookConfig && !hookAccounts[0].pubkey.equals(hookConfig.program)) {
+    throw new Error("initialize_pool: hookAccounts[0] must be the hook program");
+  }
+
   const [pool] = derivePoolPda(cfg.programs.cofferPool, params.configKey, params.poolId);
   const [lpMint] = deriveLpMint(cfg.programs.cofferPool, pool);
 
-  // Args: `(normalized_weights: Vec<u64>, initial_virtual_balances: Vec<u64>,
-  // swap_fee_rate: u32, pool_id: u64)`. v6.1 (T19) removed the trailing
-  // `banned_extensions_override: Option<u64>`; the policy no longer exists,
-  // so nothing is encoded after `pool_id`.
   const data = Buffer.concat([
     COFFER_POOL_DISC.initializePool,
     encodeVecU64(params.weightsBps.map((w) => new BN(w))),
     encodeVecU64(params.virtualBalances),
     encodeU32(params.swapFeeRate),
     encodeU64(params.poolId),
+    encodeLpMetadataArgs(lpMetadata),
+    u16Bps(params.creatorFeeBps ?? 0, "creatorFeeBps", MAX_CREATOR_FEE_BPS, "CreatorFeeBpsMaxExceeded"),
+    u16Bps(params.depositFeeBps ?? 0, "depositFeeBps", MAX_LIQUIDITY_FEE_BPS, "LiquidityFeeMaxExceeded"),
+    u16Bps(params.withdrawFeeBps ?? 0, "withdrawFeeBps", MAX_LIQUIDITY_FEE_BPS, "LiquidityFeeMaxExceeded"),
+    encodeOptionHookConfig(hookConfig),
   ]);
 
   // There is no `tokens` ix arg — the pool's token set is defined SOLELY by
   // `params.tokens` via remaining_accounts (one mint per token, in the same
-  // order as `weightsBps`/`virtualBalances`).
-  const remaining: AccountMeta[] = params.tokens.map((m) => ({
-    pubkey: m,
-    isSigner: false,
-    isWritable: false,
-  }));
+  // order as `weightsBps`/`virtualBalances`), followed by the hook slice.
+  const remaining: AccountMeta[] = [
+    ...params.tokens.map((m) => ({ pubkey: m, isSigner: false, isWritable: false })),
+    ...hookAccounts.map((meta) => {
+      if (meta.isSigner) throw new Error(`initialize_pool: hook slice accounts cannot be signers (${meta.pubkey.toBase58()})`);
+      return { pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable };
+    }),
+  ];
 
   const keys: AccountMeta[] = [
     { pubkey: params.configKey, isSigner: false, isWritable: false },
     { pubkey: pool, isSigner: false, isWritable: true },
     { pubkey: lpMint, isSigner: false, isWritable: true },
     { pubkey: params.payer, isSigner: true, isWritable: true },
-    { pubkey: tokenProgram, isSigner: false, isWritable: false },
+    { pubkey: lpTokenProgram, isSigner: false, isWritable: false },
     { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ...remaining,
@@ -573,7 +928,13 @@ export function buildInitializePoolIx(
   });
 }
 
-export function buildDeployPoolTx(cfg: CofferConfig, params: DeployPoolParams): BuiltTx {
+/**
+ * `initialize_pool` alone, with a CU budget. The pool is NOT tradable after
+ * this (no reserves, `PoolNotSeeded`): the creator must `seed_liquidity`.
+ * Prefer `buildAtomicDeploy` (`clients/atomicDeploy.ts`), which packs init +
+ * ATAs + seed into one signing prompt.
+ */
+export function buildDeployPoolTx(cfg: CofferConfig, params: DeployPoolParamsV61): BuiltTx {
   return {
     instructions: [
       ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
@@ -581,6 +942,16 @@ export function buildDeployPoolTx(cfg: CofferConfig, params: DeployPoolParams): 
     ],
     suggestedCuLimit: 400_000,
   };
+}
+
+/**
+ * `set_swaps_enabled(enabled)` signed directly by the pool admin
+ * (`[config, pool w, authority s]`). No cooldown (T3): "open trading" after a
+ * paused launch is instant. The protocol-admin route is
+ * `AdminClient.setSwapsEnabledIx`.
+ */
+export function buildSetSwapsEnabledIx(cfg: CofferConfig, config: PublicKey, pool: PublicKey, authority: PublicKey, enabled: boolean): TransactionInstruction {
+  return buildContractInstruction(cfg, "cofferPool", "set_swaps_enabled", { enabled }, { config, pool, authority });
 }
 
 // ============================================================
@@ -809,6 +1180,53 @@ export function buildCancelPoolAdminTransferIx(cfg: CofferConfig, pool: PublicKe
 /** Permanently renounce the pool-local admin role. */
 export function buildDisablePoolAdminIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
   return buildContractInstruction(cfg, "cofferPool", "disable_pool_admin", {}, { pool, authority });
+}
+
+// ============================================================
+// v6.1 pool-admin setters (direct instructions; under a non-zero
+// `pool_admin_delay_secs` each must go through `propose_pool_action` →
+// `execute_*` instead — see `clients/cooldown.ts`)
+// ============================================================
+
+/** T14: `set_creator_fee_bps(bps)` — pool admin's share of the LP fee remainder, 0..=10_000. */
+export function buildSetCreatorFeeBpsIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, creatorFeeBps: number): TransactionInstruction {
+  u16Bps(creatorFeeBps, "creatorFeeBps", MAX_CREATOR_FEE_BPS, "CreatorFeeBpsMaxExceeded");
+  return buildContractInstruction(cfg, "cofferPool", "set_creator_fee_bps", { creator_fee_bps: creatorFeeBps }, { pool, authority });
+}
+
+/**
+ * T7: `set_liquidity_fees(deposit_fee_bps, withdraw_fee_bps)`, each
+ * 0..=10_000 (`LiquidityFeeMaxExceeded`); refused for ever once
+ * `lock_liquidity_fees` ran (`LiquidityFeesLocked`).
+ */
+export function buildSetLiquidityFeesIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, depositFeeBps: number, withdrawFeeBps: number): TransactionInstruction {
+  u16Bps(depositFeeBps, "depositFeeBps", MAX_LIQUIDITY_FEE_BPS, "LiquidityFeeMaxExceeded");
+  u16Bps(withdrawFeeBps, "withdrawFeeBps", MAX_LIQUIDITY_FEE_BPS, "LiquidityFeeMaxExceeded");
+  return buildContractInstruction(cfg, "cofferPool", "set_liquidity_fees", { deposit_fee_bps: depositFeeBps, withdraw_fee_bps: withdrawFeeBps }, { pool, authority });
+}
+
+/** T7: `lock_liquidity_fees` — IRREVERSIBLE: the deposit / withdraw fees can never change again. */
+export function buildLockLiquidityFeesIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
+  return buildContractInstruction(cfg, "cofferPool", "lock_liquidity_fees", {}, { pool, authority });
+}
+
+/**
+ * T6: `lock_range_manager` — IRREVERSIBLE: the pool can never have a range
+ * manager again. Requires the manager to be unset first
+ * (`RangeManagerMustBeUnset`).
+ */
+export function buildLockRangeManagerIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey): TransactionInstruction {
+  return buildContractInstruction(cfg, "cofferPool", "lock_range_manager", {}, { pool, authority });
+}
+
+/**
+ * T3: `set_pool_admin_delay(secs)` — the pool-admin cooldown (0..=30 days).
+ * Raising it from 0 is instant; once non-zero, changing it (and every other
+ * admin setter) goes through the propose → wait → execute queue.
+ */
+export function buildSetPoolAdminDelayIx(cfg: CofferConfig, pool: PublicKey, authority: PublicKey, secs: number): TransactionInstruction {
+  if (!Number.isInteger(secs) || secs < 0 || secs > 30 * 86_400) throw new Error("set_pool_admin_delay: secs must be 0..=2_592_000 (DelayTooLarge)");
+  return buildContractInstruction(cfg, "cofferPool", "set_pool_admin_delay", { secs }, { pool, authority });
 }
 
 export function buildGetPoolInfoIx(cfg: CofferConfig, pool: PublicKey): TransactionInstruction {

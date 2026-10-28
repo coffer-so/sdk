@@ -90,6 +90,32 @@ export class BorshReader {
     return out;
   }
 
+  vecI64(): BN[] {
+    const len = this.u32();
+    this.requireBytes(len * 8);
+    const out: BN[] = [];
+    for (let i = 0; i < len; i++) out.push(this.i64());
+    return out;
+  }
+
+  /** Borsh `String`: u32 LE byte length + UTF-8 bytes. */
+  string(): string {
+    const len = this.u32();
+    this.requireBytes(len);
+    const s = this.buf.toString("utf8", this.offset, this.offset + len);
+    this.offset += len;
+    return s;
+  }
+
+  /** Borsh `Vec<u8>` / `bytes`. */
+  bytes(): Buffer {
+    const len = this.u32();
+    this.requireBytes(len);
+    const b = Buffer.from(this.buf.subarray(this.offset, this.offset + len));
+    this.offset += len;
+    return b;
+  }
+
   vecPubkey(): PublicKey[] {
     const len = this.u32();
     this.requireBytes(len * 32);

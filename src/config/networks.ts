@@ -50,6 +50,21 @@ export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
   },
 };
 
+/**
+ * v6.1 (T4): the production v5.1 factory the v6.1 upgrade targets
+ * (`upgrade_pool_program` keeps the ids; pools grow 1683 → 2304 bytes via
+ * `migrate_pool_layout_v61`). It is NOT the default `mainnet` table — that
+ * stays the v6 standalone factory until the upgrade lands; pass
+ * `getConfig("mainnet", { programs: MAINNET_V51_FACTORY_PROGRAMS })` to
+ * drive the upgraded v5.1 factory. Treasury PDA
+ * B4gyhrqLzX36VEu54ShqgTkb4TpXooTdxtcmvER3d3Bg.
+ */
+export const MAINNET_V51_FACTORY_PROGRAMS: NetworkPrograms = {
+  cofferPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
+  singleTokenLiquidity: new PublicKey("7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2"),
+  protocolAdmin: new PublicKey("3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81"),
+};
+
 export const DEFAULT_RPC_ENDPOINT: Record<Network, string> = {
   mainnet: "https://solana.drpc.org",
   devnet: "https://api.devnet.solana.com",

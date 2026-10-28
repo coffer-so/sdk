@@ -3,11 +3,14 @@ import BN from "bn.js";
 import {
   ExtensionType,
   getExtensionData,
+  MetadataPointerLayout,
   PausableConfigLayout,
   TransferFeeConfigLayout,
   TransferHookLayout,
 } from "@solana/spl-token";
-import type { PausableConfig, TransferFeeConfig, TransferHook } from "@solana/spl-token";
+import type { MetadataPointer, PausableConfig, TransferFeeConfig, TransferHook } from "@solana/spl-token";
+import { unpack as unpackTokenMetadata } from "@solana/spl-token-metadata";
+import type { LpMetadata } from "../types/pool";
 import { MAX_FEE_BASIS_POINTS } from "../math/transferFee";
 import { MINT_TLV_OFFSET, parseMintExtensions } from "../utils/extensions";
 
@@ -41,6 +44,17 @@ export interface RawMintAccount {
   transferHook: TransferHook | null;
   /** `Pausable` extension body; `null` without the extension. */
   pausableConfig: PausableConfig | null;
+  /**
+   * v6.1 (T1): `MetadataPointer` extension body; `null` without it. Every
+   * LP mint created since v6.1 points at itself (in-mint metadata).
+   */
+  metadataPointer: MetadataPointer | null;
+  /**
+   * v6.1 (T1): in-mint `TokenMetadata` (name / symbol / uri / additional
+   * pairs); `null` without the extension — a legacy SPL Token LP mint, or a
+   * pool token that keeps its metadata elsewhere (Metaplex).
+   */
+  tokenMetadata: LpMetadata | null;
 }
 
 export function decodeMintAccount(data: Buffer): RawMintAccount {
@@ -88,6 +102,43 @@ export function decodeMintAccount(data: Buffer): RawMintAccount {
     throw new Error("decodeMintAccount: non-canonical Pausable flag");
   }
   const pausableConfig = pausableBytes ? PausableConfigLayout.decode(pausableBytes) : null;
+  const pointerBytes = body(ExtensionType.MetadataPointer, MetadataPointerLayout.span);
+  const metadataPointer = pointerBytes ? MetadataPointerLayout.decode(pointerBytes) : null;
+  const tokenMetadata = parseTokenMetadataExtension(extensions, tlv);
 
-  return { mintAuthority, supply, decimals, isInitialized, freezeAuthority, extensions, transferFeeConfig, transferHook, pausableConfig };
+  return { mintAuthority, supply, decimals, isInitialized, freezeAuthority, extensions, transferFeeConfig, transferHook, pausableConfig, metadataPointer, tokenMetadata };
+}
+
+/**
+ * v6.1 (T1): decode the variable-length `TokenMetadata` TLV body (what
+ * `getTokenMetadata` / Phantom / Solscan read). `null` without the extension.
+ */
+export function parseTokenMetadataExtension(extensions: number[], tlv: Buffer): LpMetadata | null {
+  if (!extensions.includes(ExtensionType.TokenMetadata)) return null;
+  const bytes = getExtensionData(ExtensionType.TokenMetadata, tlv);
+  if (!bytes) return null;
+  let meta: ReturnType<typeof unpackTokenMetadata>;
+  try {
+    meta = unpackTokenMetadata(bytes);
+  } catch {
+    // A malformed body (the extension is present but not a valid
+    // `TokenMetadata` encoding) must not break pool sync: the mint is still
+    // transferable; only its label is unreadable.
+    return null;
+  }
+  return {
+    name: meta.name,
+    symbol: meta.symbol,
+    uri: meta.uri,
+    additionalMetadata: meta.additionalMetadata.map(([k, v]) => [k, v] as [string, string]),
+    updateAuthority: meta.updateAuthority && !meta.updateAuthority.equals(PublicKey.default) ? meta.updateAuthority : null,
+  };
+}
+
+/**
+ * v6.1 (T1): the LP metadata of a decoded LP mint, or `null` for a legacy
+ * SPL Token LP mint (pre-v6.1 pools) — show a synthetic label in that case.
+ */
+export function lpMetadataOf(mint: RawMintAccount): LpMetadata | null {
+  return mint.tokenMetadata;
 }

@@ -16,6 +16,10 @@ import { PROTOCOL_ADMIN_IDL } from "../idl";
 import { buildContractInstruction } from "./contract-instructions";
 import { deriveAltAddress } from "./tx-builders";
 import { deriveTreasuryPda } from "../utils/pda";
+import { PoolInfo } from "../types/pool";
+import { ProtocolAction, proposeActionRemainingAccounts, protocolActionKindName, protocolActionKindOf } from "./cooldown";
+import { buildCollectProtocolFeesIx, treasuryVaultPda } from "./feeClaim";
+import { PROTOCOL_ACTION_KIND, type ProtocolActionKindName } from "../parsers/layout";
 
 /** Upstream BPF upgradeable loader; ProgramData PDA = findPda([programId]). */
 export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
@@ -532,6 +536,173 @@ export class AdminClient {
 
   private deriveProgramData(program: PublicKey): PublicKey {
     return PublicKey.findProgramAddressSync([program.toBuffer()], BPF_LOADER_UPGRADEABLE_PROGRAM_ID)[0];
+  }
+
+  // ── v6.1 (T5) protocol-fee claim to the Treasury vault PDAs ──────────────
+
+  /** Treasury vault PDA `[b"vault", mint]` — the ONLY recipient `pool_collect_protocol_fees` accepts since v6.1 (T5). */
+  treasuryVaultPda(mint: PublicKey): PublicKey {
+    return treasuryVaultPda(mint, this.program.programId);
+  }
+
+  /**
+   * `pool_collect_protocol_fees` with recipients forced to the Treasury
+   * vault PDAs (`InvalidVault` otherwise) and placeholders for zero-owed
+   * slots. Register each fee-bearing mint first (`registerTokenIx`). The
+   * instruction stays instant under the T3 cooldown.
+   */
+  collectProtocolFeesToTreasuryIx(admin: PublicKey, pool: PoolInfo, tail: AccountMeta[] = []) {
+    return buildCollectProtocolFeesIx({ cfg: this.config, abi: "v61", pool, admin, tail });
+  }
+
+  // ── v6.1 (T6 / T9) emergency switches (admin OR supervisor where noted) ──
+
+  /** T6: disable the pool's range manager (admin or supervisor; refused with `RangeManagerLocked` on a locked pool). */
+  poolDisableRangeManagerIx(authority: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_disable_range_manager", {}, {
+      treasury: this.treasuryPda, authority, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** T9: flip the pool's `hook_disabled` switch (admin only, instant, idempotent; the pool must have a hook). */
+  setHookDisabledIx(admin: PublicKey, config: PublicKey, pool: PublicKey, disabled: boolean) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_set_hook_disabled", { disabled }, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  // ── v6.1 (T3) protocol-admin cooldown queue ──────────────────────────────
+
+  /**
+   * Grow a 786 / 818-byte Treasury to the 1624-byte v3 layout (admin pays
+   * the rent delta). Required once after the v6.1 upgrade: until then every
+   * typed Treasury instruction fails to deserialise. `AlreadyMigrated` at 1624.
+   */
+  migrateTreasuryLayoutV61Ix(admin: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "migrate_treasury_layout_v61", {}, {
+      treasury: this.treasuryPda, admin, system_program: SystemProgram.programId,
+    });
+  }
+
+  /** `set_delay(secs)`: the protocol-admin cooldown (0..=30 d). Direct only while the delay is 0; otherwise queue `SetDelay`. */
+  setDelayIx(admin: PublicKey, secs: number) {
+    if (!Number.isInteger(secs) || secs < 0 || secs > 30 * 86_400) throw new Error("set_delay: secs must be 0..=2_592_000 (DelayTooLarge)");
+    return buildContractInstruction(this.config, "protocolAdmin", "set_delay", { secs }, { treasury: this.treasuryPda, admin });
+  }
+
+  /**
+   * `propose_action(action)` — admin only; one live slot per kind
+   * (re-proposing overwrites). `UpgradeProgram` carries the buffer as
+   * remaining account 0 (its authority must already be the Treasury PDA).
+   */
+  proposeActionIx(admin: PublicKey, action: ProtocolAction, remaining: AccountMeta[] = proposeActionRemainingAccounts(action)) {
+    protocolActionKindOf(action);
+    return buildContractInstruction(this.config, "protocolAdmin", "propose_action", { action }, { treasury: this.treasuryPda, admin }, remaining);
+  }
+
+  /** `cancel_action(kind)` — admin OR supervisor (cancelling only restricts). Kind 0 cancels the pending admin transfer. */
+  cancelActionIx(authority: PublicKey, kind: number | ProtocolActionKindName) {
+    const k = PROTOCOL_ACTION_KIND[protocolActionKindName(kind)];
+    return buildContractInstruction(this.config, "protocolAdmin", "cancel_action", { kind: k }, { treasury: this.treasuryPda, authority });
+  }
+
+  executeSetDelayIx(admin: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_set_delay", {}, { treasury: this.treasuryPda, admin });
+  }
+
+  executeSetSupervisorIx(admin: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_set_supervisor", {}, { treasury: this.treasuryPda, admin });
+  }
+
+  /** `execute_withdraw`: the queued `Withdraw { mint, recipient, amount }`; accounts re-pinned against the slot. */
+  executeWithdrawIx(admin: PublicKey, mint: PublicKey, recipient: PublicKey, tokenProgram = TOKEN_PROGRAM_ID, extraAccounts: AccountMeta[] = []) {
+    if (!tokenProgram.equals(TOKEN_PROGRAM_ID) && !tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) throw new Error("Treasury vaults support SPL Token and Token-2022 only");
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_withdraw", {}, {
+      treasury: this.treasuryPda, mint, vault: this.treasuryVaultPda(mint), recipient, admin, token_program: tokenProgram,
+    }, extraAccounts.map(assertTailMeta));
+  }
+
+  /** `execute_withdraw_sol` (route 0 of the queued `WithdrawSol`). */
+  executeWithdrawSolIx(admin: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_withdraw_sol", {}, { treasury: this.treasuryPda, admin, recipient });
+  }
+
+  /** `execute_pool_withdraw_sol` (route 1). */
+  executePoolWithdrawSolIx(admin: PublicKey, config: PublicKey, source: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_withdraw_sol", {}, {
+      treasury: this.treasuryPda, admin, config, source, recipient, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** `execute_stld_withdraw_sol` (route 2). */
+  executeStldWithdrawSolIx(admin: PublicKey, config: PublicKey, pool: PublicKey, source: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_stld_withdraw_sol", {}, {
+      treasury: this.treasuryPda, admin, config, pool, source, recipient, system_program: SystemProgram.programId, stld_program: this.stldProgramId,
+    });
+  }
+
+  /** `execute_pool_debug_withdraw(amounts)`: the SAME amounts / recipients as proposed (the slot stores their hash). */
+  executePoolDebugWithdrawIx(admin: PublicKey, config: PublicKey, pool: PublicKey, amounts: BN[], tokens: PoolTokenTransferAccounts) {
+    if (amounts.length !== tokens.vaults.length) throw new Error("AdminClient: amounts must have one entry per pool token");
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_debug_withdraw", { token_amounts: amounts }, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    }, quadRemaining(tokens));
+  }
+
+  executePoolSetProtocolFeeRateIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_set_protocol_fee_rate", {}, { treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId });
+  }
+
+  executePoolSetPoolEnabledIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_set_pool_enabled", {}, { treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId });
+  }
+
+  executePoolSetTokenActiveIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_set_token_active", {}, { treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId });
+  }
+
+  /** `execute_unfreeze_pools` with the SAME `[config, pool]` pairs as proposed (the slot stores a hash of the pools). */
+  executeUnfreezePoolsIx(admin: PublicKey, pairs: Array<{ config: PublicKey; pool: PublicKey }>) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_unfreeze_pools", {}, {
+      treasury: this.treasuryPda, admin, coffer_pool_program: this.cofferPoolProgramId,
+    }, this.configPoolRemaining(pairs, true));
+  }
+
+  executePoolProtocolAdminTransferIx(admin: PublicKey, config: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_protocol_admin_transfer", {}, {
+      treasury: this.treasuryPda, admin, config, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** `execute_upgrade_program`: `buffer` must be the proposed one (still Treasury-owned); `spill` receives the buffer's lamports. */
+  executeUpgradeProgramIx(admin: PublicKey, program: PublicKey, buffer: PublicKey, spill: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_upgrade_program", {}, {
+      treasury: this.treasuryPda, admin, programdata: this.deriveProgramData(program), program_to_upgrade: program, buffer, spill,
+      rent: SYSVAR_RENT_PUBKEY, clock: SYSVAR_CLOCK_PUBKEY, bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /** `execute_transfer_upgrade_authority` (ProgramOp op 0): the new authority co-signs (checked loader variant). */
+  executeTransferUpgradeAuthorityIx(admin: PublicKey, program: PublicKey, newAuthority: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_transfer_upgrade_authority", {}, {
+      treasury: this.treasuryPda, admin, program, programdata: this.deriveProgramData(program), new_authority: newAuthority,
+      bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /** `execute_freeze_pool_program` (ProgramOp op 1) — irreversible. */
+  executeFreezePoolProgramIx(admin: PublicKey, program: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_freeze_pool_program", {}, {
+      treasury: this.treasuryPda, admin, program, programdata: this.deriveProgramData(program), bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /** `execute_close_pool_program` (ProgramOp op 2). */
+  executeClosePoolProgramIx(admin: PublicKey, program: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_close_pool_program", {}, {
+      treasury: this.treasuryPda, admin, programdata: this.deriveProgramData(program), program_to_close: program, recipient,
+      bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
   }
 
   // ── Internals ────────────────────────────────────────────────────────────

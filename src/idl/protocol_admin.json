@@ -10,7 +10,9 @@
     {
       "name": "accept_admin_transfer",
       "docs": [
-        "Step 2 — pending admin claims."
+        "Step 2 — pending admin claims. v6.1 (T3): only within",
+        "`[eta, eta + 14 d]`; bumps `admin_epoch` and voids every pending",
+        "proposal of the previous admin."
       ],
       "discriminator": [
         89,
@@ -33,6 +35,44 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "cancel_action",
+      "docs": [
+        "Clear pending slot `kind` (0 = admin transfer … 12 = program op).",
+        "`NoPendingAction` when empty.",
+        "",
+        "# Authority",
+        "`treasury.admin` OR `treasury.supervisor` (cancelling only ever",
+        "restricts — the guardian key may stop a queued action, including a",
+        "stolen-key admin transfer)."
+      ],
+      "discriminator": [
+        228,
+        144,
+        170,
+        146,
+        66,
+        88,
+        133,
+        128
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "kind",
+          "type": "u8"
+        }
+      ]
     },
     {
       "name": "cancel_admin_transfer",
@@ -98,6 +138,635 @@
         },
         {
           "name": "bpf_loader_upgradeable"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_close_pool_program",
+      "docs": [
+        "Execute the pending `ProgramOp` op 2 (kind 12): close the program,",
+        "rent to the proposed recipient."
+      ],
+      "discriminator": [
+        186,
+        121,
+        192,
+        12,
+        113,
+        42,
+        76,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "programdata",
+          "writable": true
+        },
+        {
+          "name": "program_to_close",
+          "writable": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "bpf_loader_upgradeable"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_freeze_pool_program",
+      "docs": [
+        "Execute the pending `ProgramOp` op 1 (kind 12): freeze the program."
+      ],
+      "discriminator": [
+        59,
+        158,
+        122,
+        196,
+        152,
+        60,
+        59,
+        15
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "program"
+        },
+        {
+          "name": "programdata",
+          "writable": true
+        },
+        {
+          "name": "bpf_loader_upgradeable"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_pool_debug_withdraw",
+      "docs": [
+        "Execute the pending `PoolDebugWithdraw` (kind 5): `token_amounts`",
+        "and the recipients in `remaining_accounts` must hash to the proposal."
+      ],
+      "discriminator": [
+        94,
+        159,
+        99,
+        200,
+        114,
+        89,
+        234,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_amounts",
+          "type": {
+            "vec": "u64"
+          }
+        }
+      ]
+    },
+    {
+      "name": "execute_pool_protocol_admin_transfer",
+      "docs": [
+        "Execute the pending `PoolProtocolAdminTransfer` (kind 10): nominates",
+        "the proposed key on the proposed config."
+      ],
+      "discriminator": [
+        74,
+        24,
+        220,
+        138,
+        182,
+        104,
+        164,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_pool_set_pool_enabled",
+      "docs": [
+        "Execute the pending `PoolSetPoolEnabled` (kind 7): re-enables the pool."
+      ],
+      "discriminator": [
+        138,
+        246,
+        239,
+        185,
+        173,
+        16,
+        238,
+        25
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_pool_set_protocol_fee_rate",
+      "docs": [
+        "Execute the pending `PoolSetProtocolFeeRate` (kind 6)."
+      ],
+      "discriminator": [
+        85,
+        183,
+        76,
+        124,
+        85,
+        238,
+        162,
+        161
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_pool_set_token_active",
+      "docs": [
+        "Execute the pending `PoolSetTokenActive` (kind 8): re-activates the",
+        "proposed token index."
+      ],
+      "discriminator": [
+        232,
+        173,
+        143,
+        63,
+        76,
+        66,
+        177,
+        48
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_pool_withdraw_sol",
+      "docs": [
+        "Execute the pending `WithdrawSol` route 1 (kind 4, pool-owned account)."
+      ],
+      "discriminator": [
+        45,
+        246,
+        72,
+        27,
+        97,
+        147,
+        166,
+        81
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "source",
+          "docs": [
+            "`coffer_pool::withdraw_sol`."
+          ],
+          "writable": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_set_delay",
+      "docs": [
+        "Execute the pending `SetDelay` (kind 1) once `eta <= now <= eta +",
+        "14 d`. Every `execute_*` below clears its slot first (before any",
+        "CPI), pins the passed accounts to the proposal",
+        "(`PendingAccountsMismatch`), applies the change through the same code",
+        "path as the direct wrapper and emits `ActionExecuted`."
+      ],
+      "discriminator": [
+        197,
+        210,
+        239,
+        143,
+        112,
+        102,
+        217,
+        193
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_set_supervisor",
+      "docs": [
+        "Execute the pending `SetSupervisor` (kind 2)."
+      ],
+      "discriminator": [
+        203,
+        98,
+        160,
+        27,
+        96,
+        213,
+        230,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_stld_withdraw_sol",
+      "docs": [
+        "Execute the pending `WithdrawSol` route 2 (kind 4, stld helper PDA)."
+      ],
+      "discriminator": [
+        106,
+        162,
+        134,
+        5,
+        30,
+        219,
+        193,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "source",
+          "docs": [
+            "`[HELPER_SEED, pool]`."
+          ],
+          "writable": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        },
+        {
+          "name": "stld_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_transfer_upgrade_authority",
+      "docs": [
+        "Execute the pending `ProgramOp` op 0 (kind 12): transfer the upgrade",
+        "authority to the proposed target, which co-signs."
+      ],
+      "discriminator": [
+        133,
+        160,
+        173,
+        153,
+        219,
+        78,
+        160,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "program"
+        },
+        {
+          "name": "programdata",
+          "writable": true
+        },
+        {
+          "name": "new_authority",
+          "docs": [
+            "Incoming authority (pinned to the pending slot's target); co-signs."
+          ],
+          "signer": true
+        },
+        {
+          "name": "bpf_loader_upgradeable"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_unfreeze_pools",
+      "docs": [
+        "Execute the pending `UnfreezePools` (kind 9): `[config_i, pool_i]`",
+        "pairs in `remaining_accounts`, pools in the proposed order."
+      ],
+      "discriminator": [
+        83,
+        47,
+        119,
+        93,
+        210,
+        58,
+        171,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_upgrade_program",
+      "docs": [
+        "Execute the pending `UpgradeProgram` (kind 11): program and buffer",
+        "pinned, buffer authority re-checked."
+      ],
+      "discriminator": [
+        85,
+        78,
+        149,
+        66,
+        112,
+        245,
+        206,
+        181
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "programdata",
+          "writable": true
+        },
+        {
+          "name": "program_to_upgrade",
+          "writable": true
+        },
+        {
+          "name": "buffer",
+          "docs": [
+            "authority; validated by BPF Loader."
+          ],
+          "writable": true
+        },
+        {
+          "name": "spill",
+          "writable": true
+        },
+        {
+          "name": "rent"
+        },
+        {
+          "name": "clock"
+        },
+        {
+          "name": "bpf_loader_upgradeable"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_withdraw",
+      "docs": [
+        "Execute the pending `Withdraw` (kind 3): mint and recipient pinned,",
+        "amount from the slot."
+      ],
+      "discriminator": [
+        255,
+        93,
+        15,
+        141,
+        187,
+        94,
+        246,
+        162
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_withdraw_sol",
+      "docs": [
+        "Execute the pending `WithdrawSol` route 0 (kind 4, Treasury PDA)."
+      ],
+      "discriminator": [
+        131,
+        194,
+        1,
+        209,
+        239,
+        229,
+        0,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
         }
       ],
       "args": []
@@ -229,7 +898,8 @@
     {
       "name": "initiate_admin_transfer",
       "docs": [
-        "Step 1 — current admin nominates a successor."
+        "Step 1 — current admin nominates a successor. v6.1 (T3): records",
+        "`pending_admin_eta = now + delay_secs`; the accept waits for it."
       ],
       "discriminator": [
         232,
@@ -257,6 +927,44 @@
           "type": "pubkey"
         }
       ]
+    },
+    {
+      "name": "migrate_treasury_layout_v61",
+      "docs": [
+        "Grow a v1 (786 B) / v2 (818 B) Treasury to the v3 layout (1624 B):",
+        "cooldown block appended with a zero tail (delay 0, epoch 0, nothing",
+        "pending). Admin-only, admin pays the rent delta; `AlreadyMigrated`",
+        "when already 1624 B. Run once right after the v6.1 upgrade — every",
+        "typed-Treasury instruction fails to deserialise until then."
+      ],
+      "discriminator": [
+        195,
+        243,
+        229,
+        121,
+        171,
+        229,
+        120,
+        49
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "docs": [
+            "offset in the handler; the seed constraint pins the PDA."
+          ],
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": []
     },
     {
       "name": "pool_accept_protocol_admin_transfer",
@@ -400,6 +1108,57 @@
           }
         }
       ]
+    },
+    {
+      "name": "pool_disable_range_manager",
+      "docs": [
+        "Force a pool's range manager OFF (`range_manager_enabled = false`,",
+        "pubkey left intact) through coffer-pool's protocol-admin disable-only",
+        "path, signing the `set_range_manager` CPI as the Treasury PDA",
+        "(v6.1, T6 / T03). Disable-only by construction: the current manager",
+        "is read pre-CPI and echoed back, so this can never repoint.",
+        "",
+        "On a pool whose admin called `lock_range_manager` the CPI fails with",
+        "`coffer_pool::RangeManagerLocked` (nothing to disable); no bytes move.",
+        "",
+        "# Authority",
+        "Restricting direction, so `treasury.admin` OR `treasury.supervisor`",
+        "(circuit-breaker model, SF-1)."
+      ],
+      "discriminator": [
+        39,
+        60,
+        0,
+        152,
+        220,
+        135,
+        16,
+        223
+      ],
+      "accounts": [
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "docs": [
+            "must equal it, and its `protocol_admin` must equal the Treasury PDA",
+            "signing this CPI)."
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
     },
     {
       "name": "pool_initialize_alt",
@@ -607,6 +1366,56 @@
       "args": [
         {
           "name": "reactivate_tokens",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "pool_set_hook_disabled",
+      "docs": [
+        "Flip a pool's native-hook emergency switch (v6.1, T9), signing",
+        "`coffer_pool::set_hook_disabled` as the Treasury PDA. `true` ⇒ the",
+        "pool stops CPI'ing its hook (swaps / deposits go on with the base fee,",
+        "or pause on a `PAUSE_WHEN_DISABLED` pool; removes always work);",
+        "`false` re-arms it. Instant — a security action outside any cooldown.",
+        "Fails with `coffer_pool::HookInvalidConfig` on a pool without a hook.",
+        "",
+        "# Authority",
+        "`treasury.admin` ONLY (re-arming a hook is a governance judgement, so",
+        "the supervisor does not get the one-directional circuit-breaker rule)."
+      ],
+      "discriminator": [
+        200,
+        220,
+        227,
+        4,
+        184,
+        247,
+        162,
+        74
+      ],
+      "accounts": [
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "disabled",
           "type": "bool"
         }
       ]
@@ -828,6 +1637,50 @@
       ]
     },
     {
+      "name": "propose_action",
+      "docs": [
+        "Queue a D-class protocol-admin action: validated like the direct",
+        "wrapper, stored in its typed `pending_*` slot with `eta = now +",
+        "delay_secs` (`SetDelay`: `now + max(old, new)`). Re-proposing a",
+        "kind overwrites its slot. `UpgradeProgram` takes the buffer as",
+        "remaining account 0 (its authority must be the Treasury PDA). Emits",
+        "`ActionProposed { kind, payload: borsh(action), eta }`.",
+        "",
+        "# Authority",
+        "`treasury.admin`."
+      ],
+      "discriminator": [
+        49,
+        249,
+        251,
+        197,
+        25,
+        74,
+        36,
+        5
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "action",
+          "type": {
+            "defined": {
+              "name": "ProtocolAction"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "register_token",
       "docs": [
         "Register a token mint with the treasury and create its vault PDA."
@@ -869,23 +1722,69 @@
       "args": []
     },
     {
+      "name": "set_delay",
+      "docs": [
+        "Set `treasury.delay_secs` directly. Allowed only while the delay is",
+        "0 (bootstrap: raising from 0 is instant); afterwards every change",
+        "goes through `propose_action(SetDelay)` and waits `max(old, new)`.",
+        "`0..=MAX_DELAY_SECS` (30 d). While a delay is in force every D-class",
+        "wrapper (withdrawals, upgrades, authority ops, supervisor, protocol",
+        "fee, re-enable / unfreeze / token re-activation, protocol-admin",
+        "handover, admin transfer) fails with `CooldownRequired` and must be",
+        "queued; the emergency set (`freeze_pools`,",
+        "`pool_set_pool_enabled(false)`, `pool_set_token_active(…, false)`,",
+        "`pool_disable_range_manager`) and `pool_set_swaps_enabled` stay",
+        "instant.",
+        "",
+        "# Authority",
+        "`treasury.admin`."
+      ],
+      "discriminator": [
+        252,
+        122,
+        2,
+        67,
+        127,
+        181,
+        249,
+        124
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "secs",
+          "type": "u32"
+        }
+      ]
+    },
+    {
       "name": "set_supervisor",
       "docs": [
         "Set or revoke the `supervisor` pubkey on Treasury.",
         "",
-        "Supervisor can call ONLY `freeze_pools` and",
-        "`pool_set_token_active(…, false)` — the restricting direction of the",
-        "two circuit breakers, nothing else (see `crate::authority`).",
+        "Supervisor can call ONLY the restricting circuit breakers",
+        "(`freeze_pools`, `pool_set_pool_enabled(false)`,",
+        "`pool_set_token_active(…, false)`, `pool_disable_range_manager`) and",
+        "`cancel_action` — nothing else (see `crate::authority`).",
         "Single-step: admin sets it directly, no claim flow.",
         "Pass `Pubkey::default()` to revoke.",
         "",
-        "# Authority",
-        "`treasury.admin` only.",
+        "v6.1 (T3): D-class — direct only at `delay_secs == 0`, otherwise",
+        "`propose_action(SetSupervisor)` → `execute_set_supervisor`. The",
+        "former v1 → v2 realloc side-effect moved to",
+        "`migrate_treasury_layout_v61`.",
         "",
-        "# Migration side-effect",
-        "First call after the v2 upgrade reallocs the Treasury account",
-        "from 786 → 818 bytes (admin pays the rent diff). Subsequent",
-        "calls are no-op on size."
+        "# Authority",
+        "`treasury.admin` only."
       ],
       "discriminator": [
         45,
@@ -900,10 +1799,6 @@
       "accounts": [
         {
           "name": "treasury",
-          "docs": [
-            "and write below. The PDA seed constraint guarantees this is the",
-            "Treasury — but its on-chain size may be v1 (786) or v2 (818)."
-          ],
           "writable": true
         },
         {
@@ -1078,7 +1973,9 @@
     {
       "name": "upgrade_pool_program",
       "docs": [
-        "Upgrade an arbitrary on-chain program via the BPF Loader."
+        "Upgrade an arbitrary on-chain program via the BPF Loader. v6.1 (T3):",
+        "D-class — direct only at `delay_secs == 0`, otherwise",
+        "`propose_action(UpgradeProgram)` → `execute_upgrade_program`."
       ],
       "discriminator": [
         38,
@@ -1225,6 +2122,45 @@
   ],
   "events": [
     {
+      "name": "ActionCancelled",
+      "discriminator": [
+        121,
+        213,
+        205,
+        29,
+        226,
+        181,
+        230,
+        13
+      ]
+    },
+    {
+      "name": "ActionExecuted",
+      "discriminator": [
+        116,
+        101,
+        146,
+        36,
+        160,
+        153,
+        182,
+        233
+      ]
+    },
+    {
+      "name": "ActionProposed",
+      "discriminator": [
+        209,
+        50,
+        232,
+        223,
+        206,
+        194,
+        15,
+        67
+      ]
+    },
+    {
       "name": "AdminTransferCancelled",
       "discriminator": [
         93,
@@ -1342,6 +2278,19 @@
       ]
     },
     {
+      "name": "PoolHookDisabledSet",
+      "discriminator": [
+        49,
+        162,
+        58,
+        174,
+        101,
+        5,
+        102,
+        120
+      ]
+    },
+    {
       "name": "PoolProtocolAdminTransferAccepted",
       "discriminator": [
         235,
@@ -1391,6 +2340,19 @@
         174,
         49,
         23
+      ]
+    },
+    {
+      "name": "PoolRangeManagerDisabled",
+      "discriminator": [
+        147,
+        23,
+        5,
+        147,
+        19,
+        71,
+        144,
+        27
       ]
     },
     {
@@ -1550,6 +2512,19 @@
       ]
     },
     {
+      "name": "TreasuryDelayChanged",
+      "discriminator": [
+        15,
+        109,
+        164,
+        150,
+        166,
+        70,
+        119,
+        253
+      ]
+    },
+    {
       "name": "TreasuryInitialized",
       "discriminator": [
         199,
@@ -1560,6 +2535,19 @@
         145,
         55,
         179
+      ]
+    },
+    {
+      "name": "TreasuryLayoutMigrated",
+      "discriminator": [
+        155,
+        101,
+        180,
+        209,
+        8,
+        155,
+        3,
+        5
       ]
     },
     {
@@ -1626,9 +2614,167 @@
       "code": 6009,
       "name": "InvalidAdmin",
       "msg": "Admin cannot be the default (all-zero) pubkey"
+    },
+    {
+      "code": 6010,
+      "name": "CooldownRequired",
+      "msg": "Cooldown in force: propose the action and execute it after the delay"
+    },
+    {
+      "code": 6011,
+      "name": "CooldownNotElapsed",
+      "msg": "Cooldown not elapsed: the action's eta is in the future"
+    },
+    {
+      "code": 6012,
+      "name": "NoPendingAction",
+      "msg": "No pending action of this kind"
+    },
+    {
+      "code": 6013,
+      "name": "ActionExpired",
+      "msg": "Pending action expired: more than the grace period after its eta"
+    },
+    {
+      "code": 6014,
+      "name": "DelayTooLarge",
+      "msg": "Delay above MAX_DELAY_SECS (30 days)"
+    },
+    {
+      "code": 6015,
+      "name": "PendingAccountsMismatch",
+      "msg": "Execute accounts or payload do not match the pending proposal"
+    },
+    {
+      "code": 6016,
+      "name": "BufferAuthorityMismatch",
+      "msg": "Upgrade buffer authority must be the Treasury PDA"
+    },
+    {
+      "code": 6017,
+      "name": "AlreadyMigrated",
+      "msg": "Treasury already on the v6.1 layout"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidPendingAdmin",
+      "msg": "Invalid pending admin: default pubkey or the current admin"
     }
   ],
   "types": [
+    {
+      "name": "ActionCancelled",
+      "docs": [
+        "Emitted by `cancel_action` (admin or supervisor — the supervisor may",
+        "cancel because cancelling only ever restricts)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ActionExecuted",
+      "docs": [
+        "Emitted by every `execute_*` next to the typed event of the applied",
+        "change (`FundsWithdrawn`, `ProgramUpgraded`, `PoolsUnfrozen`, …)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "epoch",
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ActionProposed",
+      "docs": [
+        "Emitted by `propose_action`: slot `kind` now holds `payload`",
+        "(`borsh(ProtocolAction)`, variant tag first — the same values the",
+        "account stores inline, or the full vectors for the hash-pinned kinds)",
+        "and becomes executable at `eta`. Re-proposing a kind overwrites it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "`ProtocolActionKind` as `u8` (1 = SetDelay … 12 = ProgramOp)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "payload",
+            "type": "bytes"
+          },
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "epoch",
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "AdminTransferCancelled",
       "type": {
@@ -1673,6 +2819,14 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "eta",
+            "docs": [
+              "v6.1 (T3, appended): earliest `accept_admin_transfer` time",
+              "(`now + delay_secs`)."
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -1697,6 +2851,14 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "new_epoch",
+            "docs": [
+              "v6.1 (T3, appended): `admin_epoch` after the change; every pending",
+              "proposal of the previous admin was voided."
+            ],
+            "type": "u32"
           }
         ]
       }
@@ -1729,6 +2891,274 @@
           {
             "name": "timestamp",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingHash",
+      "docs": [
+        "A slot whose payload is a 32-byte hash (`unfreeze_pools`:",
+        "`sha256(pool_0 || … || pool_n)` over the ordered pool keys)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingPoolDebugWithdraw",
+      "docs": [
+        "`pool_debug_withdraw_liquidity`: the slot pins",
+        "`sha256(pool || borsh(token_amounts) || borsh(recipients))`; the full",
+        "vectors travel in `ActionProposed.payload` and must be resent."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "params_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingPoolSetProtocolFeeRate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "rate",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingPoolSetTokenActive",
+      "docs": [
+        "`pool_set_token_active(pool, index, true)`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_index",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingPoolTarget",
+      "docs": [
+        "A pool-targeted slot without further payload",
+        "(`pool_set_pool_enabled(true)`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingProgramOp",
+      "docs": [
+        "Loader authority operations on a Treasury-owned program. `op`: `0` =",
+        "`transfer_upgrade_authority` (`target` = the incoming authority, which",
+        "co-signs at execution), `1` = `freeze_pool_program` (`target` unused,",
+        "default), `2` = `close_pool_program` (`target` = rent recipient)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "op",
+            "type": "u8"
+          },
+          {
+            "name": "program",
+            "type": "pubkey"
+          },
+          {
+            "name": "target",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetDelay",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "secs",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetSupervisor",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "key",
+            "docs": [
+              "`Pubkey::default()` revokes."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingTwoKeys",
+      "docs": [
+        "Two-pubkey payloads: `PoolProtocolAdminTransfer { config, new_admin }`,",
+        "`UpgradeProgram { program, buffer }`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "a",
+            "type": "pubkey"
+          },
+          {
+            "name": "b",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingWithdraw",
+      "docs": [
+        "`withdraw`: `mint` pins the vault (`[b\"vault\", mint]`), `recipient` is",
+        "the destination token account, `amount` the debited raw units."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingWithdrawSol",
+      "docs": [
+        "SOL drains. `route`: `0` = `withdraw_sol` (source = the Treasury PDA",
+        "itself), `1` = `pool_withdraw_sol` (source = a coffer-pool-owned",
+        "account), `2` = `stld_withdraw_sol` (source = the stld helper PDA)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "route",
+            "type": "u8"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }
@@ -1870,6 +3300,49 @@
       }
     },
     {
+      "name": "PoolHookDisabledSet",
+      "docs": [
+        "v6.1 (T9): `pool_set_hook_disabled` — the protocol admin flipped a",
+        "pool's native-hook emergency switch (CPI `coffer_pool::set_hook_disabled`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "hook_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_disabled",
+            "type": "bool"
+          },
+          {
+            "name": "new_disabled",
+            "type": "bool"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "`treasury.admin` (admin only — no supervisor path)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "PoolProtocolAdminTransferAccepted",
       "type": {
         "kind": "struct",
@@ -1969,6 +3442,48 @@
           {
             "name": "admin",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolRangeManagerDisabled",
+      "docs": [
+        "Emitted by `pool_disable_range_manager` (v6.1, T6): the Treasury PDA",
+        "forced `pool.range_manager_enabled = false` through coffer-pool's",
+        "protocol-admin disable path; `manager` (the pubkey, left intact) and",
+        "`old_enabled` are the pre-CPI values. Not emitted on a locked pool (the",
+        "CPI fails with `RangeManagerLocked` before any write)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "`treasury.admin` or `treasury.supervisor` (restricting direction)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -2249,6 +3764,184 @@
       }
     },
     {
+      "name": "ProtocolAction",
+      "docs": [
+        "Proposal payload: the ABSOLUTE arguments the direct wrapper takes",
+        "(`ActionProposed.payload = borsh(ProtocolAction)`, variant tag first)."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "SetDelay",
+            "fields": [
+              {
+                "name": "secs",
+                "type": "u32"
+              }
+            ]
+          },
+          {
+            "name": "SetSupervisor",
+            "fields": [
+              {
+                "name": "key",
+                "type": "pubkey"
+              }
+            ]
+          },
+          {
+            "name": "Withdraw",
+            "fields": [
+              {
+                "name": "mint",
+                "type": "pubkey"
+              },
+              {
+                "name": "recipient",
+                "type": "pubkey"
+              },
+              {
+                "name": "amount",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "WithdrawSol",
+            "fields": [
+              {
+                "name": "route",
+                "type": "u8"
+              },
+              {
+                "name": "source",
+                "type": "pubkey"
+              },
+              {
+                "name": "recipient",
+                "type": "pubkey"
+              },
+              {
+                "name": "amount",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "PoolDebugWithdraw",
+            "fields": [
+              {
+                "name": "pool",
+                "type": "pubkey"
+              },
+              {
+                "name": "token_amounts",
+                "type": {
+                  "vec": "u64"
+                }
+              },
+              {
+                "name": "recipients",
+                "type": {
+                  "vec": "pubkey"
+                }
+              }
+            ]
+          },
+          {
+            "name": "PoolSetProtocolFeeRate",
+            "fields": [
+              {
+                "name": "pool",
+                "type": "pubkey"
+              },
+              {
+                "name": "rate",
+                "type": "u16"
+              }
+            ]
+          },
+          {
+            "name": "PoolSetPoolEnabled",
+            "fields": [
+              {
+                "name": "pool",
+                "type": "pubkey"
+              }
+            ]
+          },
+          {
+            "name": "PoolSetTokenActive",
+            "fields": [
+              {
+                "name": "pool",
+                "type": "pubkey"
+              },
+              {
+                "name": "token_index",
+                "type": "u8"
+              }
+            ]
+          },
+          {
+            "name": "UnfreezePools",
+            "fields": [
+              {
+                "name": "pools",
+                "type": {
+                  "vec": "pubkey"
+                }
+              }
+            ]
+          },
+          {
+            "name": "PoolProtocolAdminTransfer",
+            "fields": [
+              {
+                "name": "config",
+                "type": "pubkey"
+              },
+              {
+                "name": "new_admin",
+                "type": "pubkey"
+              }
+            ]
+          },
+          {
+            "name": "UpgradeProgram",
+            "fields": [
+              {
+                "name": "program",
+                "type": "pubkey"
+              },
+              {
+                "name": "buffer",
+                "type": "pubkey"
+              }
+            ]
+          },
+          {
+            "name": "ProgramOp",
+            "fields": [
+              {
+                "name": "op",
+                "type": "u8"
+              },
+              {
+                "name": "program",
+                "type": "pubkey"
+              },
+              {
+                "name": "target",
+                "type": "pubkey"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "SolWithdrawn",
       "type": {
         "kind": "struct",
@@ -2373,15 +4066,43 @@
       "docs": [
         "Singleton governance account at PDA `[b\"treasury\"]`. Holds the human",
         "admin pubkey, a list of registered token mints + vault addresses,",
-        "pending-admin state for the 2-step transfer flow, and the limited",
-        "`supervisor` circuit-breaker pubkey.",
+        "pending-admin state for the 2-step transfer flow, the limited",
+        "`supervisor` circuit-breaker pubkey and (v6.1, T3) the protocol-admin",
+        "cooldown: the delay in force, the admin epoch and one typed pending slot",
+        "per delayed action kind.",
         "",
         "## Layout history",
         "v1 (786 bytes): admin, pending_admin, bump, token_count, mints,",
         "vaults, created_at, reserved[64].",
         "v2 (818 bytes): same + `supervisor: Pubkey` appended at the end.",
-        "Existing v1 accounts are grown to v2 via the `realloc` constraint",
-        "on `set_supervisor`'s context (admin pays the lamport diff)."
+        "v3 (1624 bytes, v6.1 T3): same + the cooldown block appended after",
+        "`supervisor` (`delay_secs`, `admin_epoch`, `pending_admin_eta`, twelve",
+        "typed `pending_*` slots, `reserved_v61[125]`). Existing v1 / v2",
+        "accounts are grown in place by the admin-paid",
+        "`migrate_treasury_layout_v61` instruction (zero tail ⇒ delay 0, epoch",
+        "0, nothing pending); until then every instruction that reads the",
+        "Treasury fails to deserialise (`AccountDidNotDeserialize`).",
+        "",
+        "## Cooldown block offsets (account bytes, discriminator included)",
+        "",
+        "| kind | field | payload | offset | size |",
+        "|---|---|---|---|---|",
+        "| — | `delay_secs: u32` | | 818 | 4 |",
+        "| — | `admin_epoch: u32` | | 822 | 4 |",
+        "| 0 TransferAdmin | `pending_admin_eta: i64` | (`pending_admin` @40) | 826 | 8 |",
+        "| 1 SetDelay | `pending_set_delay` | `secs: u32` | 834 | 12 |",
+        "| 2 SetSupervisor | `pending_set_supervisor` | `key: Pubkey` | 846 | 40 |",
+        "| 3 Withdraw | `pending_withdraw` | `mint, recipient: Pubkey, amount: u64` | 886 | 80 |",
+        "| 4 WithdrawSol | `pending_withdraw_sol` | `route: u8, source, recipient: Pubkey, amount: u64` | 966 | 81 |",
+        "| 5 PoolDebugWithdraw | `pending_pool_debug_withdraw` | `pool: Pubkey, params_hash: [u8; 32]` | 1047 | 72 |",
+        "| 6 PoolSetProtocolFeeRate | `pending_pool_set_protocol_fee_rate` | `pool: Pubkey, rate: u16` | 1119 | 42 |",
+        "| 7 PoolSetPoolEnabled | `pending_pool_set_pool_enabled` | `pool: Pubkey` (always `true`) | 1161 | 40 |",
+        "| 8 PoolSetTokenActive | `pending_pool_set_token_active` | `pool: Pubkey, token_index: u8` (always `true`) | 1201 | 41 |",
+        "| 9 UnfreezePools | `pending_unfreeze_pools` | `pools_hash: [u8; 32]` | 1242 | 40 |",
+        "| 10 PoolProtocolAdminTransfer | `pending_pool_protocol_admin_transfer` | `config, new_admin: Pubkey` | 1282 | 72 |",
+        "| 11 UpgradeProgram | `pending_upgrade_program` | `program, buffer: Pubkey` | 1354 | 72 |",
+        "| 12 ProgramOp | `pending_program_op` | `op: u8, program, target: Pubkey` | 1426 | 73 |",
+        "| | `reserved_v61` | | 1499 | 125 |"
       ],
       "type": {
         "kind": "struct",
@@ -2411,14 +4132,18 @@
           {
             "name": "token_count",
             "docs": [
-              "Active count of `token_mints` / `token_vaults`."
+              "Active count of `token_mints` / `token_vaults` (saturates at",
+              "`MAX_TOKENS`; v6.1 (T5): registrations past that are NOT listed —",
+              "the arrays are compatibility-only, nothing on-chain reads them)."
             ],
             "type": "u8"
           },
           {
             "name": "token_mints",
             "docs": [
-              "Registered token mints (index-aligned with `token_vaults`)."
+              "First `MAX_TOKENS` registered token mints (index-aligned with",
+              "`token_vaults`). Compat-only since v6.1 (T5): the vault PDA",
+              "`[b\"vault\", mint]` is self-describing and there is no mint cap."
             ],
             "type": {
               "array": [
@@ -2430,7 +4155,8 @@
           {
             "name": "token_vaults",
             "docs": [
-              "Treasury-owned vault accounts (PDA `[b\"vault\", mint]`)."
+              "Treasury-owned vault accounts (PDA `[b\"vault\", mint]`) for the",
+              "listed mints. Compat-only since v6.1 (T5)."
             ],
             "type": {
               "array": [
@@ -2449,7 +4175,7 @@
           {
             "name": "reserved",
             "docs": [
-              "Padding for forward-compat fields."
+              "Padding for forward-compat fields (legacy v1 block, untouched)."
             ],
             "type": {
               "array": [
@@ -2462,14 +4188,221 @@
             "name": "supervisor",
             "docs": [
               "Limited circuit-breaker pubkey. Allowed to call ONLY",
-              "`freeze_pools` and `pool_set_token_active(…, false)`: it may",
-              "restrict, never relax (`crate::authority`). Cannot transfer itself,",
-              "has no claim flow — admin sets it directly via `set_supervisor`.",
+              "`freeze_pools`, `pool_set_pool_enabled(false)`,",
+              "`pool_set_token_active(…, false)`, `pool_disable_range_manager` and",
+              "(v6.1 T3) `cancel_action`: it may restrict, never relax",
+              "(`crate::authority`). Cannot transfer itself, has no claim flow —",
+              "admin sets it via `set_supervisor` (D-class since T3).",
               "`Pubkey::default()` ⇒ no supervisor; only admin can freeze.",
-              "Added in v2; reads as `Pubkey::default()` on un-migrated v1",
-              "accounts after `set_supervisor`'s realloc grows the account."
+              "Added in v2; reads as `Pubkey::default()` on migrated v1 accounts."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "delay_secs",
+            "docs": [
+              "Seconds every D-class protocol-admin action must wait between",
+              "proposal and execution. `0` (fresh and migrated Treasuries) ⇒ the",
+              "direct wrappers work as before; `> 0` ⇒ they fail with",
+              "`CooldownRequired` and only `propose_action` → `execute_*` applies.",
+              "Changed by `set_delay` (direct at 0) or through the queue (waits",
+              "`max(old, new)`); `0..=MAX_DELAY_SECS`."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "admin_epoch",
+            "docs": [
+              "Incremented on every `accept_admin_transfer`; every pending slot is",
+              "cleared at the same time (a proposal never survives the key that",
+              "made it)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "pending_admin_eta",
+            "docs": [
+              "`eta` of the in-flight admin transfer (`pending_admin` holds the",
+              "successor): `accept_admin_transfer` requires",
+              "`eta <= now <= eta + GRACE`. `0` when no transfer is pending."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pending_set_delay",
+            "docs": [
+              "kind 1"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetDelay"
+              }
+            }
+          },
+          {
+            "name": "pending_set_supervisor",
+            "docs": [
+              "kind 2"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetSupervisor"
+              }
+            }
+          },
+          {
+            "name": "pending_withdraw",
+            "docs": [
+              "kind 3"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingWithdraw"
+              }
+            }
+          },
+          {
+            "name": "pending_withdraw_sol",
+            "docs": [
+              "kind 4"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingWithdrawSol"
+              }
+            }
+          },
+          {
+            "name": "pending_pool_debug_withdraw",
+            "docs": [
+              "kind 5"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingPoolDebugWithdraw"
+              }
+            }
+          },
+          {
+            "name": "pending_pool_set_protocol_fee_rate",
+            "docs": [
+              "kind 6"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingPoolSetProtocolFeeRate"
+              }
+            }
+          },
+          {
+            "name": "pending_pool_set_pool_enabled",
+            "docs": [
+              "kind 7"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingPoolTarget"
+              }
+            }
+          },
+          {
+            "name": "pending_pool_set_token_active",
+            "docs": [
+              "kind 8"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingPoolSetTokenActive"
+              }
+            }
+          },
+          {
+            "name": "pending_unfreeze_pools",
+            "docs": [
+              "kind 9"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingHash"
+              }
+            }
+          },
+          {
+            "name": "pending_pool_protocol_admin_transfer",
+            "docs": [
+              "kind 10"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingTwoKeys"
+              }
+            }
+          },
+          {
+            "name": "pending_upgrade_program",
+            "docs": [
+              "kind 11"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingTwoKeys"
+              }
+            }
+          },
+          {
+            "name": "pending_program_op",
+            "docs": [
+              "kind 12"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingProgramOp"
+              }
+            }
+          },
+          {
+            "name": "reserved_v61",
+            "docs": [
+              "v6.1 reserve (zero). Later tasks carve from its front; `LEN` stays."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                125
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryDelayChanged",
+      "docs": [
+        "Emitted whenever `treasury.delay_secs` changes (direct `set_delay` at",
+        "delay 0, or `execute_set_delay`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_delay_secs",
+            "type": "u32"
+          },
+          {
+            "name": "new_delay_secs",
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -2486,6 +4419,38 @@
           {
             "name": "admin",
             "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryLayoutMigrated",
+      "docs": [
+        "Emitted by `migrate_treasury_layout_v61`: the account grew from",
+        "`old_len` (786 or 818) to `new_len` (1624) with a zero tail."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_len",
+            "type": "u32"
+          },
+          {
+            "name": "new_len",
+            "type": "u32"
           },
           {
             "name": "timestamp",

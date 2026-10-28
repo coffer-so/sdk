@@ -105,9 +105,66 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   /** Pool holds no liquidity yet; the pool admin must seed it first. */
   PoolNotSeeded: "unsupported_pool_state",
 
+  // ── coffer-pool 6070–6103, v6.1 ───────────────────────────────────────
+  /** L0: the pool is still 1683 bytes; prepend / run `migrate_pool_layout_v61`. */
+  LayoutVersionMismatch: "pool_layout_outdated",
+  /** L0 / T3: the account is already at the v6.1 size (idempotent no-op from the caller's view). */
+  AlreadyMigrated: "unsupported_pool_state",
+  /** L0 FIX-6: the live mint's decimals differ from the pinned value. */
+  PinnedDecimalsMismatch: "unsupported_pool_state",
+  /** T2: `seed_liquidity` on a pool whose LP supply is already > 0. */
+  PoolAlreadySeeded: "unsupported_pool_state",
+  /** T2: `lp_amount > MAX_INITIAL_LP_SUPPLY`. */
+  InitialLpSupplyTooLarge: "invalid_input",
+  /** T10: `fund_sidelined_token` on a slot with reserves. */
+  TokenNotSidelined: "invalid_input",
+  /** T1: LP metadata rejected (`validateLpMetadata` mirrors the rules). */
+  LpNameInvalid: "invalid_input",
+  LpSymbolInvalid: "invalid_input",
+  LpUriInvalid: "invalid_input",
+  /** T14 */
+  CreatorFeeBpsMaxExceeded: "invalid_input",
+  /** T14: `disable_pool_admin` while creator fees are owed — claim first. */
+  CreatorFeesUnclaimed: "unsupported_pool_state",
+  /** T6 */
+  RangeManagerLocked: "unsupported_pool_state",
+  RangeManagerMustBeUnset: "unsupported_pool_state",
+  /** T7 */
+  LiquidityFeeMaxExceeded: "invalid_input",
+  LiquidityFeesLocked: "unsupported_pool_state",
+  LiquidityFeesAlreadyLocked: "unsupported_pool_state",
+  /** T7: a 100 % deposit fee closes deposits. */
+  DepositFeeConsumesAll: "amount_too_small",
+  /** T7: a 100 % withdraw fee closes withdrawals. */
+  WithdrawFeeConsumesAll: "amount_too_small",
+  /** T12 */
+  SurgeBucketOverflow: "math_overflow",
+  /** T3: pool-admin cooldown queue. */
+  CooldownRequired: "cooldown",
+  CooldownNotElapsed: "cooldown",
+  NoPendingAction: "cooldown",
+  ActionExpired: "cooldown",
+  DelayTooLarge: "invalid_input",
+  PendingPayloadMismatch: "cooldown",
+  /** T9: native hooks. */
+  HookDenied: "hook_rejected",
+  HookInvalidResponse: "hook_rejected",
+  HookCuExceeded: "hook_rejected",
+  HookInvalidConfig: "invalid_input",
+  HookAccountsInvalid: "invalid_input",
+  HookProgramInvalid: "invalid_input",
+  HookPaused: "hook_rejected",
+  HookRegisterRejected: "hook_rejected",
+  HookFlagsMismatch: "hook_rejected",
+
   // ── protocol-admin ───────────────────────────────────────────────────
   /** New admin cannot be the all-zero pubkey. */
   InvalidAdmin: "invalid_input",
+  // T5: a `pool_collect_protocol_fees` recipient that is not the Treasury
+  // vault PDA is refused with the existing `InvalidVault` (6002).
+  /** T3: protocol-admin cooldown queue (6010–6018); the shared names map above. */
+  PendingAccountsMismatch: "cooldown",
+  BufferAuthorityMismatch: "invalid_input",
 
   // ── single-token-liquidity 6030–6032, new in v5.1 ────────────────────
   /** Zap route can't carry an armed transfer hook's extra accounts. */

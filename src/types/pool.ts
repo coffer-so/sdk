@@ -2,6 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import type { TransferFee } from "@solana/spl-token";
 import { TokenInfo } from "../config/tokens";
+import type { PoolActionKindName } from "../parsers/layout";
 
 /**
  * A single token slot inside a Coffer Pool, enriched with off-chain metadata
@@ -88,6 +89,78 @@ export interface PoolTokenInfo {
    * quotes and builders that would move this token are refused.
    */
   paused?: boolean;
+  /**
+   * v6.1 (FIX-6): the decimals the pool PINNED for this slot at creation /
+   * layout migration (`token_decimals[i]`). `undefined` on an unmigrated
+   * 1683-byte pool. The program refuses a transfer when the live mint
+   * disagrees (`PinnedDecimalsMismatch`).
+   */
+  pinnedDecimals?: number;
+  /**
+   * v6.1 (FIX-6): the live mint reports different decimals than the pinned
+   * value (a closed-and-recreated mint). The program refuses every transfer
+   * of this slot (`PinnedDecimalsMismatch`), so the token is listed in
+   * `PoolInfo.unsupportedTokenIndices`.
+   */
+  pinnedDecimalsMismatch?: boolean;
+  /**
+   * v6.1 (T14): pool admin's unclaimed share of this slot's fees (raw
+   * units). Outside the curve and outside LP NAV. `0` before v6.1.
+   */
+  creatorFeesOwed?: BN;
+  /**
+   * v6.1 (T12): the LP holders' surge bucket for this slot (raw units).
+   * Part of LP NAV (`actualBalance + surgeFeesOwed`), never traded, paid
+   * pro rata on `remove_liquidity`, bought into on `add_liquidity`.
+   */
+  surgeFeesOwed?: BN;
+  /**
+   * v6.1 (T10): `actualBalance == 0` — the slot is sidelined: swaps INTO it
+   * are allowed (they revive it at the curve price), swaps OUT of it revert
+   * with `InsufficientLiquidity`, it takes no deposit, pays nothing on
+   * withdraw, and only the pool admin can fund it (`fund_sidelined_token`).
+   */
+  sidelined?: boolean;
+}
+
+/** v6.1 (T3): one pending pool-admin action as `PoolInfo` exposes it. */
+export interface PendingPoolAction {
+  /** Bit index in `pendingActionsMask`; `cancel_pool_action(kind)` argument. */
+  kind: number;
+  name: PoolActionKindName;
+  /** Unix seconds the slot becomes executable; `0` when the slot is empty. */
+  eta: BN;
+  /** Absolute payload stored in the slot (plain values; hashes as hex). */
+  payload: Record<string, string | number | boolean | PublicKey | BN>;
+}
+
+/** v6.1 (T9): the pool's native hook as `PoolInfo` exposes it (`null` = no hook). */
+export interface PoolHookInfo {
+  program: PublicKey;
+  /** `coffer_hook_interface::flags` bitmap (see `HOOK_FLAGS`). */
+  flags: number;
+  /** Protocol-admin emergency switch. */
+  disabled: boolean;
+  /** `program != default && !disabled`: the remaining-accounts tail of swap / add / seed / remove starts with the hook slice. */
+  active: boolean;
+  /** Fee-override clamp (hundredths of bps, `SWAP_FEE_PRECISION`). */
+  feeMin: number;
+  feeMax: number;
+  /** Per-callback CU ceiling. */
+  maxCu: number;
+  /** Length of the hook account slice `[hook_program, hook_caller, extras..]` (2..=12). */
+  accountsLen: number;
+}
+
+/** v6.1 (T1): in-mint `TokenMetadata` of a Token-2022 LP mint. */
+export interface LpMetadata {
+  name: string;
+  symbol: string;
+  uri: string;
+  /** The `("pool", <pool pubkey>)` pair and any other additional metadata. */
+  additionalMetadata: Array<[string, string]>;
+  /** `null` once the authority was revoked (every v6.1 LP mint). */
+  updateAuthority: PublicKey | null;
 }
 
 /**
@@ -170,6 +243,61 @@ export interface PoolInfo {
   rangeManagerMinLeverageBps?: number;
   /** Unix timestamp (ms) when sync() ran. Useful for staleness checks. */
   syncedAt: number;
+
+  // ── v6.1 appended state (every field below is 0 / empty / null on an
+  // unmigrated 1683-byte pool and `undefined` on a manually supplied v5
+  // snapshot; quotes treat `undefined` as the v5 reading) ──────────────────
+
+  /** Account size the snapshot was decoded from: 1683 (unmigrated) or 2304 (v6.1). */
+  dataLen?: number;
+  /**
+   * `CofferPool.layout_version`: `1` on a v6.1 account, `0` on an
+   * unmigrated 1683-byte account. While `0` every program instruction fails
+   * with `LayoutVersionMismatch` (6070); the transaction builders prepend
+   * the permissionless `migrate_pool_layout_v61` (payer = user, rent
+   * ≈ 0.0043 SOL) unless told not to.
+   */
+  layoutVersion?: number;
+  /** `layoutVersion === 0`: the pool still needs `migrate_pool_layout_v61`. */
+  needsLayoutMigration?: boolean;
+  /** FIX-6 decimals pins, `tokenCount` entries; `[]` before v6.1. */
+  tokenDecimals?: number[];
+  /** v6.1 (T14): pool admin's share of the LP fee remainder, bps (0 = off). */
+  creatorFeeBps?: number;
+  /** v6.1 (T14): `creator_fees_owed`, `tokenCount` entries (raw units); `[]` before v6.1. */
+  creatorFeesOwed?: BN[];
+  /** v6.1 (T12): LP-claimable surge bucket per slot, `tokenCount` entries; `[]` before v6.1. */
+  surgeFeesOwed?: BN[];
+  /** v6.1 (T7): deposit fee bps (LP haircut on `add_liquidity`; the seed is exempt). */
+  depositFeeBps?: number;
+  /** v6.1 (T7): withdraw fee bps (payout haircut on every leg of `remove_liquidity`). */
+  withdrawFeeBps?: number;
+  /** v6.1 (T7): raw `liquidity_fee_lock` byte. */
+  liquidityFeeLock?: number;
+  /** v6.1 (T7): `true` once `lock_liquidity_fees` ran — the two fees can never change. */
+  liquidityFeesLocked?: boolean;
+  /** v6.1 (T6): `true` ⇒ the pool can never have a range manager again. */
+  rangeManagerLocked?: boolean;
+  /** v6.1 (T3): pool-admin cooldown in force (seconds; 0 = direct instructions work). */
+  poolAdminDelaySecs?: number;
+  /** v6.1 (T3): bumped on every pool-admin change; voids every pending slot. */
+  poolAdminEpoch?: number;
+  /** v6.1 (T3): eta of the pending admin transfer (`pendingPoolAdmin` is the nominee); 0 = none. */
+  pendingPoolAdminEta?: BN;
+  /** v6.1 (T3): the eleven typed pending slots in kind order; `[]` before v6.1. */
+  pendingActions?: PendingPoolAction[];
+  /** v6.1 (T3): bit `kind` set ⇔ that slot is live. */
+  pendingActionsMask?: number;
+  /** v6.1 (T9): the pool's native hook, `null` when none. */
+  hook?: PoolHookInfo | null;
+  /** v6.1: layout-drift notes from the decoder (empty on a healthy account). */
+  layoutDrift?: string[];
+  /**
+   * v6.1 (T1): in-mint LP metadata (Token-2022 LP mints created since v6.1).
+   * `null` for a legacy SPL Token LP mint (older pools) — show a synthetic
+   * label. `undefined` when the snapshot did not fetch it.
+   */
+  lpMetadata?: LpMetadata | null;
 }
 
 export interface PoolSummary {

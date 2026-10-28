@@ -21,10 +21,18 @@ function ts(type, program) {
   throw new Error('Unsupported IDL type ' + JSON.stringify(type));
 }
 const fields = (fields, program) => fields.length ? '{ ' + fields.map(f => `${prop(f.name)}: ${ts(f.type, program)}`).join('; ') + ' }' : 'Record<string, never>';
+// Borsh enums (v6.1 T3 `PoolAction` / `ProtocolAction`): the raw Anchor coder
+// keys the variant by its EXACT IDL name (`{ SetSwapFeeRate: { rate } }`);
+// unit variants take an empty object. Tuple variants are not used on chain.
+const enumType = (variants, program) => variants.map(v => {
+  if (v.fields && v.fields.length && typeof v.fields[0] !== 'object') throw new Error('Tuple enum variants are not supported');
+  return `{ ${prop(v.name)}: ${fields(v.fields || [], program)} }`;
+}).join(' | ');
 const lines = ['// Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.', 'import BN from "bn.js";', 'import { PublicKey } from "@solana/web3.js";', '', 'export interface ContractTypes {'];
 for (const [program, idl] of Object.entries(idls)) {
   lines.push(`  ${prop(program)}: {`);
   for (const type of idl.types || []) {
+    if (type.type.kind === 'enum') { lines.push(`    ${prop(type.name)}: ${enumType(type.type.variants, program)};`); continue; }
     if (type.type.kind !== 'struct') throw new Error('Unsupported IDL kind ' + type.type.kind);
     lines.push(`    ${prop(type.name)}: ${fields(type.type.fields, program)};`);
   }

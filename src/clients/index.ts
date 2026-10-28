@@ -8,3 +8,7 @@ export * from "./extra-accounts";
 export * from "./PoolFactoryClient";
 export * from "./AdminClient";
 export * from "./contract-instructions";
+export * from "./cooldown";
+export * from "./feeClaim";
+export * from "./poolIdentity";
+export * from "./atomicDeploy";

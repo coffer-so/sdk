@@ -21,6 +21,7 @@ function sample(type: any, idl: any): any {
   if (type === "pubkey") return pk();
   if (type === "bool") return true;
   if (type === "bytes") return Buffer.from([1, 3]);
+  if (type === "string") return `s${++sequence}`;
   if (typeof type === "string") {
     if (/^[ui](64|128|256)$/.test(type)) return type[0] === "i" ? new BN(-1234567) : new BN(1).shln(54).addn(++sequence);
     return type === "u8" ? 7 : ++sequence % 10000;
@@ -28,7 +29,12 @@ function sample(type: any, idl: any): any {
   if (type.vec) return [sample(type.vec, idl), sample(type.vec, idl)];
   if (type.array) return Array.from({ length: type.array[1] }, () => sample(type.array[0], idl));
   if (type.option) return sample(type.option, idl);
-  if (type.defined) return fieldsSample(idl.types.find((x: any) => x.name === type.defined.name).type.fields, idl);
+  if (type.defined) {
+    const def = idl.types.find((x: any) => x.name === type.defined.name).type;
+    // Borsh enum (v6.1 T3): pick the LAST variant so the tag is non-zero.
+    if (def.kind === "enum") { const v = def.variants[def.variants.length - 1]; return { [v.name]: fieldsSample(v.fields ?? [], idl) }; }
+    return fieldsSample(def.fields, idl);
+  }
   throw new Error(JSON.stringify(type));
 }
 function fieldsSample(fields: any[], idl: any): any {
@@ -41,6 +47,7 @@ function encode(value: any, type: any, idl: any): Buffer {
   if (type === "pubkey") return value.toBuffer();
   if (type === "bool") return Buffer.from([value ? 1 : 0]);
   if (type === "bytes") return Buffer.concat([u32(value.length), value]);
+  if (type === "string") { const b = Buffer.from(value, "utf8"); return Buffer.concat([u32(b.length), b]); }
   if (typeof type === "string") {
     const bits = Number(type.slice(1));
     const bn = BN.isBN(value) ? value : new BN(value);
@@ -49,7 +56,16 @@ function encode(value: any, type: any, idl: any): Buffer {
   if (type.vec) return Buffer.concat([u32(value.length), ...value.map((v: any) => encode(v, type.vec, idl))]);
   if (type.array) return Buffer.concat(value.map((v: any) => encode(v, type.array[0], idl)));
   if (type.option) return value === null ? Buffer.from([0]) : Buffer.concat([Buffer.from([1]), encode(value, type.option, idl)]);
-  if (type.defined) return encodeFields(value, idl.types.find((x: any) => x.name === type.defined.name).type.fields, idl);
+  if (type.defined) {
+    const def = idl.types.find((x: any) => x.name === type.defined.name).type;
+    if (def.kind === "enum") {
+      const [name] = Object.keys(value);
+      const tag = def.variants.findIndex((v: any) => v.name === name);
+      if (tag < 0) throw new Error(`unknown variant ${name}`);
+      return Buffer.concat([Buffer.from([tag]), encodeFields(value[name], def.variants[tag].fields ?? [], idl)]);
+    }
+    return encodeFields(value, def.fields, idl);
+  }
   throw new Error(JSON.stringify(type));
 }
 function encodeFields(value: any, fields: any[], idl: any): Buffer { return Buffer.concat(fields.map(f => encode(value[f.name], f.type, idl))); }
@@ -67,8 +83,10 @@ const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
 test("generated public types match all shipped IDLs", () => {
-  expect(instructions).toHaveLength(59); // 61 − set_banned_extensions − pool_set_banned_extensions (v6.1, T19)
-  expect(events).toHaveLength(59); // 61 − BannedExtensionsUpdated − PoolBannedExtensionsSet (v6.1, T19)
+  // v6.1: coffer_pool 50 ix / 42 events, protocol_admin 50 / 34, STLD 4 / 3
+  // (T19 removed 2 + 2; L0/T2/T10/T14/T6/T7/T3/T9 appended the rest).
+  expect(instructions).toHaveLength(104);
+  expect(events).toHaveLength(79);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
 
@@ -99,6 +117,8 @@ test.each(events)("$program.$event.name: every event field is decoded", ({ progr
   expect(compatible).toHaveLength(1);
   expect(compatible[0].kind).toBe(event.name);
   expect(compatible[0].kind).not.toBe("Unknown");
+  // v6.1 (T3): the cooldown events' `kind: u8` data field never shadows the discriminator.
+  if (fields.some((f: any) => f.name === "kind")) expect((compatible[0] as any).actionKind).toBe(expected.kind);
 });
 
 test.each(programs.flatMap(([program, idl]) => idl.accounts.map((account: any) => ({ program, idl, account }))))(
@@ -206,6 +226,29 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     pool_initiate_protocol_admin_transfer: () => client.poolInitiateProtocolAdminTransferIx(a, config, other),
     pool_accept_protocol_admin_transfer: () => client.poolAcceptProtocolAdminTransferIx(a, config),
     pool_cancel_protocol_admin_transfer: () => client.poolCancelProtocolAdminTransferIx(a, config),
+    // v6.1
+    pool_disable_range_manager: () => client.poolDisableRangeManagerIx(a, config, pool),
+    pool_set_hook_disabled: () => client.setHookDisabledIx(a, config, pool, true),
+    migrate_treasury_layout_v61: () => client.migrateTreasuryLayoutV61Ix(a),
+    set_delay: () => client.setDelayIx(a, 3600),
+    propose_action: () => client.proposeActionIx(a, { SetDelay: { secs: 1 } }),
+    cancel_action: () => client.cancelActionIx(a, 1),
+    execute_set_delay: () => client.executeSetDelayIx(a),
+    execute_set_supervisor: () => client.executeSetSupervisorIx(a),
+    execute_withdraw: () => client.executeWithdrawIx(a, mint, recipient),
+    execute_withdraw_sol: () => client.executeWithdrawSolIx(a, recipient),
+    execute_pool_withdraw_sol: () => client.executePoolWithdrawSolIx(a, config, other, recipient),
+    execute_stld_withdraw_sol: () => client.executeStldWithdrawSolIx(a, config, pool, other, recipient),
+    execute_pool_debug_withdraw: () => client.executePoolDebugWithdrawIx(a, config, pool, [amount], { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] }),
+    execute_pool_set_protocol_fee_rate: () => client.executePoolSetProtocolFeeRateIx(a, config, pool),
+    execute_pool_set_pool_enabled: () => client.executePoolSetPoolEnabledIx(a, config, pool),
+    execute_pool_set_token_active: () => client.executePoolSetTokenActiveIx(a, config, pool),
+    execute_unfreeze_pools: () => client.executeUnfreezePoolsIx(a, [{ config, pool }]),
+    execute_pool_protocol_admin_transfer: () => client.executePoolProtocolAdminTransferIx(a, config),
+    execute_upgrade_program: () => client.executeUpgradeProgramIx(a, cfg.programs.cofferPool, other, recipient),
+    execute_transfer_upgrade_authority: () => client.executeTransferUpgradeAuthorityIx(a, cfg.programs.cofferPool, other),
+    execute_freeze_pool_program: () => client.executeFreezePoolProgramIx(a, cfg.programs.cofferPool),
+    execute_close_pool_program: () => client.executeClosePoolProgramIx(a, cfg.programs.cofferPool, recipient),
   };
   expect(Object.keys(calls).sort()).toEqual(IDLS.protocolAdmin.instructions.map(ix => ix.name).sort());
   for (const schema of IDLS.protocolAdmin.instructions) {

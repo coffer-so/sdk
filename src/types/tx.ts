@@ -18,6 +18,33 @@ export interface SwapParams {
   extraAccounts?: AccountMeta[];
 }
 
+/**
+ * v6.1 (T9): where the quoted swap fee rate came from.
+ * - `"pool"`: `swapFeeRate`; no dynamic-fee hook on the pool.
+ * - `"hook_override"`: the caller's `hookFeeOverride`, clamped into the pool's `[feeMin, feeMax]`.
+ * - `"hook_dynamic_unknown"`: the pool has an ACTIVE `DYNAMIC_FEE` hook and
+ *   no override was supplied — the quote ran at the base `swapFeeRate`, but
+ *   the program will run the cascade on whatever the hook returns. Read the
+ *   real rate from a `simulateTransaction` `Swap.effective_fee_rate` log
+ *   (or replicate the hook off chain) and re-quote with `hookFeeOverride`.
+ */
+export type SwapFeeSource = "pool" | "hook_override" | "hook_dynamic_unknown";
+
+/** Options object form of `CofferPoolClient.quoteSwap` (v6.1). */
+export interface SwapQuoteOptions {
+  /** Hundredths-bps; omit to use the SDK config default. */
+  slippageHundredthsBps?: number;
+  /** Clock seconds to quote at; defaults to the synced `chainTimestamp`. */
+  nowSeconds?: number;
+  /**
+   * v6.1 (T9): the swap fee rate (hundredths of bps) the pool's
+   * `DYNAMIC_FEE` hook will return for this swap, if known. Clamped into
+   * `[hook.feeMin, hook.feeMax]` exactly like the program. Refused when the
+   * pool has no active dynamic-fee hook.
+   */
+  hookFeeOverride?: number;
+}
+
 export interface SwapQuote {
   tokenInIndex: number;
   tokenOutIndex: number;
@@ -46,17 +73,32 @@ export interface SwapQuote {
   spotOut: BN;
   /** Absolute price impact in hundredths of basis point. */
   priceImpactHbps: number;
-  /** Swap fee, in the input token, charged on `amountInNet`. */
+  /** Swap fee, in the input token, charged on `amountInNet` at `effectiveFeeRate`. */
   feeAmount: BN;
+  /** Protocol share of `feeAmount` (ceil at `protocolFeeRate`); `protocol_fees_owed[in]`. */
   protocolFeeAmount: BN;
+  /** v6.1 (T14): pool admin's share of `feeAmount` (floor of the post-protocol remainder at `creatorFeeBps`); `creator_fees_owed[in]`. */
+  creatorFeeAmount: BN;
+  /** `feeAmount − protocolFeeAmount − creatorFeeAmount`: stays in the input reserves for the LPs. */
+  lpFeeAmount: BN;
   /**
    * Minimum to pass to the swap ix given the quoted slippage. The program
    * compares it to `amountOutReceived` (post-surge, post-transfer-fee).
    */
   minAmountOut: BN;
-  /** Variable sell-off surge fee taken from the output. `0` when no surge. */
+  /** Variable sell-off surge fee taken from the output (total). `0` when no surge. */
   surgeFeeAmount: BN;
-  /** Static fee (in PERCENT_SCALE units) + surge pct, for UI display. */
+  /** v6.1 (T15): protocol share of the surge; `protocol_fees_owed[out]`. */
+  surgeProtocolFeeAmount: BN;
+  /** v6.1 (T14): pool admin's share of the surge; `creator_fees_owed[out]`. */
+  surgeCreatorFeeAmount: BN;
+  /** v6.1 (T12): LP holders' share of the surge, booked to the output slot's surge bucket (outside the curve). */
+  surgeLpFeeAmount: BN;
+  /** v6.1 (T9): the rate the cascade ran on (`Swap.effective_fee_rate`, hundredths of bps). */
+  effectiveFeeRate: number;
+  /** v6.1 (T9): where `effectiveFeeRate` came from; `"hook_dynamic_unknown"` means the on-chain rate may differ. */
+  feeSource: SwapFeeSource;
+  /** Static fee at `effectiveFeeRate` (in PERCENT_SCALE units) + surge pct, for UI display. */
   effectiveFeePct: number;
   /** Post-trade window fill in PERCENT_SCALE units. `0` when window disabled. */
   windowFillPct: number;
@@ -94,10 +136,13 @@ export interface AddLiquidityParams {
 }
 
 /**
- * Result of `CofferPoolClient.quoteAddLiquidity`. Mirrors
- * `coffer-pool/add_liquidity.rs`: the program crops the caller's ceiling
- * vector to the single limiting ratio `min_i(amount_i / actual_i)`, pulls
- * `depositAmounts` and leaves `refundAmounts` in the wallet.
+ * Result of `CofferPoolClient.quoteAddLiquidity` (and, with the seed
+ * semantics noted per field, of `quoteSeedDeposit`). Mirrors
+ * `coffer-pool/add_liquidity.rs` (v6.1): the program crops the caller's
+ * ceiling vector to the single limiting ratio `min_i(net_i / nav_i)` over
+ * NAV (`nav_i = actual_i + surge_fees_owed_i`, T12), pulls `depositAmounts`
+ * and leaves `refundAmounts` in the wallet; the deposit fee (T7) is a
+ * haircut on the LP minted.
  */
 export interface AddLiquidityQuote {
   /** The ceiling vector that was quoted (echo of the input). */
@@ -122,13 +167,29 @@ export interface AddLiquidityQuote {
   unspentAmounts: BN[];
   /** Per-token Token-2022 transfer fee paid on top of the credit (`chargedAmounts − creditedAmounts`). */
   transferFees: BN[];
-  /** Per-token virtual balance after the join (`virtual_balance_after_deposit`). */
+  /**
+   * v6.1 (T12): the part of `creditedAmounts[i]` that buys into the slot's
+   * surge bucket (`surge_buy_in`: `floor(surge_i · ratio)`, or the whole
+   * credit on a reserve-less slot). `0` everywhere at the seed.
+   */
+  surgeBuyIn: BN[];
+  /** `creditedAmounts − surgeBuyIn`: what is booked to `actual_balance` and drives the virtual-balance growth. */
+  actualIn: BN[];
+  /** v6.1 (T12): per-slot NAV the ratio was taken over (`actual + surge_fees_owed`). */
+  navBalances: BN[];
+  /** Per-token virtual balance after the join (`virtual_balance_after_deposit` from `actualIn` and `lpGross`). */
   virtualBalancesAfter: BN[];
-  /** LP the program will mint for this basket at the synced state. */
+  /** LP the proportional join computes before the deposit fee (`floor(supply · ratio)`); equals `lpOut` at the seed. */
+  lpGross: BN;
+  /** v6.1 (T7): `ceil(lpGross · depositFeeBps / 1e4)`, withheld for the existing LPs; `0` at the seed. */
+  depositFeeLp: BN;
+  /** v6.1 (T7): the deposit fee in force (`0` at the seed, which is fee-exempt). */
+  depositFeeBps: number;
+  /** LP the program will mint for this basket at the synced state (NET of the deposit fee; the exact `lp_amount` at the seed). */
   lpOut: BN;
-  /** `lpOut` after the quoted slippage; pass as `minimumLpAmount`. */
+  /** `lpOut` after the quoted slippage; pass as `minimumLpAmount` (equals `lpOut` at the seed: the mint is exact). */
   minimumLpAmount: BN;
-  /** Index of the token that limits the basket (smallest net amount / balance); `-1` for the seed deposit. */
+  /** Index of the token that limits the basket (smallest net amount / NAV); `-1` for the seed deposit. */
   limitingTokenIndex: number;
 }
 
@@ -141,22 +202,53 @@ export interface RemoveLiquidityParams {
   extraAccounts?: AccountMeta[];
 }
 
-/** Result of `CofferPoolClient.quoteRemove` (mirrors `remove_liquidity.rs`). */
+/**
+ * Result of `CofferPoolClient.quoteRemove` (mirrors `remove_liquidity.rs`,
+ * v6.1). Per token the exit pays two pro-rata parts — the reserve share
+ * and the LP surge-bucket share (T12) — each net of the withdraw fee (T7),
+ * in ONE transfer; the Token-2022 fee is then withheld from that transfer.
+ */
 export interface RemoveLiquidityQuote {
-  /** Gross vault payouts per token (`calc_tokens_out_given_lp_in`, floor). */
+  /**
+   * Net reserve payout per token (`actual_payout = floor(actual · burn / supply) − withdraw fee`):
+   * what leaves `actual_balance` and what the `LiquidityRemoved.token_amounts` event reports.
+   */
   tokenOuts: BN[];
-  /** Token-2022 transfer fee withheld per token (`0` for fee-less mints). */
+  /** v6.1 (T12): net bucket payout per token (`surge_payout`; `LiquidityRemoved.surge_amounts`). */
+  surgeOuts: BN[];
+  /** Gross reserve share per token before the withdraw fee (`floor(actual · burn / supply)`). */
+  grossAmounts: BN[];
+  /** Gross bucket share per token before the withdraw fee (`floor(surge · burn / supply)`). */
+  grossSurgeAmounts: BN[];
+  /** v6.1 (T7): withdraw fee withheld per token (`fee_actual + fee_surge`; `LiquidityRemoved.withdraw_fee_amounts`). */
+  withdrawFeeAmounts: BN[];
+  /** v6.1 (T7): the withdraw fee in force. */
+  withdrawFeeBps: number;
+  /** `tokenOuts + surgeOuts`: what the vault transfers per token (before the Token-2022 fee). */
+  transferAmounts: BN[];
+  /** Token-2022 transfer fee withheld per token on `transferAmounts` (`0` for fee-less mints). */
   transferFees: BN[];
   /**
-   * `tokenOuts − transferFees`: what lands in the user's accounts. The
+   * `transferAmounts − transferFees`: what lands in the user's accounts. The
    * program compares `minimum_token_amounts` to these; derive the floors
    * from them.
    */
   receivedAmounts: BN[];
   /** Burn after the contract's `MIN_LP_SUPPLY` clamp (`calc_effective_lp_burn`). */
   effectiveLpIn: BN;
-  /** Per-token virtual balance after the exit (`virtual_balance_after_withdrawal`). */
+  /** Per-token virtual balance after the exit (`virtual_balance_after_withdrawal` from the NET reserve payout). */
   virtualBalancesAfter: BN[];
+}
+
+/** v6.1 (T2/T12): result of `CofferPoolClient.quoteLpPriceUsd`. */
+export interface LpPriceQuote {
+  /** USD value of one whole LP token (10^9 raw units), from NAV (`actual + surge_fees_owed`), never `vault.amount`. */
+  lpPriceUsd: number;
+  /** Total NAV of the pool in USD. */
+  navUsd: number;
+  /** `lpTotalSupply / 10^9`. */
+  lpSupplyUi: number;
+  perToken: Array<{ index: number; mint: string; nav: BN; navUi: number; priceUsd: number; valueUsd: number }>;
 }
 
 /**
@@ -177,6 +269,15 @@ export interface PlannedZapQuoteOptions {
    * snapshot timestamp, so the program's 90 s age check is unaffected.
    */
   nowSeconds?: number;
+  /**
+   * v6.1 (T9): the swap fee rate (hundredths of bps) the pool's
+   * `DYNAMIC_FEE` hook will apply to the zap's legs, if known (simulate a
+   * `swap` and read `Swap.effective_fee_rate`, or replicate the hook's
+   * rule). Clamped into the pool's `[feeMin, feeMax]`; every leg of one zap
+   * gets the same rate. Without it a dynamic-fee pool is planned at the
+   * base `swapFeeRate` and `feeSource` is `"hook_dynamic_unknown"`.
+   */
+  hookFeeOverride?: number;
 }
 
 export interface BuiltTx {

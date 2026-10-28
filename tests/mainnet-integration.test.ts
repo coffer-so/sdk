@@ -30,7 +30,7 @@ import { CofferPoolClient } from "../src/clients/CofferPoolClient";
 import { RpcClient } from "../src/clients/RpcClient";
 import { deriveLpMint } from "../src/utils/pda";
 import cofferPoolIdl from "../src/idl/coffer_pool.json";
-import { POOL_V3_LEN, POOL_LEN, decodePoolAccount } from "../src/parsers/poolAccount";
+import { POOL_V3_LEN, POOL_LEN, isDecodablePoolLen, decodePoolAccount } from "../src/parsers/poolAccount";
 
 // v6 mainnet pool #2 (xStocks basket, Token-2022 mints, SPL LP), created by
 // the contracts team 2026-10 on the SEPARATE v6 coffer_pool program.
@@ -66,7 +66,9 @@ describeOnline("mainnet integration: sdk-v6 against v6 pool HGbQ…THA3", () => 
     const pool = await conn.getAccountInfo(new PublicKey(POOL_ADDRESS));
     expect(pool).not.toBeNull();
     expect(pool!.owner.toBase58()).toBe(MAINNET_PROGRAM);
-    expect(pool!.data.length).toBe(POOL_LEN);
+    // 1683 until the v6.1 upgrade + `migrate_pool_layout_v61`, 2304 (POOL_LEN) afterwards.
+    expect(isDecodablePoolLen(pool!.data.length)).toBe(true);
+    expect(pool!.data.length === POOL_LEN || pool!.data.length === 1683).toBe(true);
   });
 
   test("network config exposes the mainnet coffer_pool program ID", () => {
@@ -136,7 +138,15 @@ describeOnline("mainnet integration: sdk-v6 against v6 pool HGbQ…THA3", () => 
     });
     if (!built.ok) throw new Error(`build failed: ${built.error.humanMessage}`);
 
-    const ix = built.data.instructions.find((i) => i.programId.equals(cfg.programs.cofferPool));
+    const poolIxs = built.data.instructions.filter((i) => i.programId.equals(cfg.programs.cofferPool));
+    // v6.1: a 1683-byte pool gets the permissionless `migrate_pool_layout_v61` prepended.
+    if (r.data.needsLayoutMigration) {
+      expect(poolIxs).toHaveLength(2);
+      expect(poolIxs[0].data.subarray(0, 8).toString("hex")).toBe("9408318da470c1c7");
+    } else {
+      expect(poolIxs).toHaveLength(1);
+    }
+    const ix = poolIxs[poolIxs.length - 1];
     expect(ix).toBeDefined();
 
     const expectedDiscHex = Buffer.from(

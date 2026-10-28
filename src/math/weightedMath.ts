@@ -1,5 +1,3 @@
-import {ONE, assertU64, assertInteger, assertU128, mulDivDown, weightToFp} from "./fixedPoint";
-import {powFp} from "./logExp";
 import { MAX_WEIGHT, MIN_WEIGHT, WEIGHT_SCALE } from "../config";
 
 /**
@@ -49,16 +47,5 @@ export function calcSpotPrice(params: {
   return numer / denom;
 }
 
-/** Exact seed-deposit invariant from weighted_math.rs; returns raw LP before u64/minimum-supply checks. */
-export function calculateInvariant(balances:bigint[], normalizedWeights:number[], decimals:number[]):bigint {
-  if(balances.length!==normalizedWeights.length||balances.length!==decimals.length||balances.length<2)throw new Error("invariant: invalid vector lengths");
-  let invariant=ONE;
-  for(let i=0;i<balances.length;i++) {
-    const raw=assertU64(balances[i]);assertInteger(decimals[i],0,18,"decimals");assertInteger(normalizedWeights[i],0,10000,"weight");
-    if(raw===0n)return 0n;
-    const balance=decimals[i]>=6?raw/(10n**BigInt(decimals[i]-6)):assertU128(raw*10n**BigInt(6-decimals[i]));
-    if(balance===0n)return 0n;
-    invariant=mulDivDown(invariant,powFp(balance,weightToFp(normalizedWeights[i])),ONE);
-  }
-  return invariant;
-}
+// v6.1 (T2): `calculateInvariant` is gone — `seed_liquidity` mints the
+// creator-chosen `lp_amount`; no invariant is computed on chain any more.

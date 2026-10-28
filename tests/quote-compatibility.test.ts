@@ -187,23 +187,33 @@ describe("creator-only seed quote", () => {
     state.tokens[1].virtualBalance = bn(2_000_000_000);
     return state;
   }
-  test("LP comes from virtual balances; zero seed legs stay sidelined", () => {
+  test("v6.1 (T2): LP is the creator-chosen lp_amount, minted exactly; zero seed legs stay sidelined", () => {
     const state = unseeded(); const c = client(state);
-    const q = result(c.quoteSeedDeposit(creator, [bn(10_000_000), bn(0)], 0));
-    // Native Rust calculate_invariant([1e9,2e9],[5000,5000],[9,9]).
-    expect(q.lpOut.toString()).toBe("1414213");
+    const q = result(c.quoteSeedDeposit(creator, [bn(10_000_000), bn(0)], bn(5_000_000_000)));
+    expect(q.lpOut.toString()).toBe("5000000000");
+    expect(q.minimumLpAmount.toString()).toBe("5000000000"); // exact mint: no slippage floor
+    expect(q.lpGross.toString()).toBe("5000000000");
+    expect(q.depositFeeLp.toString()).toBe("0");
     expect(q.depositAmounts.map(String)).toEqual(["10000000", "0"]);
+    expect(q.creditedAmounts.map(String)).toEqual(["10000000", "0"]);
     expect(q.refundAmounts.map(String)).toEqual(["0", "0"]);
-    expect(result(c.quoteSeedDeposit(creator, [bn(1), bn(0)], 0)).lpOut.toString()).toBe("1414213");
+    expect(q.virtualBalancesAfter.map(String)).toEqual(["1000000000", "2000000000"]); // untouched
+    expect(q.limitingTokenIndex).toBe(-1);
+    // The amounts do not price the LP any more: 1 raw unit seeds the same supply.
+    expect(result(c.quoteSeedDeposit(creator, [bn(1), bn(0)], 1_000_000_000n)).lpOut.toString()).toBe("1000000000");
+    // Default: the atomic deploy's 1_000 LP.
+    expect(result(c.quoteSeedDeposit(creator, [bn(1), bn(0)])).lpOut.toString()).toBe("1000000000000");
   });
-  test("rejects another wallet, disabled admin, zero seed, existing supply and bad u64", () => {
+  test("rejects another wallet, disabled admin, zero seed, existing supply, bad u64 and an lp_amount outside [1e9, 1e16]", () => {
     const state = unseeded(); const c = client(state);
-    expect(c.quoteSeedDeposit(key(91), [bn(1), bn(0)]).ok).toBe(false);
-    expect(c.quoteSeedDeposit(creator, [bn(0), bn(0)]).ok).toBe(false);
-    expect(c.quoteSeedDeposit(creator, [bn(U64_MAX + 1n), bn(0)]).ok).toBe(false);
-    state.poolAdmin = PublicKey.default; expect(c.quoteSeedDeposit(creator, [bn(1), bn(0)]).ok).toBe(false);
+    expect(c.quoteSeedDeposit(key(91), [bn(1), bn(0)], bn(1_000_000_000)).ok).toBe(false);
+    expect(c.quoteSeedDeposit(creator, [bn(0), bn(0)], bn(1_000_000_000)).ok).toBe(false);
+    expect(c.quoteSeedDeposit(creator, [bn(U64_MAX + 1n), bn(0)], bn(1_000_000_000)).ok).toBe(false);
+    expect(c.quoteSeedDeposit(creator, [bn(1), bn(0)], bn(999_999_999)).ok).toBe(false);
+    expect(c.quoteSeedDeposit(creator, [bn(1), bn(0)], 10_000_000_000_000_001n).ok).toBe(false);
+    state.poolAdmin = PublicKey.default; expect(c.quoteSeedDeposit(creator, [bn(1), bn(0)], bn(1_000_000_000)).ok).toBe(false);
     state.poolAdmin = creator; state.lpTotalSupply = bn(1);
-    expect(c.quoteSeedDeposit(creator, [bn(1), bn(0)]).ok).toBe(false);
+    expect(c.quoteSeedDeposit(creator, [bn(1), bn(0)], bn(1_000_000_000)).ok).toBe(false);
   });
 });
 
@@ -277,16 +287,20 @@ describe("v6 Token-2022 transfer fees in quotes", () => {
     expect(odd.unspentAmounts.map(String)).toEqual(["1", "500000"]);
   });
 
-  test("seed deposit credits the net amounts and prices LP on them", () => {
-    const state = feePool(); state.lpTotalSupply = bn(0); state.tokens.forEach((t) => { t.virtualBalance = bn(0); t.actualBalance = bn(0); });
-    const q = result(client(state).quoteSeedDeposit(creator, [bn(1_000_000_000), bn(1_000_000_000)], 0));
+  test("seed deposit credits the net amounts; the LP supply is the creator's choice regardless", () => {
+    const state = feePool(); state.lpTotalSupply = bn(0); state.tokens.forEach((t) => { t.actualBalance = bn(0); });
+    const q = result(client(state).quoteSeedDeposit(creator, [bn(1_000_000_000), bn(1_000_000_000)], bn(2_000_000_000)));
     expect(q.chargedAmounts.map(String)).toEqual(["1000000000", "1000000000"]);
     expect(q.creditedAmounts.map(String)).toEqual(["999000000", "999999950"]); // 1 % capped at 1e6; 2 % capped at 50
+    expect(q.actualIn.map(String)).toEqual(["999000000", "999999950"]);
     expect(q.transferFees.map(String)).toEqual(["1000000", "50"]);
     expect(q.limitingTokenIndex).toBe(-1);
-    const clean = pool(); clean.lpTotalSupply = bn(0); clean.tokens.forEach((t) => { t.virtualBalance = bn(0); t.actualBalance = bn(0); });
-    const ref = result(client(clean).quoteSeedDeposit(creator, [bn(999_000_000), bn(999_999_950)], 0));
-    expect(q.lpOut.toString()).toBe(ref.lpOut.toString());
+    expect(q.lpOut.toString()).toBe("2000000000");
+    // A leg fully consumed by its transfer fee is refused.
+    state.tokens[0].transferFee = fee(10_000, 1_000_000_000n);
+    const eaten = client(state).quoteSeedDeposit(creator, [bn(5), bn(1_000_000_000)], bn(2_000_000_000));
+    expect(eaten.ok).toBe(false);
+    if (!eaten.ok) expect(eaten.error.code).toBe("amount_too_small");
   });
 
   test("exit withholds each leg's transfer fee from what the user receives", () => {

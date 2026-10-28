@@ -46,6 +46,14 @@ export type SdkErrorCode =
   | "plan_expired"
   /** v6 planned zap: pool, LP supply, a mint or the epoch changed since the quote. */
   | "plan_stale"
+  /** v6.1: the pool account is still 1683 bytes — run / prepend `migrate_pool_layout_v61` first (`LayoutVersionMismatch`). */
+  | "pool_layout_outdated"
+  /** v6.1 (T10): the swap output slot has no reserves (`InsufficientLiquidity` on a sidelined token). */
+  | "no_liquidity"
+  /** v6.1 (T3): the admin action must go through the propose → wait → execute queue (`CooldownRequired`, `CooldownNotElapsed`, …). */
+  | "cooldown"
+  /** v6.1 (T9): the pool's hook refused or broke the operation (`HookDenied`, `HookPaused`, …). */
+  | "hook_rejected"
   | "unknown";
 
 export const ok = <T>(data: T): SdkResult<T> => ({ ok: true, data });

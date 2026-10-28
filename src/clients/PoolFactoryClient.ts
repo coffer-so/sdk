@@ -2,13 +2,16 @@ import { ComputeBudgetProgram, Keypair, PublicKey, TransactionInstruction } from
 import BN from "bn.js";
 import { CofferConfig } from "../config";
 import { SdkResult, err, ok } from "../types/result";
-import { BuiltTx, DeployPoolParams } from "../types/tx";
+import { BuiltTx } from "../types/tx";
+import { DeployPoolParamsV61 } from "../types/tx-v61";
 import {
   buildDeployPoolTx,
   buildInitializePoolIx,
   buildPoolInitializeConfigIx,
 } from "./tx-builders";
 import { deriveLpMint, derivePoolPda } from "../utils/pda";
+import { buildAtomicDeploy, DeployBuildConnection } from "./atomicDeploy";
+import type { AtomicDeployParams, AtomicDeployResult } from "../types/tx-v61";
 
 export interface PoolFactoryClientParams {
   config: CofferConfig;
@@ -38,7 +41,7 @@ export class PoolFactoryClient {
    * Returns the `pool` and `lpMint` pubkeys it WILL create (derived PDAs)
    * plus the signable tx.
    */
-  buildDeployPoolTx(params: DeployPoolParams): SdkResult<BuiltTx & { pool: PublicKey; lpMint: PublicKey }> {
+  buildDeployPoolTx(params: DeployPoolParamsV61): SdkResult<BuiltTx & { pool: PublicKey; lpMint: PublicKey }> {
     if (params.tokens.length < 2 || params.tokens.length > 10) {
       return err("invalid_input", "tokens.length must be in [2, 10]");
     }
@@ -98,10 +101,24 @@ export class PoolFactoryClient {
   }
 
   /**
+   * v6.1 (T8): the one-approval deploy — `initialize_pool` + ATAs +
+   * `seed_liquidity` [+ `set_swaps_enabled(false)`] in 1..3 transactions
+   * sharing one blockhash; hand `transactions` to `signAllTransactions` and
+   * land them with `sendAtomicDeploy`. See `clients/atomicDeploy.ts`.
+   */
+  async buildAtomicDeploy(connection: DeployBuildConnection, params: AtomicDeployParams): Promise<SdkResult<AtomicDeployResult>> {
+    try {
+      return ok(await buildAtomicDeploy(this.config, connection, params));
+    } catch (e) {
+      return err("tx_build_failed", `Failed to build the atomic deploy: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /**
    * Low-level: return the raw `initialize_pool` ix without a CU
    * budget or wrapping. Useful for combining with other ixs in the same tx.
    */
-  initializePoolIx(params: DeployPoolParams): TransactionInstruction {
+  initializePoolIx(params: DeployPoolParamsV61): TransactionInstruction {
     return buildInitializePoolIx(this.config, params);
   }
 }

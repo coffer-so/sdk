@@ -17,7 +17,8 @@ import { createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID } f
 import BN from "bn.js";
 import { CofferConfig } from "../../config";
 import { SdkResult, err, ok } from "../../types/result";
-import { BuiltTx, PlannedZapQuoteOptions } from "../../types/tx";
+import { BuiltTx, PlannedZapQuoteOptions, SwapFeeSource } from "../../types/tx";
+import { HOOK_FLAGS, MAX_SWAP_FEE_RATE } from "../../config";
 import { RpcClient } from "../RpcClient";
 import { decodePoolAccount, RawPoolAccount } from "../../parsers/poolAccount";
 import { decodeMintAccount } from "../../parsers/mintAccount";
@@ -51,16 +52,29 @@ export interface PlannedZapQuote {
   plan: AllocationPlan;
   /** Exact replay of the plan on the snapshot (bigint). */
   economics: ZapQuote;
-  /** `economics.lp` as BN. */
+  /** `economics.lp` as BN: the LP the user receives, NET of the pool's deposit fee (v6.1 T7). */
   estimatedLp: BN;
-  /** `estimatedLp` after slippage — the instruction's only floor. */
+  /** LP the proportional join computes before the deposit fee (`economics.lpGross`). */
+  estimatedLpGross: BN;
+  /** `estimatedLpGross − estimatedLp`: withheld by the deposit fee. */
+  depositFeeLp: BN;
+  /** `estimatedLp` after slippage — the instruction's only floor; always > 0. */
   minimumLp: BN;
+  /**
+   * v6.1 (T9): where the legs' swap fee rate came from. `"hook_dynamic_unknown"`
+   * means the pool has an active `DYNAMIC_FEE` hook and no `hookFeeOverride`
+   * was supplied: the plan was priced at the base rate and the real LP may
+   * differ (the `minimumLp` floor absorbs it or the zap fails loudly).
+   */
+  feeSource: SwapFeeSource;
   /** Plan allocations as BN (sum = `amountIn`). */
   allocations: BN[];
   /** Per-slot net swap output credited to the user's accounts before the join (`0` for the input slot and sidelined slots). */
   expectedOuts: BN[];
   /** Per-slot gross debit of the join (`depositedGross`). */
   depositedAmounts: BN[];
+  /** v6.1 (T12): per-slot part of the join's credit that bought into the surge bucket (`surge_buy_in`). */
+  surgeBuyInAmounts: BN[];
   /** Per-slot leftovers in the user's accounts after the join. */
   dustAmounts: BN[];
   sidelinedTokenIndices: number[];
@@ -172,6 +186,9 @@ export class PlannedZapClient {
         virtualBalance: BigInt(raw.virtualBalances[i].toString()),
         actualBalance: BigInt(raw.actualBalances[i].toString()),
         protocolFeesOwed: BigInt(raw.protocolFeesOwed[i].toString()),
+        // v6.1 (T14 / T12): the pool-level buckets, 0 on an unmigrated account.
+        creatorFeesOwed: BigInt(raw.creatorFeesOwed[i]?.toString() ?? "0"),
+        surgeFeesOwed: BigInt(raw.surgeFeesOwed[i]?.toString() ?? "0"),
         weightBps: BigInt(raw.normalizedWeights[i].toString()),
         isActive: raw.isActive[i],
         maxSelloffPct: raw.maxSelloffPct[i],
@@ -182,8 +199,22 @@ export class PlannedZapClient {
       });
       tokenPrograms.push(raw.tokenPrograms[i]);
     }
+    // v6.1 (T9): hook gate (a disabled fail-closed hook pauses swaps and
+    // deposits) and the dynamic-fee rate the zap's legs will run on.
+    const hookActive = !raw.hookProgram.equals(PublicKey.default) && raw.hookDisabled === 0;
+    if (!raw.hookProgram.equals(PublicKey.default) && raw.hookDisabled !== 0 && (raw.hookFlags & HOOK_FLAGS.PAUSE_WHEN_DISABLED) !== 0) {
+      return err("hook_rejected", "The pool's hook is disabled and fail-closed (HookPaused): swaps and deposits are paused");
+    }
+    const dynamicFee = hookActive && (raw.hookFlags & HOOK_FLAGS.DYNAMIC_FEE) !== 0;
+    if (options.hookFeeOverride !== undefined) {
+      if (!Number.isSafeInteger(options.hookFeeOverride) || options.hookFeeOverride < 0 || options.hookFeeOverride > MAX_SWAP_FEE_RATE) return err("invalid_input", `hookFeeOverride must be an integer in 0..=${MAX_SWAP_FEE_RATE}`);
+      if (!dynamicFee) return err("invalid_input", "hookFeeOverride given but the pool has no active DYNAMIC_FEE hook");
+    }
+    const feeSource: SwapFeeSource = options.hookFeeOverride !== undefined ? "hook_override" : dynamicFee ? "hook_dynamic_unknown" : "pool";
     const quotePool: QuotePool = {
       tokens, lpSupply, swapFeeRate: raw.swapFeeRate, protocolFeeRate: raw.protocolFeeRate,
+      creatorFeeBps: raw.creatorFeeBps, depositFeeBps: raw.depositFeeBps,
+      hookFeeOverride: options.hookFeeOverride, hookFeeMin: raw.hookFeeMin, hookFeeMax: raw.hookFeeMax,
       now: options.nowSeconds !== undefined ? BigInt(options.nowSeconds) : chainTimestamp,
     };
 
@@ -194,6 +225,8 @@ export class PlannedZapClient {
       if (e instanceof SimError || e instanceof MathError) return err(e instanceof SimError && e.code === "AmountTooSmall" ? "amount_too_small" : "invalid_input", `Planned zap quote failed: ${e.message}`, e);
       throw e;
     }
+    // `economics.lp` is NET of the deposit fee (T7); the floor must be > 0
+    // (a zero `minimum_lp` would disable the only slippage guard, T8).
     const minimumLp = applySlippage(economics.lp, slip);
     if (minimumLp <= 0n) return err("amount_too_small", "Quote is too small for a positive LP floor");
     const plan: AllocationPlan = {
@@ -209,10 +242,14 @@ export class PlannedZapClient {
       plan,
       economics,
       estimatedLp: bn(economics.lp),
+      estimatedLpGross: bn(economics.lpGross),
+      depositFeeLp: bn(economics.depositFeeLp),
       minimumLp: bn(minimumLp),
+      feeSource,
       allocations: economics.allocations.map(bn),
       expectedOuts: expectedOuts.map(bn),
       depositedAmounts: economics.depositedGross.map(bn),
+      surgeBuyInAmounts: economics.surgeBuyIn.map(bn),
       dustAmounts: economics.dust.map(bn),
       sidelinedTokenIndices: tokens.flatMap((t, i) => (t.actualBalance === 0n ? [i] : [])),
       snapshots,

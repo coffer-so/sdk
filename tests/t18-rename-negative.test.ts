@@ -118,8 +118,9 @@ describe("removed / renamed ABI is unreachable", () => {
     const pool = pk();
     expect(() => (buildContractInstruction as any)(cfg, "cofferPool", "initialize_pool", {
       normalized_weights: [new BN(5000), new BN(5000)], initial_virtual_balances: [new BN(1), new BN(1)],
-      swap_fee_rate: 3000, pool_id: new BN(1), banned_extensions_override: null,
-    }, { config: pk(), pool, lp_mint: deriveLpMint(cfg.programs.cofferPool, pool)[0], payer: pk(), token_program: TOKEN_PROGRAM_ID,
+      swap_fee_rate: 3000, pool_id: new BN(1), lp_metadata: { name: "x", symbol: "x", uri: "https://x" }, creator_fee_bps: 0, deposit_fee_bps: 0,
+      withdraw_fee_bps: 0, hook_config: null, banned_extensions_override: null,
+    }, { config: pk(), pool, lp_mint: deriveLpMint(cfg.programs.cofferPool, pool)[0], payer: pk(), lp_token_program: TOKEN_PROGRAM_ID,
          associated_token_program: pk(), system_program: pk() })).toThrow(/banned_extensions_override is not in the contract ABI/);
   });
 
@@ -139,14 +140,14 @@ describe("removed / renamed ABI is unreachable", () => {
   test("deploy builder ignores a stray bannedExtensions property instead of encoding an Option tag", () => {
     const base = {
       payer: pk(), configKey: pk(), poolId: new BN(5), tokens: [pk(), pk()], weightsBps: [5000, 5000],
-      virtualBalances: [new BN(1), new BN(1)], swapFeeRate: 3000,
+      virtualBalances: [new BN(1), new BN(1)], swapFeeRate: 3000, lpMetadata: { name: "Coffer LP", symbol: "cLP", uri: "https://coffer.so/lp.json" },
     };
     const clean = buildInitializePoolIx(cfg, base);
-    const smuggled = buildInitializePoolIx(cfg, { ...base, bannedExtensions: new BN(0x6410e0a) } as DeployPoolParams);
+    const smuggled = buildInitializePoolIx(cfg, { ...base, bannedExtensions: new BN(0x6410e0a) } as typeof base & DeployPoolParams);
     expect(smuggled.data.equals(clean.data)).toBe(true);
-    // 0.1.x appended at least a 1-byte `None` tag after pool_id; that byte is gone.
-    expect(clean.data.length).toBe(8 + (4 + 16) + (4 + 16) + 4 + 8);
-    expect(clean.data.length).not.toBe(8 + (4 + 16) + (4 + 16) + 4 + 8 + 1);
+    // 0.1.x appended a 1-byte `None` policy tag right after pool_id; in v6.1 pool_id is followed by the Borsh string of lp_name.
+    const prefix = 8 + (4 + 16) + (4 + 16) + 4 + 8;
+    expect(clean.data.readUInt32LE(prefix)).toBe("Coffer LP".length);
   });
 });
 

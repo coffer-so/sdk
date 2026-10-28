@@ -52,7 +52,7 @@ describe("Swap event field order (v6)", () => {
   // The trap: surge_fee_amount sits AFTER timestamp. A decoder using the
   // intuitive order returns the unix timestamp as the surge fee. v6 appends
   // the two Token-2022 transfer-fee legs after it.
-  test("IDL declares timestamp, surge_fee_amount, then the v6 transfer-fee tail", () => {
+  test("IDL declares timestamp, surge_fee_amount, then the v6 transfer-fee tail (and the v6.1 append-only tails)", () => {
     expect(idlFields(cofferPoolIdl as any, "Swap")).toEqual([
       "pool",
       "user",
@@ -66,6 +66,15 @@ describe("Swap event field order (v6)", () => {
       "surge_fee_amount",
       "transfer_fee_in",
       "transfer_fee_out",
+      // v6.1 tails, append-only: T15, T14, T12, T9
+      "swap_fee_rate",
+      "protocol_fee_rate",
+      "surge_protocol_fee_amount",
+      "creator_fee_amount",
+      "surge_creator_fee_amount",
+      "creator_fee_bps",
+      "surge_fee_lp_amount",
+      "effective_fee_rate",
     ]);
   });
 
@@ -285,14 +294,17 @@ describe("TokenChange encoding (v5.1 compare-and-swap)", () => {
 });
 
 describe("CofferPool account layout (v5.1)", () => {
-  test("IDL tail is leverage bounds then reserved[16]", () => {
+  test("IDL legacy tail is leverage bounds then reserved[16], followed by the v6.1 block", () => {
     const fields = idlFields(cofferPoolIdl as any, "CofferPool");
-    expect(fields.slice(-4)).toEqual([
+    const legacyEnd = fields.indexOf("reserved");
+    expect(fields.slice(legacyEnd - 3, legacyEnd + 1)).toEqual([
       "_deprecated_banned_extensions",
       "range_manager_max_leverage_bps",
       "range_manager_min_leverage_bps",
       "reserved",
     ]);
+    expect(fields[legacyEnd + 1]).toBe("layout_version");
+    expect(fields[fields.length - 1]).toBe("reserved_v61");
     const t = (cofferPoolIdl as any).types.find((c: any) => c.name === "CofferPool");
     const reserved = t.type.fields.find((f: any) => f.name === "reserved");
     expect(reserved.type).toEqual({ array: ["u8", 16] });
@@ -427,13 +439,19 @@ describe("instruction signatures the SDK encodes by hand", () => {
   const ix = (name: string) =>
     (cofferPoolIdl.instructions as any[]).find((candidate) => candidate.name === name);
 
-  test("initialize_pool has no tokens arg and (v6.1/T19) no banned_extensions_override", () => {
+  test("initialize_pool has no tokens arg, no banned_extensions_override (T19) and the v6.1 tail (T1 lp_metadata, T14, T7, T9 hook_config LAST)", () => {
     expect(ix("initialize_pool").args.map((a: any) => a.name)).toEqual([
       "normalized_weights",
       "initial_virtual_balances",
       "swap_fee_rate",
       "pool_id",
+      "lp_metadata",
+      "creator_fee_bps",
+      "deposit_fee_bps",
+      "withdraw_fee_bps",
+      "hook_config",
     ]);
+    expect(ix("initialize_pool").args[8].type).toEqual({ option: { defined: { name: "HookConfig" } } });
   });
 
   test("initialize_config dropped protocol_admin and made the treasury a signer", () => {

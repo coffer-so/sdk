@@ -41,7 +41,20 @@ function encode(value: any, type: any): Buffer {
   if (type.defined) return Buffer.concat(fields(type.defined.name).map((f) => encode(value[f.name], f.type)));
   throw new Error("Unknown fixture type");
 }
-const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...fields("CofferPool").map((f) => encode((state as any)[f.name], f.type))]);
+// The synthetic state is the v5 (1683-byte) prefix plus the zeroed v6.1 block
+// (`layout_version = 1`, FIX-6 decimals pins, every fee / bucket / cooldown /
+// hook field at its default): the v6.1 `zap_plan` binary refuses a 1683-byte
+// account (`LayoutVersionMismatch`), and the recorded fixtures were produced
+// from exactly these 2304 bytes.
+const v5Fields = (name: string) => { const all = fields(name); return all.slice(0, all.findIndex((f) => f.name === "reserved") + 1); };
+const poolBytes = (state: State) => {
+  const prefix = Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...v5Fields("CofferPool").map((f) => encode((state as any)[f.name], f.type))]);
+  const out = Buffer.alloc(2304);
+  prefix.copy(out, 0);
+  out[1683] = 1;
+  for (let i = 0; i < state.token_count; i++) out[1684 + i] = 6;
+  return out;
+};
 function plainMint(decimals: number, supply: bigint): Buffer {
   const b = Buffer.alloc(82); b[44] = decimals; b[45] = 1; b.writeBigUInt64LE(supply, 36); return b;
 }
@@ -114,6 +127,7 @@ function quotePoolOf(s: ReturnType<typeof snapshot>): QuotePool {
       };
     }),
     lpSupply: supply, swapFeeRate: raw.swapFeeRate, protocolFeeRate: raw.protocolFeeRate, now: s.now,
+    creatorFeeBps: raw.creatorFeeBps, depositFeeBps: raw.depositFeeBps,
   };
 }
 
@@ -152,7 +166,13 @@ describe("TypeScript planner vs canonical zap_plan fixtures", () => {
         expect(q.depositedGross.map(String)).toEqual(expected.depositedGross);
         expect(q.creditedNet.map(String)).toEqual(expected.creditedNet);
         expect(q.dust.map(String)).toEqual(expected.dust);
-        expect(q.swaps.map((sw) => ({ input: sw.input, output: sw.output, grossInput: sw.grossInput.toString(), netInput: sw.netInput.toString(), baseFee: sw.baseFee.toString(), protocolFee: sw.protocolFee.toString(), rawOutput: sw.rawOutput.toString(), surgeFee: sw.surgeFee.toString(), grossOutput: sw.grossOutput.toString(), netOutput: sw.netOutput.toString() }))).toEqual(expected.swaps);
+        // v6.1: the fee cascade (creator / surge protocol / surge creator / surge LP) per leg.
+        expect(q.swaps.map((sw) => ({ input: sw.input, output: sw.output, grossInput: sw.grossInput.toString(), netInput: sw.netInput.toString(), baseFee: sw.baseFee.toString(), protocolFee: sw.protocolFee.toString(), creatorFee: sw.creatorFee.toString(), rawOutput: sw.rawOutput.toString(), surgeFee: sw.surgeFee.toString(), surgeProtocolFee: sw.surgeProtocolFee.toString(), surgeCreatorFee: sw.surgeCreatorFee.toString(), surgeLpFee: sw.surgeLpFee.toString(), grossOutput: sw.grossOutput.toString(), netOutput: sw.netOutput.toString() }))).toEqual(expected.swaps);
+        expect(q.lpGross.toString()).toBe(expected.grossLp);
+        expect(q.depositFeeLp.toString()).toBe(expected.depositFeeLp);
+        expect(q.surgeBuyIn.map(String)).toEqual(expected.surgeBuyIn);
+        expect(q.stateAfter.tokens.map((t) => (t.surgeFeesOwed ?? 0n).toString())).toEqual(expected.surgeFeesOwedAfter);
+        expect(q.stateAfter.tokens.map((t) => (t.creatorFeesOwed ?? 0n).toString())).toEqual(expected.creatorFeesOwedAfter);
         expect(q.stateAfter.tokens.map((t) => ({ actualBalance: t.actualBalance.toString(), virtualBalance: t.virtualBalance.toString(), protocolFeesOwed: t.protocolFeesOwed.toString(), previousSelloff: t.window.previousSelloff.toString(), currentSelloff: t.window.currentSelloff.toString(), windowStartTimestamp: t.window.windowStartTimestamp.toString(), selloffVbSnapshot: t.window.selloffVbSnapshot.toString() }))).toEqual(expected.stateAfter);
         expect(q.stateAfter.lpSupply.toString()).toBe(expected.lpSupplyAfter);
         // The fixture's own plan replays to the same economics.
