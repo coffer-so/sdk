@@ -92,9 +92,9 @@ function poolFixture(): PoolInfo {
 describe("T18 package surface", () => {
   const pkgJson = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
 
-  test("package is @coffer_so/sdk-v6 at 0.2.0 (breaking rename, no aliases)", () => {
+  test("package is @coffer_so/sdk-v6 at >= 0.2.0 (breaking rename, no aliases)", () => {
     expect(pkgJson.name).toBe("@coffer_so/sdk-v6");
-    expect(pkgJson.version).toBe("0.2.0");
+    expect(pkgJson.version).toBe("0.3.0");
   });
 
   test("renamed clients and helpers are exported from the package root", () => {
