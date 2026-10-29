@@ -48,6 +48,8 @@ import {
 import { deriveAta, deriveLpMint, derivePoolPda } from "../utils/pda";
 import { buildContractInstruction } from "./contract-instructions";
 import { calcTokensOutGivenLpIn, calcLpOutGivenExactTokensIn } from "../math/poolMath";
+import { checkFundLeverage, checkSeedLeverage, minVirtualBalance } from "../math/leverage";
+import { MathError } from "../math/fixedPoint";
 import { netOfTransferFee } from "../math/transferFee";
 import { assertTokensSupported } from "../utils/extensions";
 import { encodeLpMetadataArgs, validateLpMetadata } from "../utils/lpMetadata";
@@ -101,6 +103,8 @@ const PINNED: Record<string, string> = {
   set_pool_admin_delay: "21e7c161237d218c",
   remove_liquidity_bypass_hooks: "6182e9862d4f6f24",
   set_swaps_enabled: "909acd3af1a94028",
+  set_hook_disabled: "f78c7bef72feba57",
+  rescale_virtual_balances: "dc51a090bd46a9eb",
 };
 
 function computeDiscriminator(
@@ -133,6 +137,8 @@ function computeDiscriminator(
 
 const COFFER_POOL_DISC = {
   swap: computeDiscriminator("swap"),
+  setHookDisabled: computeDiscriminator("set_hook_disabled"),
+  rescaleVirtualBalances: computeDiscriminator("rescale_virtual_balances"),
   addLiquidity: computeDiscriminator("add_liquidity"),
   removeLiquidity: computeDiscriminator("remove_liquidity"),
   initializePool: computeDiscriminator("initialize_pool"),
@@ -461,6 +467,22 @@ export function buildSeedLiquidityRawIx(cfg: CofferConfig, p: SeedLiquidityRawPa
   });
 }
 
+/**
+ * v6.1 (T22) `check_seed_leverage`: the seed books `actual_i = net_i`
+ * against the untouched `virtual_i`, so every slot needs `net_i < virtual_i`
+ * (Token-2022 transfer fees netted first; a zero slot passes for any `V > 0`).
+ */
+function requireSeedLeverage(pool: PoolInfo, amounts: BN[], op: string): void {
+  const nets = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, BigInt(a.toString())));
+  try {
+    checkSeedLeverage(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), nets);
+  } catch (e) {
+    if (!(e instanceof MathError)) throw e;
+    const bad = nets.findIndex((net, i) => net >= BigInt(pool.tokens[i].virtualBalance.toString()));
+    throw new Error(`${op}: net seed amount ${nets[bad]} for slot ${bad} must stay below its virtual balance ${pool.tokens[bad].virtualBalance} (VirtualBalanceNotAboveActual, 6104) — lower the amount or raise the virtual balance`);
+  }
+}
+
 function requireInitialLpSupply(lpAmount: BN): void {
   const min = new BN(MIN_INITIAL_LP_SUPPLY.toString());
   const max = new BN(MAX_INITIAL_LP_SUPPLY.toString());
@@ -487,6 +509,7 @@ export function buildSeedLiquidityIx(cfg: CofferConfig, pool: PoolInfo, params: 
   }
   if (!pool.lpTotalSupply.isZero()) throw new Error("seed_liquidity: pool already seeded (PoolAlreadySeeded); use add_liquidity");
   assertTokensSupported(pool, params.tokenAmounts.flatMap((a, i) => (a.isZero() ? [] : [i])), "seed_liquidity");
+  requireSeedLeverage(pool, params.tokenAmounts, "seed_liquidity");
   const slice = requireHookSlice(cfg, pool, params.hookAccounts, "seed_liquidity");
   return buildSeedLiquidityRawIx(cfg, {
     pool: pool.address,
@@ -542,6 +565,14 @@ export function buildFundSidelinedTokenIx(cfg: CofferConfig, pool: PoolInfo, par
   if (pool.poolAdmin && !pool.poolAdmin.equals(params.authority)) throw new Error("fund_sidelined_token: authority must be the pool admin (Unauthorized)");
   if (!BN.isBN(params.amount) || params.amount.isZero()) throw new Error("fund_sidelined_token: amount must be > 0 (ZeroAmount)");
   assertTokensSupported(pool, [params.tokenIndex], "fund_sidelined_token");
+  // v6.1 (T22) `check_fund_leverage`: the slot books `actual = net`, so `net < virtual`.
+  const net = netOfTransferFee(t.transferFee, BigInt(params.amount.toString()));
+  try {
+    checkFundLeverage(BigInt(t.virtualBalance.toString()), net);
+  } catch (e) {
+    if (!(e instanceof MathError)) throw e;
+    throw new Error(`fund_sidelined_token: net amount ${net} must stay below slot ${params.tokenIndex}'s virtual balance ${t.virtualBalance} (VirtualBalanceNotAboveActual, 6104) — a sidelined slot takes at most virtual − 1 raw units this way; rescale first for more depth`);
+  }
   const userToken = params.userToken ?? deriveAta(params.authority, t.mint, t.tokenProgram);
   const data = Buffer.concat([COFFER_POOL_DISC.fundSidelinedToken, encodeU8(params.tokenIndex), encodeU64(params.amount)]);
   const keys: AccountMeta[] = [
@@ -869,6 +900,22 @@ export function buildInitializePoolIx(
   if (params.weightsBps.length !== n || params.virtualBalances.length !== n) {
     throw new Error("initialize_pool: tokens / weightsBps / virtualBalances must have the same length");
   }
+  for (let i = 0; i < n; i++) {
+    const vb = params.virtualBalances[i];
+    if (!BN.isBN(vb) || vb.isNeg() || vb.bitLength() > 64) throw new Error(`initialize_pool: virtualBalances[${i}] must be an unsigned 64-bit BN`);
+    if (vb.isZero()) throw new Error(`initialize_pool: virtualBalances[${i}] must be > 0 (InvalidVirtualBalances)`);
+  }
+  // v6.1 (T22): a chosen virtual balance must meet the per-slot floor
+  // `max(10^decimals, 1000)` raw (`VirtualBalanceBelowFloor`, 6105).
+  if (params.tokenDecimals) {
+    if (params.tokenDecimals.length !== n) throw new Error("initialize_pool: tokenDecimals must have one entry per token");
+    for (let i = 0; i < n; i++) {
+      const floor = minVirtualBalance(params.tokenDecimals[i]);
+      if (BigInt(params.virtualBalances[i].toString()) < floor) {
+        throw new Error(`initialize_pool: virtualBalances[${i}] = ${params.virtualBalances[i]} is below the floor ${floor} for ${params.tokenDecimals[i]} decimals (VirtualBalanceBelowFloor, 6105)`);
+      }
+    }
+  }
   const lpMetadata = validateLpMetadata(params.lpMetadata);
   const hookConfig = params.hookConfig ?? null;
   if (hookConfig) validateHookConfig(hookConfig, cfg.programs.cofferPool);
@@ -952,6 +999,36 @@ export function buildDeployPoolTx(cfg: CofferConfig, params: DeployPoolParamsV61
  */
 export function buildSetSwapsEnabledIx(cfg: CofferConfig, config: PublicKey, pool: PublicKey, authority: PublicKey, enabled: boolean): TransactionInstruction {
   return buildContractInstruction(cfg, "cofferPool", "set_swaps_enabled", { enabled }, { config, pool, authority });
+}
+
+/**
+ * v6.1 (T9) raw `coffer_pool::set_hook_disabled(disabled)` —
+ * `[config, pool w, authority s]` where `authority` MUST be
+ * `config.protocol_admin` (the Treasury PDA). No wallet can sign that: the
+ * callable route is `AdminClient.setHookDisabledIx` (`pool_set_hook_disabled`
+ * CPIs in here). Kept for the wire format; bypasses every cooldown queue in
+ * both directions (an emergency switch).
+ */
+export function buildSetHookDisabledIx(cfg: CofferConfig, config: PublicKey, pool: PublicKey, authority: PublicKey, disabled: boolean): TransactionInstruction {
+  if (typeof disabled !== "boolean") throw new Error("set_hook_disabled: disabled must be a boolean");
+  return buildContractInstruction(cfg, "cofferPool", "set_hook_disabled", { disabled }, { config, pool, authority });
+}
+
+/**
+ * v6.1 (T22) raw `coffer_pool::rescale_virtual_balances(multiplier)` —
+ * `[config, pool w, authority s]`, `authority` = `config.protocol_admin` (the
+ * Treasury PDA; callable only through
+ * `AdminClient.poolRescaleVirtualBalancesIx` / the kind-13 cooldown slot).
+ * Multiplies every slot's `virtual_balance` by `multiplier ≥ 2`
+ * (`InvalidVirtualRescale`); the result must satisfy `V > A` and the
+ * per-slot floor. Allowed on a frozen pool. Preview with
+ * `applyRescale` / `CofferPoolClient.quoteRescaleVirtualBalances`.
+ */
+export function buildRescaleVirtualBalancesIx(cfg: CofferConfig, config: PublicKey, pool: PublicKey, authority: PublicKey, multiplier: BN | bigint | number): TransactionInstruction {
+  const m = BN.isBN(multiplier) ? multiplier : new BN(multiplier.toString());
+  if (m.isNeg() || m.bitLength() > 64) throw new Error("rescale_virtual_balances: multiplier must be an unsigned 64-bit integer");
+  if (m.ltn(2)) throw new Error("rescale_virtual_balances: multiplier must be ≥ 2 (InvalidVirtualRescale)");
+  return buildContractInstruction(cfg, "cofferPool", "rescale_virtual_balances", { multiplier: m }, { config, pool, authority });
 }
 
 // ============================================================

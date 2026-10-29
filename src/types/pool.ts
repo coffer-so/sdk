@@ -290,6 +290,14 @@ export interface PoolInfo {
   pendingActionsMask?: number;
   /** v6.1 (T9): the pool's native hook, `null` when none. */
   hook?: PoolHookInfo | null;
+  /**
+   * v6.1 (T22): slots whose `virtualBalance ≤ actualBalance`. Non-empty only
+   * on a legacy (pre-T22) pool: the program refuses every swap / deposit /
+   * range-manager update on it with `VirtualBalanceNotAboveActual` (6104)
+   * until the protocol admin runs `rescale_virtual_balances`; exits still
+   * work. `[]` on a compliant pool.
+   */
+  leverageViolations?: number[];
   /** v6.1: layout-drift notes from the decoder (empty on a healthy account). */
   layoutDrift?: string[];
   /**

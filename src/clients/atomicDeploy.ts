@@ -263,6 +263,9 @@ function dedupe(keys: PublicKey[]): PublicKey[] {
  *   invalid LP metadata, a non-Token-2022 LP program, an invalid hook
  *   config, or when no layout fits the packet / trace limits.
  */
+/** Byte offset of `decimals` in an SPL / Token-2022 `Mint` account. */
+const MINT_DECIMALS_OFFSET = 44;
+
 export async function buildAtomicDeploy(
   cfg: CofferConfig,
   connection: DeployBuildConnection | Connection,
@@ -282,6 +285,12 @@ export async function buildAtomicDeploy(
   const weightSum = weights.reduce((acc, w) => acc.add(w), new BN(0));
   if (!weightSum.eqn(10_000)) throw new Error(`weights must sum to 10000 (got ${weightSum})`);
   if (virtualBalances.some((vb) => vb.isZero() || vb.isNeg())) throw new Error("virtualBalances must all be > 0");
+  // v6.1 (T22): the seed books `actual_i = net_i` against `virtual_i`, so the
+  // (gross ≥ net) seed amount must stay below the virtual balance.
+  seedAmounts.forEach((a, i) => {
+    if (a.isNeg() || a.bitLength() > 64) throw new Error(`seedAmounts[${i}] must be an unsigned 64-bit BN`);
+    if (a.gte(virtualBalances[i])) throw new Error(`seedAmounts[${i}] = ${a} must stay below virtualBalances[${i}] = ${virtualBalances[i]} (VirtualBalanceNotAboveActual, 6104)`);
+  });
 
   const initialLpSupply = params.initialLpSupply ?? new BN(DEFAULT_INITIAL_LP_SUPPLY.toString());
   const lpTokenProgram = params.lpTokenProgram ?? TOKEN_2022_PROGRAM_ID;
@@ -310,14 +319,23 @@ export async function buildAtomicDeploy(
   // Token program per mint — read from the mint account's owner unless the
   // caller already knows it.
   let tokenPrograms = params.tokenPrograms;
+  let tokenDecimals = params.tokenDecimals;
   if (!tokenPrograms) {
     const infos = await connection.getMultipleAccountsInfo(mints);
+    const decimals: number[] = [];
     tokenPrograms = infos.map((info, i) => {
       if (!info) throw new Error(`mint ${mints[i].toBase58()} does not exist`);
+      // SPL / Token-2022 `Mint`: decimals at byte 44 (the base layout precedes any extension).
+      if (info.data.length >= MINT_DECIMALS_OFFSET + 1) decimals.push(info.data[MINT_DECIMALS_OFFSET]);
       return info.owner;
     });
+    // v6.1 (T22): the per-slot floor is checked by `buildInitializePoolIx`
+    // when every mint exposed its decimals (pass `tokenDecimals` to check it
+    // with explicit `tokenPrograms`).
+    tokenDecimals ??= decimals.length === n ? decimals : undefined;
   }
   if (tokenPrograms.length !== n) throw new Error("tokenPrograms length mismatch");
+  if (tokenDecimals && tokenDecimals.length !== n) throw new Error("tokenDecimals length mismatch");
 
   const [poolPda] = derivePoolPda(programId, config, poolId);
   const [lpMint] = deriveLpMint(programId, poolPda);
@@ -355,7 +373,7 @@ export async function buildAtomicDeploy(
   const initIx = buildInitializePoolIx(cfg, {
     payer, configKey: config, poolId, tokens: mints,
     weightsBps: weights.map((w) => w.toNumber()), virtualBalances, swapFeeRate,
-    lpTokenProgram, lpMetadata, creatorFeeBps, depositFeeBps, withdrawFeeBps, hookConfig, hookAccounts,
+    lpTokenProgram, lpMetadata, creatorFeeBps, depositFeeBps, withdrawFeeBps, hookConfig, hookAccounts, tokenDecimals,
   });
 
   // Vaults are plain ATAs owned by the pool PDA and are NOT created by

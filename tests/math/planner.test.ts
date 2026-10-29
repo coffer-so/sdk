@@ -1,19 +1,22 @@
 /**
- * Ports of `planner.rs` unit tests (contracts `v6`): the TypeScript planner
- * must reproduce the Rust search's exact integers.
+ * Ports of `planner.rs` unit tests (contracts v6.1 @ 409067d): the TypeScript
+ * planner must reproduce the Rust search's exact integers. v6.1 (T22): the
+ * fixture is levered 2× (`V = 2e9, A = 1e9`) like `planner.rs::tests::pool`.
  */
 import type { TransferFee } from "@solana/spl-token";
 import { quoteZap, replay, swapInPool, validatePlanBudget, QuotePool, SimError, isSimFailure } from "../../src/math/planner";
 import { SwapLeg } from "../../src/math/swapSim";
 import { MathError } from "../../src/math/fixedPoint";
+import { calcJoinRatioAndLp } from "../../src/math/poolMath";
+import { netOfTransferFee } from "../../src/math/transferFee";
 
 const fee = (bps: number, cap: bigint): TransferFee => ({ epoch: 0n, maximumFee: cap, transferFeeBasisPoints: bps });
 const noWindow = { previousSelloff: 0n, currentSelloff: 0n, windowStartTimestamp: 0n, selloffVbSnapshot: 0n };
 const noCurve = { thresholdPct: 0, slopeLowPct: 0, slopeMidPct: 0, slopeHighPct: 0, kinkPct: 0 };
-function slot(weightBps: bigint, balance = 1_000_000_000n): SwapLeg {
-  return { virtualBalance: balance, actualBalance: balance, protocolFeesOwed: 0n, weightBps, isActive: true, maxSelloffPct: 0, maxSelloffPeriodLength: 0, curve: { ...noCurve }, window: { ...noWindow }, transferFee: null };
+function slot(weightBps: bigint, balance = 1_000_000_000n, virtual = 2n * balance): SwapLeg {
+  return { virtualBalance: virtual, actualBalance: balance, protocolFeesOwed: 0n, weightBps, isActive: true, maxSelloffPct: 0, maxSelloffPeriodLength: 0, curve: { ...noCurve }, window: { ...noWindow }, transferFee: null };
 }
-/** `planner.rs::tests::pool(n)`: equal weights, 1e9 balances, 1e9 supply, no fees, now = 100. */
+/** `planner.rs::tests::pool(n)`: equal weights, actual 1e9 / virtual 2e9, 1e9 supply, no fees, now = 100. */
 function pool(n: number): QuotePool {
   return { tokens: Array.from({ length: n }, () => slot(BigInt(Math.floor(10_000 / n)))), lpSupply: 1_000_000_000n, swapFeeRate: 0, protocolFeeRate: 0, now: 100n };
 }
@@ -25,8 +28,9 @@ describe("planner (planner.rs ports)", () => {
     const p = pool(2);
     const old = replay(p, 0, 500_000_000n, [250_000_000n, 250_000_000n]);
     const q = quoteZap(p, 0, 500_000_000n);
+    // v6.1 (T22): levered 2x — the linear split still mints on the input leg's ratio (250M / 1.25e9).
     expect(old.lp).toBe(200_000_000n);
-    expect(q.lp >= 224_744_868n && q.lp <= 224_744_872n).toBe(true);
+    expect(q.lp >= 237_404_812n && q.lp <= 237_404_820n).toBe(true);
     expect(q.lp > old.lp + old.lp / 10n).toBe(true);
     expect(sum(q.allocations)).toBe(500_000_000n);
     expect(q.dust.every((d) => d <= 4n)).toBe(true);
@@ -93,7 +97,7 @@ describe("planner (planner.rs ports)", () => {
     ];
     for (const [inputBps, outputBps, cap, weights] of cases) {
       let p = pool(2);
-      p.tokens = p.tokens.map((t, i) => ({ ...t, actualBalance: 1000n, virtualBalance: 1000n, weightBps: weights[i] }));
+      p.tokens = p.tokens.map((t, i) => ({ ...t, actualBalance: 1000n, virtualBalance: 2000n, weightBps: weights[i] }));
       p = withFee(withFee(p, 0, fee(inputBps, cap)), 1, fee(outputBps, cap));
       for (const input of [0, 1]) {
         const amount = 201n;
@@ -125,7 +129,7 @@ describe("planner (planner.rs ports)", () => {
     expect(JSON.stringify(p, (_, v) => (typeof v === "bigint" ? v.toString() : v))).toBe(before);
     expect(r.leg.netInput).toBe(990_000n);
     expect(r.leg.grossOutput - r.leg.netOutput).toBe(50n);
-    expect(r.pool.tokens[0].virtualBalance).toBe(1_000_990_000n);
+    expect(r.pool.tokens[0].virtualBalance).toBe(2_000_990_000n);
     expect(r.pool.tokens[1].actualBalance).toBe(1_000_000_000n - r.leg.rawOutput);
     expect(() => swapInPool(p, 0, 0, 1n)).toThrow(SimError);
     expect(() => swapInPool(p, 0, 1, 0n)).toThrow(SimError);
@@ -140,17 +144,38 @@ describe("planner (planner.rs ports)", () => {
     expect(isSimFailure(new Error("x"))).toBe(false);
   });
 
-  test("planned-accounting fixture: 300 in, 100 swapped → LP 95 (plain) / 94 (1 % fees), dust 3 / 2", () => {
-    // tests/offline/v6-planned-accounting.test.ts, replayed through the planner.
+  test("planned-accounting fixture: the v6 (V ≤ A) pool is refused since T22; levered, 300 in / 100 swapped replays exactly", () => {
+    // tests/offline/v6-planned-accounting.test.ts seeded `A = [2000, 1000]`
+    // at `V = [1000, 1000]`: both slots violate the strict invariant now
+    // (`VirtualBalanceNotAboveActual` on the first leg), so the 95 / 94 LP
+    // vectors are history. The same basket on the 2x-levered pool:
     for (const withFees of [false, true]) {
+      let legacy: QuotePool = { tokens: [slot(5000n, 2000n, 1000n), slot(5000n, 1000n, 1000n)], lpSupply: 1000n, swapFeeRate: 0, protocolFeeRate: 0, now: 100n };
       let p: QuotePool = { tokens: [slot(5000n, 2000n), slot(5000n, 1000n)], lpSupply: 1000n, swapFeeRate: 0, protocolFeeRate: 0, now: 100n };
-      p.tokens[0] = { ...p.tokens[0], virtualBalance: 1000n };
-      if (withFees) p = withFee(withFee(p, 0, fee(100, 1_000_000n)), 1, fee(100, 1_000_000n));
+      if (withFees) {
+        legacy = withFee(withFee(legacy, 0, fee(100, 1_000_000n)), 1, fee(100, 1_000_000n));
+        p = withFee(withFee(p, 0, fee(100, 1_000_000n)), 1, fee(100, 1_000_000n));
+      }
+      expect(() => replay(legacy, 0, 300n, [200n, 100n])).toThrow(/VirtualBalanceNotAboveActual/);
+      expect(() => quoteZap(legacy, 0, 300n)).toThrow(/VirtualBalanceNotAboveActual/);
       const q = replay(p, 0, 300n, [200n, 100n]);
-      expect(q.lp).toBe(withFees ? 94n : 95n);
-      expect(q.creditedNet[1]).toBe(withFees ? 86n : 87n);
-      expect(q.dust).toEqual([0n, withFees ? 2n : 3n]);
-      expect(q.depositedGross).toEqual([200n, withFees ? 87n : 87n]);
+      // swap 100 (net 99 with fees) of token 0 into token 1 on V = [4000, 2000]: out = 2000 · 100 / 4100 = 48 (47 net of the 1 % fee)
+      const out = q.swaps[0].netOutput;
+      expect(out).toBe(withFees ? 47n : 48n);
+      // join on the post-swap reserves with the NET budgets: the join's own
+      // transfers pay the Token-2022 fee again ([200 → 198, out → 46] taxed)
+      const after = swapInPool(p, 0, 1, 100n);
+      const { lp } = calcJoinRatioAndLp(
+        [after.pool.tokens[0].actualBalance, after.pool.tokens[1].actualBalance],
+        [netOfTransferFee(p.tokens[0].transferFee, 200n), netOfTransferFee(p.tokens[1].transferFee, after.leg.netOutput)], 1000n,
+      );
+      expect(q.lpGross).toBe(lp);
+      // the whole swap output is credited (net of the join's own transfer fee), nothing of it is dust
+      expect(q.creditedNet[1]).toBe(netOfTransferFee(p.tokens[1].transferFee, out));
+      expect(q.depositedGross[1]).toBe(out);
+      expect(q.depositedGross[0] + q.dust[0]).toBe(200n);
+      expect(q.dust[1]).toBe(0n);
+      expect(q.stateAfter.tokens.every((t) => t.virtualBalance > t.actualBalance)).toBe(true);
     }
   });
 

@@ -147,9 +147,10 @@ Use `decodeTreasuryAccount(data)` (raw offsets, accepts 786 / 818 / 1624 bytes) 
 | `admin_epoch` | `u32` | 822 |
 | `pending_admin_eta` | `i64` | 826 |
 | `pending_set_delay` … `pending_program_op` (kinds 1..12) | typed slots, see `TREASURY_LAYOUT` | 834 … 1426 |
-| `reserved_v61` | `[u8; 125]` | 1499 |
+| `pending_pool_rescale_virtual_balances` (v6.1 T22, kind 13) | `{ eta: i64, pool: pubkey, multiplier: u64 }` (48 B) | 1499 |
+| `reserved_v61` | `[u8; 77]` | 1547 |
 
-Current account length: **1624 bytes** (v3) including discriminator; v2 = 818, v1 = 786 (no supervisor). The v6.1 program refuses every typed Treasury instruction until the admin runs `migrate_treasury_layout_v61` (`treasuryNeedsLayoutMigration`).
+Current account length: **1624 bytes** (v3) including discriminator; v2 = 818, v1 = 786 (no supervisor). T22 carved the kind-13 slot from the v3 reserve (125 → 77 B); `LEN` is unchanged. The v6.1 program refuses every typed Treasury instruction until the admin runs `migrate_treasury_layout_v61` (`treasuryNeedsLayoutMigration`).
 
 Bytes 74..90 of the config and 1651..1659 of the pool held the Token-2022 extension-policy bitmaps until v6.1. The policy was removed (T19): no code path reads them, existing accounts still carry their old values, fresh accounts write zero. They are exposed raw (`_deprecated_extension_policy`, `deprecatedBannedExtensions`) only so every later field keeps its byte offset; never interpret them.
 

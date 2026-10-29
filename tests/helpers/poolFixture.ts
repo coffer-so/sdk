@@ -16,7 +16,7 @@ export const bn = (v: number | bigint | string): BN => new BN(v.toString());
 
 export interface MockPoolOptions {
   tokenCount?: number;
-  /** Per-token `[actual, virtual]` (raw). */
+  /** Per-token `[actual, virtual]` (raw). Default `[1e9, 2e9]` — levered 2× (v6.1 T22: `virtual > actual` on every slot). */
   balances?: Array<[bigint, bigint]>;
   /** Per-token surge bucket (raw); default zeros. */
   surge?: bigint[];
@@ -50,7 +50,7 @@ export interface MockPoolOptions {
 
 export function mockPool(o: MockPoolOptions = {}): PoolInfo {
   const n = o.tokenCount ?? (o.balances?.length ?? 2);
-  const balances = o.balances ?? Array.from({ length: n }, () => [1_000_000_000n, 1_000_000_000n] as [bigint, bigint]);
+  const balances = o.balances ?? Array.from({ length: n }, () => [1_000_000_000n, 2_000_000_000n] as [bigint, bigint]);
   const surge = o.surge ?? Array(n).fill(0n);
   const creatorOwed = o.creatorOwed ?? Array(n).fill(0n);
   const protocolOwed = o.protocolOwed ?? Array(n).fill(0n);
@@ -97,5 +97,6 @@ export function mockPool(o: MockPoolOptions = {}): PoolInfo {
     rangeManagerLocked: o.rangeManagerLocked ?? false, poolAdminDelaySecs: o.poolAdminDelaySecs ?? 0, poolAdminEpoch: o.poolAdminEpoch ?? 0,
     pendingPoolAdminEta: bn(etas[0] ?? 0), pendingActions, pendingActionsMask: etas.reduce((m, e, i) => (e ? m | (1 << i) : m), 0),
     hook, layoutDrift: [], lpMetadata: null,
+    leverageViolations: balances.flatMap(([a, v], i) => (v > a ? [] : [i])),
   };
 }

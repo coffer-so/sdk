@@ -26,6 +26,8 @@ import { divDown } from "../math/fixedPoint";
 import { navBalances, splitDepositCredit, splitExitPayout } from "../math/surgeBucket";
 import { applyDepositFee, lpBurnNetOfWithdrawFee } from "../math/liquidityFee";
 import { lpPositionValue, lpPriceUsd } from "../math/lpPrice";
+import { applyRescale, checkFundLeverage, checkSeedLeverage, leverageViolations, minRescaleMultiplier } from "../math/leverage";
+import { MathError } from "../math/fixedPoint";
 import { rescaleWindowOnVbChange, computeSelloffWindow, SelloffWindowStatus } from "../math/maxSelloff";
 import { calcSurgeFeePct } from "../math/surgeFee";
 import { applySlippage, priceImpactHbps } from "../math/slippage";
@@ -269,6 +271,8 @@ export class CofferPoolClient {
       },
       layoutDrift: raw.layoutDrift,
       lpMetadata: lpMintAcc.tokenMetadata,
+      // v6.1 (T22): a legacy pool at `V ≤ A` is frozen for swaps / deposits until rescaled.
+      leverageViolations: leverageViolations(tokens.map((t) => BigInt(t.virtualBalance.toString())), tokens.map((t) => BigInt(t.actualBalance.toString()))),
     };
     this.cache = info;
     this.rawAccount = raw;
@@ -313,6 +317,8 @@ export class CofferPoolClient {
     if (!pool.ok) return pool;
     const unsupported = this.requireSupported([tokenInIndex, tokenOutIndex], "swap");
     if (!unsupported.ok) return unsupported;
+    const levered = this.requireLeverage("swap");
+    if (!levered.ok) return levered;
     const slip = opts.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
     const dynamic = hasDynamicFeeHook(pool.data);
     if (opts.hookFeeOverride !== undefined) {
@@ -506,6 +512,14 @@ export class CofferPoolClient {
       const amounts = tokenAmounts.map(a => BigInt(a.toString()));
       const credited = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, a));
       if (credited.some((c, i) => amounts[i] > 0n && c === 0n)) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
+      // v6.1 (T22) `check_seed_leverage`: the seed books `actual_i = net_i`, so every slot needs `net_i < virtual_i`.
+      try {
+        checkSeedLeverage(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), credited);
+      } catch (e) {
+        if (!(e instanceof MathError)) throw e;
+        const bad = credited.findIndex((c, i) => c >= BigInt(pool.tokens[i].virtualBalance.toString()));
+        return err("leverage_invariant", `VirtualBalanceNotAboveActual: the net seed amount ${credited[bad]} for slot ${bad} must stay below its virtual balance ${pool.tokens[bad].virtualBalance}; lower the amount or deploy with a larger virtual balance`);
+      }
       const bnList = (xs: bigint[]) => xs.map((x) => new BN(x.toString()));
       const zeros = () => tokenAmounts.map(() => new BN(0));
       const lpBn = new BN(lp.toString());
@@ -529,6 +543,81 @@ export class CofferPoolClient {
         limitingTokenIndex: -1,
       });
     } catch (e) { return err("math_overflow", "Seed-deposit quote failed", e); }
+  }
+
+  /**
+   * v6.1 (T10 / T22): preview `fund_sidelined_token` — the net amount the
+   * slot books as its `actual_balance` after the mint's transfer fee, and the
+   * gates the program applies (pool admin, sidelined slot, `net < virtual`).
+   * No LP is minted. Requires `sync()`.
+   */
+  quoteFundSidelinedToken(authority: PublicKey, tokenIndex: number, amount: BN): SdkResult<{ tokenIndex: number; amountCharged: BN; amountCredited: BN; transferFee: BN; virtualBalance: BN; actualAfter: BN; maxAmountNet: BN }> {
+    const state = this.requireCache();
+    if (!state.ok) return state;
+    const pool = state.data;
+    const t = pool.tokens[tokenIndex];
+    if (!t || tokenIndex >= pool.tokenCount) return err("invalid_input", `InvalidTokenIndex: ${tokenIndex} outside 0..${pool.tokenCount - 1}`);
+    if (!pool.poolAdmin) return err("invalid_input", "Pool admin missing: sync the pool before quoting");
+    if (!pool.poolAdmin.equals(authority)) return err("auth_failed", "Unauthorized: only the pool admin can fund a sidelined slot");
+    if (pool.lpTotalSupply.isZero()) return err("unsupported_pool_state", "PoolNotSeeded: seed the pool first");
+    if (!t.actualBalance.isZero()) return err("invalid_input", `TokenNotSidelined: slot ${tokenIndex} already holds reserves`);
+    if (!BN.isBN(amount) || amount.isNeg() || amount.bitLength() > 64) return err("invalid_input", "amount must be a u64 BN");
+    if (amount.isZero()) return err("invalid_input", "ZeroAmount");
+    const supported = this.requireSupported([tokenIndex], "fund_sidelined_token");
+    if (!supported.ok) return supported;
+    const gross = BigInt(amount.toString());
+    const net = netOfTransferFee(t.transferFee, gross);
+    if (net === 0n) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
+    const virtual = BigInt(t.virtualBalance.toString());
+    try {
+      checkFundLeverage(virtual, net);
+    } catch (e) {
+      if (!(e instanceof MathError)) throw e;
+      return err("leverage_invariant", `VirtualBalanceNotAboveActual: the net amount ${net} must stay below slot ${tokenIndex}'s virtual balance ${virtual} (at most ${virtual - 1n} raw this way; rescale first for more depth)`);
+    }
+    const b = (v: bigint) => new BN(v.toString());
+    return ok({ tokenIndex, amountCharged: amount.clone(), amountCredited: b(net), transferFee: b(gross - net), virtualBalance: t.virtualBalance.clone(), actualAfter: b(net), maxAmountNet: b(virtual - 1n) });
+  }
+
+  /**
+   * v6.1 (T22): preview `rescale_virtual_balances(multiplier)` — the new
+   * virtual balances (`V_i · multiplier`), which slots it repairs, and the
+   * program's checks (`multiplier ≥ 2`, no overflow, `V > A` and the
+   * per-slot floor afterwards). `multiplier` defaults to the smallest
+   * repairing value (`minRescaleMultiplier`); the runbook rounds up to a
+   * power of ten. Price-neutral by construction. Requires `sync()`.
+   */
+  quoteRescaleVirtualBalances(multiplier?: BN | bigint | number): SdkResult<{ multiplier: BN; oldVirtualBalances: BN[]; newVirtualBalances: BN[]; repairedSlots: number[]; minMultiplier: BN | null }> {
+    const state = this.requireCache();
+    if (!state.ok) return state;
+    const pool = state.data;
+    const virtuals = pool.tokens.map((t) => BigInt(t.virtualBalance.toString()));
+    const actuals = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
+    const decimals = pool.tokenDecimals && pool.tokenDecimals.length === pool.tokenCount ? pool.tokenDecimals : pool.tokens.map((t) => t.decimals);
+    let min: bigint | null;
+    try { min = minRescaleMultiplier(virtuals, actuals, decimals); } catch (e) { return err("math_overflow", "Rescale quote failed", e); }
+    const chosen = multiplier === undefined ? min : BN.isBN(multiplier) ? BigInt(multiplier.toString()) : BigInt(multiplier);
+    if (chosen === null) return err("unsupported_pool_state", "No u64 multiplier repairs this pool (a zero virtual balance or an overflowing product)");
+    if (chosen < 0n || chosen > (1n << 64n) - 1n) return err("invalid_input", "multiplier must be a u64");
+    try {
+      const r = applyRescale(virtuals, actuals, chosen, decimals);
+      const b = (v: bigint) => new BN(v.toString());
+      return ok({ multiplier: b(chosen), oldVirtualBalances: virtuals.map(b), newVirtualBalances: r.newVirtualBalances.map(b), repairedSlots: r.repairedSlots, minMultiplier: min === null ? null : b(min) });
+    } catch (e) {
+      if (!(e instanceof MathError)) throw e;
+      const code = e.message === "InvalidVirtualRescale" ? "invalid_input" : e.message === "MathOverflow" ? "math_overflow" : e.message === "InvalidVirtualBalances" ? "unsupported_pool_state" : "leverage_invariant";
+      return err(code, `${e.message}: multiplier ${chosen} ${e.message === "VirtualBalanceBelowFloor" ? "leaves a slot below its floor max(10^decimals, 1000)" : e.message === "VirtualBalanceNotAboveActual" ? "does not lift every slot above its actual balance" : "is rejected"}${min !== null ? ` (smallest repairing multiplier: ${min})` : ""}`, e);
+    }
+  }
+
+  /** v6.1 (T22): swaps / deposits on a pool with a slot at `V ≤ A` revert with `VirtualBalanceNotAboveActual` (post-state guard on every slot). */
+  private requireLeverage(op: string): SdkResult<void> {
+    const state = this.requireCache();
+    if (!state.ok) return state;
+    const pool = state.data;
+    const bad = pool.leverageViolations ?? leverageViolations(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), pool.tokens.map((t) => BigInt(t.actualBalance.toString())));
+    if (bad.length === 0) return ok(undefined);
+    return err("leverage_invariant", `VirtualBalanceNotAboveActual: slot${bad.length > 1 ? "s" : ""} ${bad.join(", ")} ${bad.length > 1 ? "are" : "is"} at virtual ≤ actual; ${op} reverts until the protocol admin runs rescale_virtual_balances (exits still work)`);
   }
 
   /**
@@ -561,6 +650,8 @@ export class CofferPoolClient {
     }
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
     if (hookPaused(pool)) return err("hook_rejected", "The pool's hook is disabled and fail-closed (HookPaused): deposits are paused");
+    const levered = this.requireLeverage("add_liquidity");
+    if (!levered.ok) return levered;
     if (tokenAmounts.some((a) => a.isNeg() || a.bitLength() > 64)) {
       return err("invalid_input", "tokenAmounts must be u64 values");
     }

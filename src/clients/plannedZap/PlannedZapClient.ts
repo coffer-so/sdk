@@ -28,6 +28,7 @@ import { selectEpochFee } from "../../math/transferFee";
 import { applySlippage } from "../../math/slippage";
 import { MathError } from "../../math/fixedPoint";
 import { quoteZap, replay, QuotePool, SimError, ZapQuote } from "../../math/planner";
+import { leverageViolations } from "../../math/leverage";
 import { SwapLeg } from "../../math/swapSim";
 import { resolveTransferExtraAccounts, TransferLeg, UnsupportedTransferProfileError } from "../../utils/transferProfile";
 import { MAX_VALID_FOR_SLOTS, SnapshotAccount, stateCommitment } from "./stateCommitment";
@@ -218,6 +219,10 @@ export class PlannedZapClient {
       now: options.nowSeconds !== undefined ? BigInt(options.nowSeconds) : chainTimestamp,
     };
 
+    // v6.1 (T22): `QuotePool::from_pool` refuses a pool that already violates
+    // the strict leverage invariant (every swap / join CPI would revert).
+    const violating = leverageViolations(tokens.map((t) => t.virtualBalance), tokens.map((t) => t.actualBalance));
+    if (violating.length) return err("leverage_invariant", `VirtualBalanceNotAboveActual: slot${violating.length > 1 ? "s" : ""} ${violating.join(", ")} at virtual ≤ actual; the pool cannot trade until the protocol admin runs rescale_virtual_balances`);
     let economics: ZapQuote;
     try {
       economics = quoteZap(quotePool, tokenInIndex, amount);

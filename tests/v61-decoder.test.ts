@@ -41,10 +41,10 @@ const C = {
   TREASURY_PENDING_POOL_SET_PROTOCOL_FEE_RATE_OFFSET: 1119, TREASURY_PENDING_POOL_SET_POOL_ENABLED_OFFSET: 1161,
   TREASURY_PENDING_POOL_SET_TOKEN_ACTIVE_OFFSET: 1201, TREASURY_PENDING_UNFREEZE_POOLS_OFFSET: 1242,
   TREASURY_PENDING_POOL_PROTOCOL_ADMIN_TRANSFER_OFFSET: 1282, TREASURY_PENDING_UPGRADE_PROGRAM_OFFSET: 1354,
-  TREASURY_PENDING_PROGRAM_OP_OFFSET: 1426, TREASURY_RESERVED_V61_OFFSET: 1499, TREASURY_RESERVED_V61_LEN: 125,
+  TREASURY_PENDING_PROGRAM_OP_OFFSET: 1426, TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET: 1499, TREASURY_RESERVED_V61_OFFSET: 1547, TREASURY_RESERVED_V61_LEN: 77,
   MAX_DELAY_SECS: 30 * 86_400, GRACE_PERIOD_SECS: 14 * 86_400,
   POOL_ACTION_KIND: { TransferPoolAdmin: 0, SetDelay: 1, SetSwapFeeRate: 2, SetCreatorFeeBps: 3, SetLiquidityFees: 4, LockLiquidityFees: 5, LockRangeManager: 6, SetRangeManager: 7, SetRangeManagerConfig: 8, SetMaxSelloff: 9, SetTokenActive: 10 },
-  PROTOCOL_ACTION_KIND: { TransferAdmin: 0, SetDelay: 1, SetSupervisor: 2, Withdraw: 3, WithdrawSol: 4, PoolDebugWithdraw: 5, PoolSetProtocolFeeRate: 6, PoolSetPoolEnabled: 7, PoolSetTokenActive: 8, UnfreezePools: 9, PoolProtocolAdminTransfer: 10, UpgradeProgram: 11, ProgramOp: 12 },
+  PROTOCOL_ACTION_KIND: { TransferAdmin: 0, SetDelay: 1, SetSupervisor: 2, Withdraw: 3, WithdrawSol: 4, PoolDebugWithdraw: 5, PoolSetProtocolFeeRate: 6, PoolSetPoolEnabled: 7, PoolSetTokenActive: 8, UnfreezePools: 9, PoolProtocolAdminTransfer: 10, UpgradeProgram: 11, ProgramOp: 12, PoolRescaleVirtualBalances: 13 },
 } as const;
 const POOL_DISC = Buffer.from("89d22a16d19c2b4e", "hex");
 
@@ -139,6 +139,8 @@ function treasuryV3(): Buffer {
   b.writeBigInt64LE(1_800_000_010n, C.TREASURY_PENDING_POOL_PROTOCOL_ADMIN_TRANSFER_OFFSET); key(89).toBuffer().copy(b, C.TREASURY_PENDING_POOL_PROTOCOL_ADMIN_TRANSFER_OFFSET + 8); key(90).toBuffer().copy(b, C.TREASURY_PENDING_POOL_PROTOCOL_ADMIN_TRANSFER_OFFSET + 40);
   b.writeBigInt64LE(1_800_000_011n, C.TREASURY_PENDING_UPGRADE_PROGRAM_OFFSET); key(91).toBuffer().copy(b, C.TREASURY_PENDING_UPGRADE_PROGRAM_OFFSET + 8); key(92).toBuffer().copy(b, C.TREASURY_PENDING_UPGRADE_PROGRAM_OFFSET + 40);
   b.writeBigInt64LE(1_800_000_012n, C.TREASURY_PENDING_PROGRAM_OP_OFFSET); b[C.TREASURY_PENDING_PROGRAM_OP_OFFSET + 8] = 1; key(93).toBuffer().copy(b, C.TREASURY_PENDING_PROGRAM_OP_OFFSET + 9); key(94).toBuffer().copy(b, C.TREASURY_PENDING_PROGRAM_OP_OFFSET + 41);
+  // v6.1 (T22) kind 13
+  b.writeBigInt64LE(1_800_000_013n, C.TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET); key(95).toBuffer().copy(b, C.TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET + 8); b.writeBigUInt64LE(1_000_000_000n, C.TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET + 40);
   return b;
 }
 
@@ -173,12 +175,12 @@ describe("v6.1 layout constants agree with the contracts' v61-layout.ts", () => 
     expect([T.DELAY_SECS.offset, T.ADMIN_EPOCH.offset, T.PENDING_ADMIN_ETA.offset, T.PENDING_SET_DELAY.offset, T.PENDING_SET_SUPERVISOR.offset, T.PENDING_WITHDRAW.offset,
       T.PENDING_WITHDRAW_SOL.offset, T.PENDING_POOL_DEBUG_WITHDRAW.offset, T.PENDING_POOL_SET_PROTOCOL_FEE_RATE.offset, T.PENDING_POOL_SET_POOL_ENABLED.offset,
       T.PENDING_POOL_SET_TOKEN_ACTIVE.offset, T.PENDING_UNFREEZE_POOLS.offset, T.PENDING_POOL_PROTOCOL_ADMIN_TRANSFER.offset, T.PENDING_UPGRADE_PROGRAM.offset,
-      T.PENDING_PROGRAM_OP.offset, T.RESERVED_V61.offset, T.RESERVED_V61.size]).toEqual([
+      T.PENDING_PROGRAM_OP.offset, T.PENDING_POOL_RESCALE_VIRTUAL_BALANCES.offset, T.RESERVED_V61.offset, T.RESERVED_V61.size]).toEqual([
       C.TREASURY_DELAY_SECS_OFFSET, C.TREASURY_ADMIN_EPOCH_OFFSET, C.TREASURY_PENDING_ADMIN_ETA_OFFSET, C.TREASURY_PENDING_SET_DELAY_OFFSET, C.TREASURY_PENDING_SET_SUPERVISOR_OFFSET,
       C.TREASURY_PENDING_WITHDRAW_OFFSET, C.TREASURY_PENDING_WITHDRAW_SOL_OFFSET, C.TREASURY_PENDING_POOL_DEBUG_WITHDRAW_OFFSET, C.TREASURY_PENDING_POOL_SET_PROTOCOL_FEE_RATE_OFFSET,
       C.TREASURY_PENDING_POOL_SET_POOL_ENABLED_OFFSET, C.TREASURY_PENDING_POOL_SET_TOKEN_ACTIVE_OFFSET, C.TREASURY_PENDING_UNFREEZE_POOLS_OFFSET,
       C.TREASURY_PENDING_POOL_PROTOCOL_ADMIN_TRANSFER_OFFSET, C.TREASURY_PENDING_UPGRADE_PROGRAM_OFFSET, C.TREASURY_PENDING_PROGRAM_OP_OFFSET,
-      C.TREASURY_RESERVED_V61_OFFSET, C.TREASURY_RESERVED_V61_LEN]);
+      C.TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET, C.TREASURY_RESERVED_V61_OFFSET, C.TREASURY_RESERVED_V61_LEN]);
   });
   test("[P04] the pool layout is contiguous from the legacy block to the account end", () => {
     const L = POOL_LAYOUT as any;
@@ -194,13 +196,13 @@ describe("v6.1 layout constants agree with the contracts' v61-layout.ts", () => 
     const T = TREASURY_LAYOUT as any;
     const torder = ["SUPERVISOR", "DELAY_SECS", "ADMIN_EPOCH", "PENDING_ADMIN_ETA", "PENDING_SET_DELAY", "PENDING_SET_SUPERVISOR", "PENDING_WITHDRAW", "PENDING_WITHDRAW_SOL",
       "PENDING_POOL_DEBUG_WITHDRAW", "PENDING_POOL_SET_PROTOCOL_FEE_RATE", "PENDING_POOL_SET_POOL_ENABLED", "PENDING_POOL_SET_TOKEN_ACTIVE", "PENDING_UNFREEZE_POOLS",
-      "PENDING_POOL_PROTOCOL_ADMIN_TRANSFER", "PENDING_UPGRADE_PROGRAM", "PENDING_PROGRAM_OP", "RESERVED_V61"];
+      "PENDING_POOL_PROTOCOL_ADMIN_TRANSFER", "PENDING_UPGRADE_PROGRAM", "PENDING_PROGRAM_OP", "PENDING_POOL_RESCALE_VIRTUAL_BALANCES", "RESERVED_V61"];
     for (let i = 1; i < torder.length; i++) expect(T[torder[i - 1]].offset + T[torder[i - 1]].size).toBe(T[torder[i]].offset);
     expect(T.RESERVED_V61.offset + T.RESERVED_V61.size).toBe(1624);
   });
   test("[P05] kind tables and cooldown constants", () => {
     expect(POOL_ACTION_KIND).toEqual(C.POOL_ACTION_KIND); expect(PROTOCOL_ACTION_KIND).toEqual(C.PROTOCOL_ACTION_KIND);
-    expect(POOL_ACTION_KINDS).toHaveLength(11); expect(PROTOCOL_ACTION_KINDS).toHaveLength(13);
+    expect(POOL_ACTION_KINDS).toHaveLength(11); expect(PROTOCOL_ACTION_KINDS).toHaveLength(14);
     expect(MAX_DELAY_SECS).toBe(C.MAX_DELAY_SECS); expect(GRACE_PERIOD_SECS).toBe(C.GRACE_PERIOD_SECS);
   });
 });
@@ -321,13 +323,14 @@ describe("decodeTreasuryAccount", () => {
     const t = decodeTreasuryAccount(treasuryV2().subarray(0, 786));
     expect(t.layout).toBe("v1"); expect(t.supervisor).toBeNull(); expect(t.delaySecs).toBe(0);
   });
-  test("[P26] v3 (1624) decodes delay, epoch, transfer eta and all twelve typed slots at the contracts offsets", () => {
+  test("[P26] v3 (1624) decodes delay, epoch, transfer eta and all thirteen typed slots (incl. T22 kind 13) at the contracts offsets", () => {
     const t = decodeTreasuryAccount(treasuryV3());
     expect(t.layout).toBe("v3"); expect(treasuryNeedsLayoutMigration(treasuryV3())).toBe(false);
     expect(t.delaySecs).toBe(7200); expect(t.adminEpoch).toBe(5); expect(t.pendingAdminEta.toString()).toBe("1800000000");
     const p = t.pendingActions;
     expect(p.map((s) => s.name)).toEqual([...PROTOCOL_ACTION_KINDS]);
-    expect(p.map((s) => s.eta.toString())).toEqual(Array.from({ length: 13 }, (_, i) => String(1_800_000_000 + i)));
+    expect(p.map((s) => s.eta.toString())).toEqual(Array.from({ length: 14 }, (_, i) => String(1_800_000_000 + i)));
+    expect((p[13].payload.pool as PublicKey).equals(key(95))).toBe(true); expect(p[13].payload.multiplier!.toString()).toBe("1000000000"); expect(p[13].name).toBe("PoolRescaleVirtualBalances");
     expect((p[0].payload.newAdmin as PublicKey).equals(key(51))).toBe(true);
     expect(p[1].payload).toEqual({ secs: 99 }); expect((p[2].payload.key as PublicKey).equals(key(80))).toBe(true);
     expect((p[3].payload.mint as PublicKey).equals(key(81))).toBe(true); expect((p[3].payload.recipient as PublicKey).equals(key(82))).toBe(true); expect(p[3].payload.amount!.toString()).toBe("777");
@@ -340,7 +343,7 @@ describe("decodeTreasuryAccount", () => {
     expect((p[10].payload.config as PublicKey).equals(key(89))).toBe(true); expect((p[10].payload.newAdmin as PublicKey).equals(key(90))).toBe(true);
     expect((p[11].payload.program as PublicKey).equals(key(91))).toBe(true); expect((p[11].payload.buffer as PublicKey).equals(key(92))).toBe(true);
     expect(p[12].payload.op).toBe(1); expect((p[12].payload.program as PublicKey).equals(key(93))).toBe(true); expect((p[12].payload.target as PublicKey).equals(key(94))).toBe(true);
-    expect(t.pendingActionsMask).toBe(0b1111111111111); expect(t.reservedV61NonZero).toBe(false);
+    expect(t.pendingActionsMask).toBe(0b11111111111111); expect(t.reservedV61NonZero).toBe(false);
   });
   test("[P27] an empty v3 cooldown block reads as direct-path (delay 0, nothing pending)", () => {
     const b = treasuryV3(); b.fill(0, 818, 1624);

@@ -329,6 +329,14 @@ export type { AttributedEvent } from "./parsers/events";
 export { RECUT_EVENTS, RETIRED_EVENTS, LEGACY_EVENT_DISCRIMINATORS } from "./parsers/eventPins";
 export type { LegacyEventPin } from "./parsers/eventPins";
 export { ACTOR_KINDS, ACTOR_KIND, actorKindName } from "./types/events";
+export {
+  checkLeverage, leverageHolds, leverageViolations, assertLeverageInvariant, minVirtualBalance, virtualFloorViolations, assertVirtualFloor,
+  checkSeedLeverage, checkFundLeverage, applyRescale, minRescaleMultiplier,
+} from "./math/leverage";
+export type { RescaleResult } from "./math/leverage";
+export { MIN_VIRTUAL_BALANCE_ABS, MIN_VIRTUAL_RESCALE_MULTIPLIER, MAX_TOKEN_DECIMALS } from "./config";
+export { buildSetHookDisabledIx, buildRescaleVirtualBalancesIx } from "./clients/tx-builders";
+export { rescaleMultiplierArg } from "./clients/AdminClient";
 export type {
   ActorKindName, SlotState, SelloffWindowState, SwapV2Event, LiquidityAddedV2Event, LiquidityRemovedV2Event, PoolInitializedV2Event, PoolInfoV2Event,
   ProtocolFeesCollectedV2Event, CreatorFeesClaimedV2Event, SidelinedTokenFundedEvent, VirtualBalancesRescaledEvent, HookInvokedEvent, HookDisabledSetEvent,

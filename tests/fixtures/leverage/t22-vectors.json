@@ -1,0 +1,66 @@
+{
+  "$comment": "v6.1 (T22) strict leverage vectors, copied from contracts 409067d programs/coffer-pool/src/tests/v61_leverage_invariant.rs (test names cited). Raw units as decimal strings. Do not edit; extend by citing a Rust test.",
+  "contracts": "409067d",
+  "checkLeverage": [
+    { "test": "t22_neg_18_check_leverage_edges", "virtual": "1", "actual": "0", "ok": true },
+    { "test": "t22_neg_18_check_leverage_edges", "virtual": "18446744073709551615", "actual": "18446744073709551614", "ok": true },
+    { "test": "t22_neg_18_check_leverage_edges", "virtual": "0", "actual": "0", "ok": false },
+    { "test": "t22_neg_18_check_leverage_edges", "virtual": "18446744073709551615", "actual": "18446744073709551615", "ok": false },
+    { "test": "t22_neg_18_check_leverage_edges", "virtual": "0", "actual": "18446744073709551615", "ok": false },
+    { "test": "t22_pos_01_guard_accepts_fresh_pool_and_ignores_unused_slots", "virtual": "1000000000", "actual": "0", "ok": true }
+  ],
+  "minVirtualBalance": [
+    { "test": "t22_pos_02_min_virtual_balance_values", "decimals": 0, "expected": "1000" },
+    { "test": "t22_pos_02_min_virtual_balance_values", "decimals": 3, "expected": "1000" },
+    { "test": "t22_pos_02_min_virtual_balance_values", "decimals": 4, "expected": "10000" },
+    { "test": "t22_pos_02_min_virtual_balance_values", "decimals": 6, "expected": "1000000" },
+    { "test": "t22_pos_02_min_virtual_balance_values", "decimals": 8, "expected": "100000000" },
+    { "test": "t22_pos_02_min_virtual_balance_values", "decimals": 9, "expected": "1000000000" },
+    { "test": "t22_pos_02_min_virtual_balance_values", "decimals": 18, "expected": "1000000000000000000" },
+    { "test": "t22_pos_02_min_virtual_balance_values (clamped at MAX_TOKEN_DECIMALS)", "decimals": 19, "expected": "1000000000000000000" }
+  ],
+  "virtualFloor": [
+    { "test": "t22_neg_01_init_floor", "virtual": ["999999999", "1000000000"], "decimals": [9, 9], "ok": false, "violations": [0] },
+    { "test": "t22_neg_01_init_floor", "virtual": ["999999999", "1000000000"], "decimals": [6, 9], "ok": true, "violations": [] },
+    { "test": "t22_neg_01_init_floor", "virtual": ["999999", "1000000000"], "decimals": [6, 9], "ok": false, "violations": [0] },
+    { "test": "t22_pos_02_min_virtual_balance_values", "virtual": ["1000", "10000"], "decimals": [0, 4], "ok": true, "violations": [] },
+    { "test": "t22_pos_02_min_virtual_balance_values", "virtual": ["999", "10000"], "decimals": [0, 4], "ok": false, "violations": [0] }
+  ],
+  "seedGate": [
+    { "test": "t22_pos_03_seed_gate_accepts_boundary_and_sidelined", "virtual": ["1000000000", "1000000000"], "net": ["999999999", "999999999"], "ok": true },
+    { "test": "t22_pos_03_seed_gate_accepts_boundary_and_sidelined", "virtual": ["1000000000", "1"], "net": ["999999999", "0"], "ok": true },
+    { "test": "t22_pos_03_seed_gate_accepts_boundary_and_sidelined", "virtual": ["7", "7", "7"], "net": ["0", "0", "6"], "ok": true },
+    { "test": "t22_neg_02_seed_gate_rejects_equal_and_above", "virtual": ["1000000000", "1000000000"], "net": ["1000000000", "1"], "ok": false, "error": "VirtualBalanceNotAboveActual" },
+    { "test": "t22_neg_02_seed_gate_rejects_equal_and_above", "virtual": ["1000000000", "1000000000"], "net": ["1", "2000000000"], "ok": false, "error": "VirtualBalanceNotAboveActual" },
+    { "test": "t22_neg_02_seed_gate_rejects_equal_and_above", "virtual": ["1", "1"], "net": ["0", "1"], "ok": false, "error": "VirtualBalanceNotAboveActual" },
+    { "test": "t22_neg_02_seed_gate_rejects_equal_and_above", "virtual": ["1", "1"], "net": ["0"], "ok": false, "error": "InvalidArrayLength" }
+  ],
+  "fundGate": [
+    { "test": "t22_pos_04_fund_gate_accepts_boundary", "virtual": "1000000000", "net": "999999999", "ok": true },
+    { "test": "t22_pos_04_fund_gate_accepts_boundary", "virtual": "2", "net": "1", "ok": true },
+    { "test": "t22_neg_03_fund_gate_rejects_equal_and_above", "virtual": "98144", "net": "98144", "ok": false },
+    { "test": "t22_neg_03_fund_gate_rejects_equal_and_above", "virtual": "98144", "net": "100000", "ok": false },
+    { "test": "t22_neg_03_fund_gate_rejects_equal_and_above", "virtual": "1", "net": "1", "ok": false }
+  ],
+  "exitNormalisation": [
+    { "test": "t22_pos_08_exit_boundary_normalises_to_actual_plus_one", "virtual": "101", "actual": "100", "payout": "50", "burned": "500", "supply": "1000", "expected": "51" },
+    { "test": "t22_pos_09_exit_near_total_normalises", "virtual": "150", "actual": "100", "payout": "99", "burned": "990", "supply": "1000", "expected": "2" },
+    { "test": "t22_pos_10_non_boundary_exits_are_byte_identical_to_the_old_floor", "virtual": "1000", "actual": "500", "payout": "100", "burned": "1", "supply": "1000", "expected": "800" },
+    { "test": "t22_pos_10_non_boundary_exits_are_byte_identical_to_the_old_floor", "virtual": "36454400000", "actual": "3645440", "payout": "1", "burned": "1", "supply": "1000", "expected": "36454390000" },
+    { "test": "t22_pos_10_non_boundary_exits_are_byte_identical_to_the_old_floor", "virtual": "7", "actual": "5", "payout": "1", "burned": "1", "supply": "1000", "expected": "5" },
+    { "test": "t22_pos_10_non_boundary_exits_are_byte_identical_to_the_old_floor", "virtual": "200", "actual": "100", "payout": "50", "burned": "1", "supply": "1000", "expected": "100" },
+    { "test": "t22_pos_10_non_boundary_exits_are_byte_identical_to_the_old_floor", "virtual": "18446744073709551615", "actual": "1", "payout": "0", "burned": "1", "supply": "1000", "expected": "18446744073709551615" },
+    { "test": "t22_pos_10_non_boundary_exits_are_byte_identical_to_the_old_floor (sidelined leg)", "virtual": "900000", "actual": "0", "payout": "0", "burned": "1", "supply": "10000", "expected": "899910" },
+    { "test": "t22_pos_10_non_boundary_exits_are_byte_identical_to_the_old_floor (sidelined leg)", "virtual": "1", "actual": "0", "payout": "0", "burned": "999", "supply": "1000", "expected": "1" }
+  ],
+  "rescale": [
+    { "test": "t22_pos_14_rescale_repairs_and_is_price_neutral", "virtual": ["1", "13099000000", "7000000000"], "actual": ["1", "13099", "6000000000"], "decimals": [0, 0, 0], "multiplier": "1000", "ok": true, "expected": ["1000", "13099000000000", "7000000000000"], "repaired": [0] },
+    { "test": "t22_pos_15_rescale_mainnet_dust_pool_by_1e9", "virtual": ["1", "13099", "2", "50", "3000", "9", "777"], "actual": ["1", "200", "0", "10", "100", "8", "0"], "decimals": [9, 9, 9, 9, 9, 9, 9], "multiplier": "1000000000", "ok": true, "expected": ["1000000000", "13099000000000", "2000000000", "50000000000", "3000000000000", "9000000000", "777000000000"], "repaired": [0] },
+    { "test": "t22_neg_11_rescale_rejections_write_nothing", "virtual": ["1", "2000000000"], "actual": ["1", "1000000000"], "decimals": [9, 9], "multiplier": "0", "ok": false, "error": "InvalidVirtualRescale" },
+    { "test": "t22_neg_11_rescale_rejections_write_nothing", "virtual": ["1", "2000000000"], "actual": ["1", "1000000000"], "decimals": [9, 9], "multiplier": "1", "ok": false, "error": "InvalidVirtualRescale" },
+    { "test": "t22_neg_11_rescale_rejections_write_nothing", "virtual": ["1", "2000000000"], "actual": ["1", "1000000000"], "decimals": [9, 9], "multiplier": "18446744073709551615", "ok": false, "error": "MathOverflow" },
+    { "test": "t22_neg_11_rescale_rejections_write_nothing (m = 2 repairs slot 0 but leaves it below the 1e9 floor)", "virtual": ["1", "2000000000"], "actual": ["1", "1000000000"], "decimals": [9, 9], "multiplier": "2", "ok": false, "error": "VirtualBalanceBelowFloor" },
+    { "test": "t22_neg_11_rescale_rejections_write_nothing (m = 2 on V=1, A=5)", "virtual": ["1", "2000000000"], "actual": ["5", "1000000000"], "decimals": [9, 9], "multiplier": "2", "ok": false, "error": "VirtualBalanceNotAboveActual" },
+    { "test": "t22_neg_11_rescale_rejections_write_nothing (zero virtual)", "virtual": ["0", "2000000000"], "actual": ["0", "1000000000"], "decimals": [9, 9], "multiplier": "2", "ok": false, "error": "InvalidVirtualBalances" }
+  ]
+}

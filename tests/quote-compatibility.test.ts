@@ -17,7 +17,8 @@ function pool(count = 2): PoolInfo {
     tokens: Array.from({ length: count }, (_, index) => ({
       index, mint: key(index + 3), vault: key(index + 30), tokenProgram: TOKEN_PROGRAM_ID,
       decimals: 9, weightBps: count === 2 ? 5000 : [5000, 3000, 2000][index],
-      actualBalance: bn(1_000_000_000), virtualBalance: bn(1_000_000_000),
+      // v6.1 (T22): strictly levered (`V > A`) — the program refuses every swap / join otherwise.
+      actualBalance: bn(1_000_000_000), virtualBalance: bn(2_000_000_000),
       protocolFeesOwed: bn(0), concentration: 1, isActive: true,
       maxSelloffPct: 0, maxSelloffPeriodLength: 0, variableFeeThresholdPct: 0,
       variableFeeSlopeLowPct: 0, variableFeeSlopeMidPct: 0, variableFeeSlopeHighPct: 0,
@@ -51,6 +52,8 @@ describe("client swap quotes against deployed Rust behavior", () => {
   test.each(vectors.map((v, i) => [i, v] as const))("native Rust curve vector %i", (_i, vector) => {
     const v = vector as { amount: string; weight: number; expected: string };
     const state = pool(); state.tokens[0].weightBps = v.weight; state.tokens[1].weightBps = 10000 - v.weight;
+    // The vectors price on V = 1e9; the curve never reads A, so any A < V reproduces them (T22).
+    state.tokens.forEach((t) => { t.virtualBalance = bn(1_000_000_000); t.actualBalance = bn(999_999_999); });
     const q = result(client(state).quoteSwap(0, 1, bn(v.amount), 0));
     expect(q.amountOut.toString()).toBe(v.expected);
   });
@@ -65,7 +68,7 @@ describe("client swap quotes against deployed Rust behavior", () => {
 
   test("actual output reserve already excludes protocol fees", () => {
     const state = pool();
-    state.tokens[0].virtualBalance = bn(1_000_000);
+    state.tokens[0].virtualBalance = bn(1_000_000); state.tokens[0].actualBalance = bn(500_000);
     state.tokens[1].virtualBalance = bn(1_000_000);
     state.tokens[1].actualBalance = bn(1000);
     const c = client(state);
@@ -184,6 +187,7 @@ describe("creator-only seed quote", () => {
   function unseeded(): PoolInfo {
     const state = pool(); state.lpTotalSupply = bn(0);
     state.tokens.forEach(t => { t.actualBalance = bn(0); });
+    state.tokens[0].virtualBalance = bn(1_000_000_000);
     state.tokens[1].virtualBalance = bn(2_000_000_000);
     return state;
   }
@@ -309,17 +313,19 @@ describe("v6 Token-2022 transfer fees in quotes", () => {
     expect(q.tokenOuts.map(String)).toEqual(["10000000", "10000000"]);
     expect(q.transferFees.map(String)).toEqual(["100000", "50"]);
     expect(q.receivedAmounts.map(String)).toEqual(["9900000", "9999950"]);
-    // 1 % of the pool leaves: V shrinks by floor(V·(A−payout)/A).
-    expect(q.virtualBalancesAfter.map(String)).toEqual(["990000000", "990000000"]);
+    // 1 % of the pool leaves: V shrinks by floor(V·(A−payout)/A) (V = 2e9).
+    expect(q.virtualBalancesAfter.map(String)).toEqual(["1980000000", "1980000000"]);
   });
 
-  test("exit near the floor keeps MIN_LP_SUPPLY and floors V at one raw unit", () => {
+  test("exit near the floor keeps MIN_LP_SUPPLY and normalises V to A' + 1 on a legacy V ≤ A pool (T22)", () => {
+    // Exits are never gated: a pre-T22 pool at V ≤ A can always be left, and
+    // the live-leg rule `max(floor(V·(A−p)/A), (A−p)+1)` repairs the slots.
     const state = pool(); state.lpTotalSupply = bn(1_000_000);
     state.tokens[0].actualBalance = bn(1000); state.tokens[0].virtualBalance = bn(1);
     state.tokens[1].actualBalance = bn(1000); state.tokens[1].virtualBalance = bn(1000);
     const q = result(client(state).quoteRemove(bn(1_000_000)));
     expect(q.effectiveLpIn.toString()).toBe("999000");
     expect(q.tokenOuts.map(String)).toEqual(["999", "999"]);
-    expect(q.virtualBalancesAfter.map(String)).toEqual(["1", "1"]);
+    expect(q.virtualBalancesAfter.map(String)).toEqual(["2", "2"]);
   });
 });

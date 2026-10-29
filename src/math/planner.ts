@@ -28,6 +28,7 @@
 import { ONE, MathError, assertU64 } from "./fixedPoint";
 import { withPowMemo } from "./logExp";
 import { effectiveSwapFeeRate, simulateSwap, SwapLeg } from "./swapSim";
+import { checkLeverage } from "./leverage";
 import { calcJoinRatioAndLp, virtualBalanceAfterDeposit } from "./poolMath";
 import { rescaleWindowOnVbChange } from "./maxSelloff";
 import { grossOfTransferFee, netOfTransferFee } from "./transferFee";
@@ -131,11 +132,17 @@ export interface ZapQuote {
 
 const MIN_TOKENS = 2, MAX_TOKENS = 10;
 
-/** `QuotePool::from_pool` invariants (pool/swaps enabled are checked by the caller). */
+/**
+ * `QuotePool::from_pool` invariants (pool/swaps enabled are checked by the
+ * caller). v6.1 (T22): a pool that already violates the strict leverage
+ * invariant cannot trade (every swap / join CPI reverts with
+ * `VirtualBalanceNotAboveActual`), so no plan is built against it.
+ */
 export function validateQuotePool(pool: QuotePool): void {
   const n = pool.tokens.length;
   if (n < MIN_TOKENS || n > MAX_TOKENS) throw new SimError("InvalidTokenCount");
   if (pool.lpSupply <= 0n) throw new SimError("PoolNotSeeded");
+  for (const t of pool.tokens) checkLeverage(t.virtualBalance, t.actualBalance);
 }
 
 const actualOf = (pool: QuotePool): bigint[] => pool.tokens.map((t) => t.actualBalance);
@@ -172,6 +179,10 @@ export function swapInPool(pool: QuotePool, input: number, output: number, gross
   const tokens = pool.tokens.slice();
   tokens[input] = { ...pool.tokens[input], ...r.inputAfter };
   tokens[output] = { ...pool.tokens[output], ...r.outputAfter };
+  // v6.1 (T22): the program's post-state guard, leg for leg (`swap.rs`
+  // `assert_leverage_invariant`), on the same shared rule.
+  checkLeverage(tokens[input].virtualBalance, tokens[input].actualBalance);
+  checkLeverage(tokens[output].virtualBalance, tokens[output].actualBalance);
   return {
     leg: {
       input, output, grossInput: gross, netInput: r.amountInNet, baseFee: r.feeAmount, protocolFee: r.protocolFeeAmount, creatorFee: r.creatorFeeAmount,
@@ -229,6 +240,8 @@ export function replay(pool: QuotePool, input: number, amount: bigint, allocatio
     const surgeAfter = (tokens[i].surgeFeesOwed ?? 0n) + leg.bucketIn;
     if (surgeAfter > (1n << 64n) - 1n) throw new MathError("SurgeBucketOverflow");
     tokens[i] = { ...tokens[i], virtualBalance: newVb, actualBalance: assertU64(actual[i] + leg.actualIn, "actual balance"), surgeFeesOwed: surgeAfter, window };
+    // v6.1 (T22): `add_liquidity.rs`'s post-guard, slot for slot.
+    checkLeverage(tokens[i].virtualBalance, tokens[i].actualBalance);
     creditedNet.push(credit); surgeBuyIn.push(leg.bucketIn); depositedGross.push(charged); dust.push(available[i] - charged);
   }
   const stateAfter: QuotePool = { ...state, tokens, lpSupply: assertU64(state.lpSupply + lp, "lp supply") };

@@ -84,7 +84,7 @@ describe("quoteSwap — fee cascade", () => {
     expect(r.outputAfter.creatorFeesOwed).toBe(s.creator);
     expect(r.outputAfter.surgeFeesOwed).toBe(s.lp);
     expect(r.outputAfter.actualBalance).toBe(1_000_000_000n - r.grossAmountOut);
-    expect(r.outputAfter.virtualBalance).toBe(1_000_000_000n - r.grossAmountOut);
+    expect(r.outputAfter.virtualBalance).toBe(2_000_000_000n - r.grossAmountOut);
     expect(r.amountOut).toBe(r.grossAmountOut - r.surgeFeeAmount);
     const q = unwrap(clientFor(pool).quoteSwap(0, 1, new BN(40_000_000)));
     expect(big(q.surgeLpFeeAmount)).toBe(s.lp); expect(big(q.surgeProtocolFeeAmount)).toBe(s.protocol);
@@ -121,7 +121,7 @@ describe("quoteSwap — fee cascade", () => {
     expect(q.minAmountOut.gtn(0)).toBe(true);
   });
   test("[N01] a sidelined output slot is a typed no_liquidity error, never a zero quote", () => {
-    const r = client({ balances: [[1_000_000_000n, 1_000_000_000n], [0n, 1_000_000_000n]] }).client.quoteSwap(0, 1, new BN(1_000));
+    const r = client({ balances: [[1_000_000_000n, 2_000_000_000n], [0n, 1_000_000_000n]] }).client.quoteSwap(0, 1, new BN(1_000));
     expect(r.ok).toBe(false); if (r.ok) return;
     expect(r.error.code).toBe("no_liquidity");
   });
@@ -156,7 +156,7 @@ describe("quoteAddLiquidity — NAV, buy-in, deposit fee", () => {
     expect(q.surgeBuyIn.map(String)).toEqual(["0", "0"]); expect(q.depositFeeLp.isZero()).toBe(true); expect(q.lpGross.toString()).toBe(q.lpOut.toString());
   });
   test("[P15] the ratio is taken over NAV (actual + surge) and the credit buys into the bucket", () => {
-    const pool = mockPool({ balances: [[900n, 1_000n], [1_000n, 1_000n]], surge: [100n, 0n], lpSupply: 1_000_000n });
+    const pool = mockPool({ balances: [[900n, 1_000n], [1_000n, 2_000n]], surge: [100n, 0n], lpSupply: 1_000_000n });
     const q = unwrap(clientFor(pool).quoteAddLiquidity([new BN(500), new BN(500)]));
     const navs = [1_000n, 1_000n];
     const { lp, ratio } = calcJoinRatioAndLp(navs, [500n, 500n], 1_000_000n);
@@ -176,12 +176,12 @@ describe("quoteAddLiquidity — NAV, buy-in, deposit fee", () => {
     expect(b.minimumLpAmount.lt(b.lpOut) || b.minimumLpAmount.eq(b.lpOut)).toBe(true);
   });
   test("[P17] a reserve-less slot with a bucket is live and takes its whole credit into the bucket", () => {
-    const pool = mockPool({ balances: [[1_000n, 1_000n], [0n, 1_000n]], surge: [0n, 500n], lpSupply: 1_000_000n });
+    const pool = mockPool({ balances: [[1_000n, 2_000n], [0n, 1_000n]], surge: [0n, 500n], lpSupply: 1_000_000n });
     const q = unwrap(clientFor(pool).quoteAddLiquidity([new BN(100), new BN(100)]));
     expect(big(q.surgeBuyIn[1])).toBe(big(q.creditedAmounts[1])); expect(q.actualIn[1].isZero()).toBe(true);
   });
   test("[P18] a sidelined slot (NAV 0) must be 0 and gets no credit", () => {
-    const pool = mockPool({ balances: [[1_000n, 1_000n], [0n, 1_000n]], lpSupply: 1_000_000n });
+    const pool = mockPool({ balances: [[1_000n, 2_000n], [0n, 1_000n]], lpSupply: 1_000_000n });
     const q = unwrap(clientFor(pool).quoteAddLiquidity([new BN(100), new BN(0)]));
     expect(q.creditedAmounts[1].isZero()).toBe(true); expect(q.chargedAmounts[1].isZero()).toBe(true);
   });
@@ -197,11 +197,11 @@ describe("quoteAddLiquidity — NAV, buy-in, deposit fee", () => {
     expect(r.ok).toBe(false); if (r.ok) return; expect(r.error.code).toBe("amount_too_small"); expect(r.error.humanMessage).toMatch(/DepositFeeConsumesAll/);
   });
   test("[N08] liveness is keyed on NAV: a bucket-only slot needs a positive ceiling", () => {
-    const pool = mockPool({ balances: [[1_000n, 1_000n], [0n, 1_000n]], surge: [0n, 500n], lpSupply: 1_000_000n });
+    const pool = mockPool({ balances: [[1_000n, 2_000n], [0n, 1_000n]], surge: [0n, 500n], lpSupply: 1_000_000n });
     expect(err(clientFor(pool).quoteAddLiquidity([new BN(100), new BN(0)]))?.humanMessage).toMatch(/TokenLivenessMismatch/);
   });
   test("[N09] a sidelined slot with a positive ceiling is a liveness mismatch", () => {
-    const pool = mockPool({ balances: [[1_000n, 1_000n], [0n, 1_000n]], lpSupply: 1_000_000n });
+    const pool = mockPool({ balances: [[1_000n, 2_000n], [0n, 1_000n]], lpSupply: 1_000_000n });
     expect(clientFor(pool).quoteAddLiquidity([new BN(100), new BN(100)]).ok).toBe(false);
   });
   test("[N10] a paused fail-closed hook refuses deposits", () => {

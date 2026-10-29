@@ -23,9 +23,9 @@ import { ContractAccountMap } from "../src/types/contracts";
 
 type State = ContractAccountMap["cofferPool"]["CofferPool"];
 // The fixtures were produced by the `zap_plan` binary built from contracts
-// v6 `7d753b3`, whose `declare_id` is the localnet table — snapshot keys
-// derived under it (LP mint PDA, pool owner) must not drift when the
-// mainnet/devnet tables change.
+// v6.1 `409067d` (T22 strict leverage), whose `declare_id` is the localnet
+// table — snapshot keys derived under it (LP mint PDA, pool owner) must not
+// drift when the mainnet/devnet tables change.
 const cfg = getConfig("localnet");
 const key = (n: number) => new PublicKey(Buffer.alloc(32, n));
 const bn = (v: number | bigint | string) => new BN(v.toString());
@@ -77,11 +77,13 @@ interface Scenario {
   inputs: Array<[number, bigint]>;
 }
 const SCENARIOS: Scenario[] = [
-  { name: "equal-weights", tokenCount: 3, weights: [3333, 3333, 3334], balances: [[1_000_000_000n, 1_000_000_000n], [2_000_000_000n, 2_500_000_000n], [500_000_000n, 500_000_000n]],
+  // v6.1 (T22): every slot is strictly levered (`virtual > actual`); the
+  // fixtures were regenerated with the 409067d `zap_plan` binary.
+  { name: "equal-weights", tokenCount: 3, weights: [3333, 3333, 3334], balances: [[1_000_000_000n, 2_000_000_000n], [2_000_000_000n, 2_500_000_000n], [500_000_000n, 1_000_000_000n]],
     swapFeeRate: 0, protocolFeeRate: 0, feeMints: {}, inputs: [[0, 50_000_000n], [2, 12_345_678n]] },
-  { name: "unequal-weights-fees", tokenCount: 4, weights: [4000, 3000, 2000, 1000], balances: [[5_000_000_000n, 6_000_000_000n], [1_000_000_000n, 1_000_000_000n], [700_000_000n, 900_000_000n], [10_000_000_000n, 12_000_000_000n]],
+  { name: "unequal-weights-fees", tokenCount: 4, weights: [4000, 3000, 2000, 1000], balances: [[5_000_000_000n, 6_000_000_000n], [1_000_000_000n, 1_500_000_000n], [700_000_000n, 900_000_000n], [10_000_000_000n, 12_000_000_000n]],
     swapFeeRate: 3000, protocolFeeRate: 2000, feeMints: {}, inputs: [[1, 200_000_000n], [3, 999_999_999n]] },
-  { name: "fee-mints-active-window", tokenCount: 3, weights: [5000, 3000, 2000], balances: [[1_000_000_000n, 1_200_000_000n], [800_000_000n, 800_000_000n], [300_000_000n, 350_000_000n]],
+  { name: "fee-mints-active-window", tokenCount: 3, weights: [5000, 3000, 2000], balances: [[1_000_000_000n, 1_200_000_000n], [800_000_000n, 1_000_000_000n], [300_000_000n, 350_000_000n]],
     swapFeeRate: 5000, protocolFeeRate: 2000, feeMints: { 0: [100, 1_000_000n], 2: [250, 50n] },
     windows: { 0: { pct: 2000, period: 3600, prev: 60_000_000n, cur: 80_000_000n, ws: 1_788_799_000n, snap: 1_000_000_000n, curve: [6000, 100, 1800, 8000, 75] } },
     inputs: [[0, 100_000_000n], [1, 40_000_000n]] },

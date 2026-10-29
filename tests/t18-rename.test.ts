@@ -79,7 +79,7 @@ function poolBytes(tail: { deprecated: BN; maxLev: number; minLev: number }): Bu
 function poolFixture(): PoolInfo {
   const tokens = [0, 1].map((index) => ({
     index, mint: pk(), tokenProgram: TOKEN_PROGRAM_ID, decimals: 9, weightBps: 5000,
-    virtualBalance: new BN(1_000_000), actualBalance: new BN(1_000_000), protocolFeesOwed: new BN(0), vault: pk(),
+    virtualBalance: new BN(2_000_000), actualBalance: new BN(1_000_000), protocolFeesOwed: new BN(0), vault: pk(),
     concentration: 1, isActive: true, maxSelloffPct: 0, extensions: [], unsupportedExtensions: [], transferFee: null,
   }));
   return {

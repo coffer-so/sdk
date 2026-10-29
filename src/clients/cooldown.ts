@@ -161,6 +161,13 @@ export const ProtocolActions = {
   upgradeProgram: (program: PublicKey, buffer: PublicKey): ProtocolAction => ({ UpgradeProgram: { program, buffer } }),
   /** `op`: 0 = transfer_upgrade_authority (`target` = new authority), 1 = freeze_pool_program, 2 = close_pool_program (`target` = recipient). */
   programOp: (op: number, program: PublicKey, target: PublicKey): ProtocolAction => ({ ProgramOp: { op, program, target } }),
+  /** T22 (kind 13): multiply every `virtual_balance` of `pool` by `multiplier ≥ 2` (price-neutral repair; allowed on a frozen pool). */
+  poolRescaleVirtualBalances: (pool: PublicKey, multiplier: BN | bigint | number): ProtocolAction => {
+    const m = BN.isBN(multiplier) ? multiplier : new BN(multiplier.toString());
+    if (m.isNeg() || m.bitLength() > 64) throw new Error("PoolRescaleVirtualBalances: multiplier must be an unsigned 64-bit integer");
+    if (m.ltn(2)) throw new Error("PoolRescaleVirtualBalances: multiplier must be ≥ 2 (InvalidVirtualRescale)");
+    return { PoolRescaleVirtualBalances: { pool, multiplier: m } };
+  },
 } as const;
 
 /** `ProtocolAction` variant name → Treasury pending-slot kind (`cancel_action` arg). */
@@ -200,6 +207,7 @@ export const PROTOCOL_EXECUTE_INSTRUCTIONS = {
   PoolProtocolAdminTransfer: ["execute_pool_protocol_admin_transfer"],
   UpgradeProgram: ["execute_upgrade_program"],
   ProgramOp: ["execute_transfer_upgrade_authority", "execute_freeze_pool_program", "execute_close_pool_program"],
+  PoolRescaleVirtualBalances: ["execute_pool_rescale_virtual_balances"],
 } as const satisfies Record<ProtocolActionKindName, readonly string[]>;
 
 /** Remaining accounts `propose_action` needs for `action` (the upgrade buffer for `UpgradeProgram`, else none). */

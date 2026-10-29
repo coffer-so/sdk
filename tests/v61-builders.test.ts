@@ -43,7 +43,7 @@ describe("migrate_pool_layout_v61 (L0)", () => {
       buildSwapTx(cfg, pool, { user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(1000), minAmountOut: new BN(1) }),
       buildAddLiquidityTx(cfg, pool, { user, tokenAmounts: [new BN(1000), new BN(1000)], minimumLpAmount: new BN(1) }),
       buildRemoveLiquidityTx(cfg, pool, { user, lpAmount: new BN(1000), minimumTokenAmounts: [new BN(0), new BN(0)] }),
-      buildFundSidelinedTokenTx(cfg, mockPool({ layoutVersion: 0, balances: [[1n, 1n], [0n, 1n]], poolAdmin: user }), { authority: user, tokenIndex: 1, amount: new BN(5) }),
+      buildFundSidelinedTokenTx(cfg, mockPool({ layoutVersion: 0, balances: [[1n, 2n], [0n, 10n]], poolAdmin: user }), { authority: user, tokenIndex: 1, amount: new BN(5) }),
     ]) {
       expect(isCb(tx.instructions[0])).toBe(true);
       expect(disc(tx.instructions[1].data)).toBe(DISC.migrate);

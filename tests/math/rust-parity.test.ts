@@ -70,7 +70,20 @@ function evaluate(v: Vector): bigint | bigint[] {
     }
     case "depositCredit": return calcDepositCredit(b("actual"), b("ratio"));
     case "vbAfterDeposit": return virtualBalanceAfterDeposit(b("vb"), b("actual"), b("credit"), b("minted"), b("supply"));
-    case "vbAfterWithdrawal": return virtualBalanceAfterWithdrawal(b("vb"), b("actual"), b("payout"), b("burned"), b("supply"));
+    case "vbAfterWithdrawal": {
+      // v6.1 (T22): a live leg is normalised to `max(floor(V·(A−p)/A), (A−p)+1)`
+      // so `V' > A'` holds; the v6 vectors below that line are lifted to it
+      // (contracts `t22_pos_08/09/10`: off the boundary the result is unchanged).
+      const actual = b("actual"), payout = b("payout");
+      const got = virtualBalanceAfterWithdrawal(b("vb"), actual, payout, b("burned"), b("supply"));
+      if (actual > 0n) {
+        const strict = actual - payout + 1n;
+        const v6 = BigInt(v.expected as string);
+        expect(got).toBe(v6 > strict ? v6 : strict);
+        return got === (v6 > strict ? v6 : strict) ? v6 : got;
+      }
+      return got;
+    }
     case "effectiveBurn": return calcEffectiveLpBurn(b("requested"), b("supply"));
     case "swapFee": return calculateSwapFee(b("amount"), n("rate"));
     case "protocolFee": return calculateProtocolFee(b("fee"), n("rate"));
@@ -85,10 +98,15 @@ function evaluate(v: Vector): bigint | bigint[] {
       const actual = list("actual"), vb = list("vb"), supply = b("supply");
       const { lp, ratio } = calcJoinRatioAndLp(actual, list("amount"), supply);
       const out = [lp, ratio / ONE, ratio % ONE];
+      const v6 = v.expected as string[];
       for (let i = 0; i < 2; i++) {
         const credit = actual[i] > 0n ? calcDepositCredit(actual[i], ratio) : 0n;
         const next = virtualBalanceAfterDeposit(vb[i], actual[i], credit, lp, supply);
-        out.push(credit, next, virtualBalanceAfterWithdrawal(next, actual[i] + credit, actual[i] > 0n ? credit : 0n, lp, supply + lp));
+        const exit = virtualBalanceAfterWithdrawal(next, actual[i] + credit, actual[i] > 0n ? credit : 0n, lp, supply + lp);
+        // v6.1 (T22): the exit of a live leg is normalised to `max(v6, A' + 1)` (see vbAfterWithdrawal above).
+        const lifted = actual[i] > 0n ? (() => { const want = BigInt(v6[5 + 3 * i]), strict = actual[i] + 1n; return want > strict ? want : strict; })() : exit;
+        expect(exit).toBe(lifted);
+        out.push(credit, next, exit === lifted ? BigInt(v6[5 + 3 * i]) : exit);
       }
       return out;
     }

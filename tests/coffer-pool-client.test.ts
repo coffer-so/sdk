@@ -14,7 +14,7 @@ function mockPool(): PoolInfo {
     tokenProgram: TOKEN_PROGRAM_ID,
     decimals: 9,
     weightBps: 5000,
-    virtualBalance: new BN(1_000_000_000),
+    virtualBalance: new BN(2_000_000_000), // v6.1 (T22): strictly levered
     actualBalance: new BN(1_000_000_000),
     protocolFeesOwed: new BN(0),
     vault: pk(),

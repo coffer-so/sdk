@@ -143,9 +143,12 @@ export function virtualBalanceAfterDeposit(virtualBalance: bigint, actualBalance
 
 /**
  * `virtual_balance_after_withdrawal`: a live leg shrinks from the gross
- * vault payout, `max(1, floor(V · (A − payout) / A))`; a sidelined leg
- * follows the remaining LP supply. The floor pairs with the deposit
- * ceiling so a free join/exit round trip cannot ratchet `V` upward.
+ * vault payout, `floor(V · (A − payout) / A)`, normalised (v6.1, T22) to
+ * `max(that, (A − payout) + 1)` so the leg keeps `V' > A'` (the floor
+ * reaches equality iff `(V − A)(A − payout) < A`); a sidelined leg follows
+ * the remaining LP supply, `max(1, ·)`. The floor pairs with the deposit
+ * ceiling so a free join/exit round trip cannot ratchet `V` upward (20
+ * exit→deposit cycles from `V = 101, A = 100` end at `V = 102`).
  */
 export function virtualBalanceAfterWithdrawal(virtualBalance: bigint, actualBalance: bigint, grossPayout: bigint, lpBurned: bigint, lpSupply: bigint): bigint {
   [virtualBalance, actualBalance, grossPayout, lpBurned, lpSupply].forEach((v) => assertU64(v));
@@ -161,6 +164,11 @@ export function virtualBalanceAfterWithdrawal(virtualBalance: bigint, actualBala
     numerator = lpSupply - lpBurned; denominator = lpSupply;
   }
   const next = (virtualBalance * numerator) / denominator;
+  if (actualBalance > 0n) {
+    // T22 normalisation: `remaining < A ≤ u64::MAX`, so `remaining + 1` fits.
+    const floorStrict = remaining + 1n;
+    return next > floorStrict ? next : floorStrict;
+  }
   return next > 1n ? next : 1n;
 }
 

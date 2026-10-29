@@ -90,6 +90,14 @@ export interface DeployPoolParamsV61 extends DeployPoolParams {
   hookConfig?: HookConfigArgs | null;
   /** T9: the hook slice (`hookConfig.accountsLen` metas), appended AFTER the mints. */
   hookAccounts?: AccountMeta[];
+  /**
+   * T22: the mints' decimals in `tokens` order. When given, every
+   * `virtualBalances[i]` is checked against the per-slot floor
+   * `minVirtualBalance(decimals)` = `max(10^decimals, 1000)` raw
+   * (`VirtualBalanceBelowFloor` 6105) before encoding; `buildAtomicDeploy`
+   * reads them from the mint accounts.
+   */
+  tokenDecimals?: number[];
 }
 
 // ─── Layout migration (L0) ───────────────────────────────────────────────────
@@ -245,8 +253,10 @@ export interface AtomicDeployParams {
   tokenPrograms?: PublicKey[];
   /** Normalized weights, Σ = 10_000. */
   weights: BN[];
-  /** Seed virtual balances, each > 0. */
+  /** Seed virtual balances, each > 0 and (T22) ≥ `max(10^decimals, 1000)` raw; every `seedAmounts[i]` must stay below `virtualBalances[i]`. */
   virtualBalances: BN[];
+  /** T22: mint decimals in `mints` order; read from the mint accounts when omitted. */
+  tokenDecimals?: number[];
   /** Swap fee in hundredths of a bp. */
   swapFeeRate: number;
   /** T14: pool admin's share of the LP fee remainder, bps 0..=10_000. Default 0. */

@@ -136,10 +136,10 @@ export const POOL_ACTION_KINDS = [
 export type PoolActionKindName = (typeof POOL_ACTION_KINDS)[number];
 export const POOL_ACTION_KIND = Object.fromEntries(POOL_ACTION_KINDS.map((n, i) => [n, i])) as Record<PoolActionKindName, number>;
 
-/** Protocol-admin (Treasury) pending-slot kinds (`cancel_action(kind)`; `ProtocolAction` tag = kind − 1). */
+/** Protocol-admin (Treasury) pending-slot kinds (`cancel_action(kind)`; `ProtocolAction` tag = kind − 1). Kind 13 (`PoolRescaleVirtualBalances`) is v6.1 T22. */
 export const PROTOCOL_ACTION_KINDS = [
   "TransferAdmin", "SetDelay", "SetSupervisor", "Withdraw", "WithdrawSol", "PoolDebugWithdraw", "PoolSetProtocolFeeRate",
-  "PoolSetPoolEnabled", "PoolSetTokenActive", "UnfreezePools", "PoolProtocolAdminTransfer", "UpgradeProgram", "ProgramOp",
+  "PoolSetPoolEnabled", "PoolSetTokenActive", "UnfreezePools", "PoolProtocolAdminTransfer", "UpgradeProgram", "ProgramOp", "PoolRescaleVirtualBalances",
 ] as const;
 export type ProtocolActionKindName = (typeof PROTOCOL_ACTION_KINDS)[number];
 export const PROTOCOL_ACTION_KIND = Object.fromEntries(PROTOCOL_ACTION_KINDS.map((n, i) => [n, i])) as Record<ProtocolActionKindName, number>;
@@ -148,7 +148,7 @@ export const PROTOCOL_ACTION_KIND = Object.fromEntries(PROTOCOL_ACTION_KINDS.map
 
 export const TREASURY_LEN_V1 = 786;
 export const TREASURY_LEN_V2 = 818;
-/** v3 (v6.1 T3): the cooldown block is appended after `supervisor`. */
+/** v3 (v6.1 T3): the cooldown block is appended after `supervisor`; T22 carved the kind-13 slot from its reserve (125 → 77 B). */
 export const TREASURY_LEN_V3 = 1624;
 export const TREASURY_DECODABLE_LENS: readonly number[] = [TREASURY_LEN_V1, TREASURY_LEN_V2, TREASURY_LEN_V3];
 export const TREASURY_MAX_TOKENS = 10;
@@ -180,7 +180,9 @@ export const TREASURY_LAYOUT = {
   PENDING_POOL_PROTOCOL_ADMIN_TRANSFER:  { offset: 1282, size: 72 },
   PENDING_UPGRADE_PROGRAM:               { offset: 1354, size: 72 },
   PENDING_PROGRAM_OP:                    { offset: 1426, size: 73 },
-  RESERVED_V61:                          { offset: 1499, size: 125 },
+  // ── v6.1 (T22) kind 13: `eta: i64` + `pool` + `multiplier: u64` ──
+  PENDING_POOL_RESCALE_VIRTUAL_BALANCES: { offset: 1499, size: 48 },
+  RESERVED_V61:                          { offset: 1547, size: 77 },
   TOTAL:           1624,
   TOTAL_V2:        818,
   TOTAL_V1:        786,

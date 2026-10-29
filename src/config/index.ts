@@ -171,6 +171,12 @@ export const HOOK_CALLBACKS = [
   { index: 5, name: "before-remove-liquidity", discriminator: "741994cb063e0dad" },
   { index: 6, name: "after-remove-liquidity", discriminator: "b1af63ec704ede05" },
 ] as const;
+/** T22: absolute floor of a chosen `virtual_balance` (raw); the effective floor is `max(10^decimals, 1_000)` (`minVirtualBalance`). */
+export const MIN_VIRTUAL_BALANCE_ABS = 1_000n;
+/** T22: `rescale_virtual_balances` refuses a multiplier below 2 (`InvalidVirtualRescale`). */
+export const MIN_VIRTUAL_RESCALE_MULTIPLIER = 2n;
+/** FIX-6 / T22: decimals are pinned per slot and clamped at 18 for the floor (`10^18 < 2^63`). */
+export const MAX_TOKEN_DECIMALS = 18;
 /** T5: Treasury vault PDA seed `[b"vault", mint]` under protocol_admin — the only accepted protocol-fee recipient. */
 export const TREASURY_VAULT_SEED = Buffer.from("vault");
 

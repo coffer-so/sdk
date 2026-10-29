@@ -155,7 +155,7 @@ function syntheticPool(cfg: ReturnType<typeof getConfig>, address: PublicKey, n:
   const slot = (i: number) => ({
     config: { mint: key(100 + i), token_program: programs[i], normalized_weight: bn(Math.floor(10_000 / n)), max_selloff_pct: 0, max_selloff_period_length: 0,
       variable_fee_threshold_pct: 0, variable_fee_slope_low_pct: 0, variable_fee_slope_high_pct: 0, is_active: true, variable_fee_slope_mid_pct: 0, variable_fee_kink_pct: 0 },
-    dynamics: { virtual_balance: bn(1_000_000_000), actual_balance: bn(1_000_000_000), protocol_fees_owed: bn(0), previous_selloff: bn(0), current_selloff: bn(0), window_start_timestamp: bn(0), selloff_vb_snapshot: bn(0) },
+    dynamics: { virtual_balance: bn(2_000_000_000), actual_balance: bn(1_000_000_000), protocol_fees_owed: bn(0), previous_selloff: bn(0), current_selloff: bn(0), window_start_timestamp: bn(0), selloff_vb_snapshot: bn(0) },
   });
   const empty = () => ({ config: { ...slot(0).config, mint: PublicKey.default, token_program: PublicKey.default, normalized_weight: bn(0) }, dynamics: { ...slot(0).dynamics, virtual_balance: bn(0), actual_balance: bn(0) } });
   return {
