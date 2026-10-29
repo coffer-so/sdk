@@ -105,7 +105,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   /** Pool holds no liquidity yet; the pool admin must seed it first. */
   PoolNotSeeded: "unsupported_pool_state",
 
-  // ── coffer-pool 6070–6103, v6.1 ───────────────────────────────────────
+  // ── coffer-pool 6070–6106, v6.1 ───────────────────────────────────────
   /** L0: the pool is still 1683 bytes; prepend / run `migrate_pool_layout_v61`. */
   LayoutVersionMismatch: "pool_layout_outdated",
   /** L0 / T3: the account is already at the v6.1 size (idempotent no-op from the caller's view). */
@@ -156,6 +156,10 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   HookPaused: "hook_rejected",
   HookRegisterRejected: "hook_rejected",
   HookFlagsMismatch: "hook_rejected",
+  /** T22: strict leverage invariant (6104–6106). */
+  VirtualBalanceNotAboveActual: "leverage_invariant",
+  VirtualBalanceBelowFloor: "leverage_invariant",
+  InvalidVirtualRescale: "invalid_input",
 
   // ── protocol-admin ───────────────────────────────────────────────────
   /** New admin cannot be the all-zero pubkey. */
@@ -177,13 +181,28 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
 type AnchorIdlError = { code: number; name: string; msg: string };
 type ErrorTable = Record<number, { code: SdkErrorCode; message: string; name: string }>;
 
+/**
+ * User-facing messages where the IDL `msg` is too terse to act on. Keyed by
+ * error name; everything else shows the program's own message.
+ */
+const USER_MESSAGES: Record<string, string> = {
+  // T22 (6104–6106)
+  VirtualBalanceNotAboveActual:
+    "Each token's virtual balance must stay strictly above its actual balance. Seed / fund amounts must be below the slot's virtual balance; " +
+    "a legacy pool at or below the line is frozen for swaps and deposits until the protocol admin runs rescale_virtual_balances (exits still work).",
+  VirtualBalanceBelowFloor:
+    "A virtual balance is below the per-slot minimum of one whole token (max(10^decimals, 1000) raw units). Raise it when creating the pool, " +
+    "in the range-manager update, or pick a larger rescale multiplier.",
+  InvalidVirtualRescale: "The rescale multiplier must be an integer ≥ 2 (1 is a no-op, 0 would zero every price).",
+};
+
 function buildErrorTable(errors: AnchorIdlError[]): ErrorTable {
   return Object.fromEntries(
     errors.map((anchorError) => [
       anchorError.code,
       {
         code: ANCHOR_NAME_TO_SDK[anchorError.name] ?? "invalid_input",
-        message: anchorError.msg,
+        message: USER_MESSAGES[anchorError.name] ?? anchorError.msg,
         name: anchorError.name,
       },
     ])

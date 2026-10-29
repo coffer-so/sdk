@@ -83,9 +83,11 @@ const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
 test("generated public types match all shipped IDLs", () => {
-  // v6.1: coffer_pool 50 ix / 42 events, protocol_admin 50 / 34, STLD 4 / 3
-  // (T19 removed 2 + 2; L0/T2/T10/T14/T6/T7/T3/T9 appended the rest).
-  expect(instructions).toHaveLength(104);
+  // v6.1 @ 409067d: coffer_pool 51 ix / 41 events, protocol_admin 52 / 36, STLD 4 / 2
+  // (T19 removed 2 + 2; L0/T2/T10/T14/T6/T7/T3/T9/T22 appended the rest; T11
+  // retired PoolStateLog / MaxSelloffWindowAdvanced / SingleTokenDeposit and
+  // re-cut 45 payloads under new names).
+  expect(instructions).toHaveLength(107);
   expect(events).toHaveLength(79);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
@@ -229,6 +231,8 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     // v6.1
     pool_disable_range_manager: () => client.poolDisableRangeManagerIx(a, config, pool),
     pool_set_hook_disabled: () => client.setHookDisabledIx(a, config, pool, true),
+    pool_rescale_virtual_balances: () => client.poolRescaleVirtualBalancesIx(a, config, pool, new BN(1_000_000_000)),
+    execute_pool_rescale_virtual_balances: () => client.executePoolRescaleVirtualBalancesIx(a, config, pool),
     migrate_treasury_layout_v61: () => client.migrateTreasuryLayoutV61Ix(a),
     set_delay: () => client.setDelayIx(a, 3600),
     propose_action: () => client.proposeActionIx(a, { SetDelay: { secs: 1 } }),

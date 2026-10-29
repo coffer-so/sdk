@@ -48,182 +48,94 @@ const u16 = (v: number) => {
 };
 const vecU64 = (vs: number[]) => Buffer.concat([u32(vs.length), ...vs.map((v) => u64(v))]);
 
-describe("Swap event field order (v6)", () => {
-  // The trap: surge_fee_amount sits AFTER timestamp. A decoder using the
-  // intuitive order returns the unix timestamp as the surge fee. v6 appends
-  // the two Token-2022 transfer-fee legs after it.
-  test("IDL declares timestamp, surge_fee_amount, then the v6 transfer-fee tail (and the v6.1 append-only tails)", () => {
-    expect(idlFields(cofferPoolIdl as any, "Swap")).toEqual([
-      "pool",
-      "user",
-      "token_in",
-      "token_out",
-      "amount_in",
-      "amount_out",
-      "fee_amount",
-      "protocol_fee_amount",
-      "timestamp",
-      "surge_fee_amount",
-      "transfer_fee_in",
-      "transfer_fee_out",
-      // v6.1 tails, append-only: T15, T14, T12, T9
-      "swap_fee_rate",
-      "protocol_fee_rate",
-      "surge_protocol_fee_amount",
-      "creator_fee_amount",
-      "surge_creator_fee_amount",
-      "creator_fee_bps",
-      "surge_fee_lp_amount",
-      "effective_fee_rate",
+describe("SwapV2 event field order (v6.1, T11 re-cut)", () => {
+  // v6 trap, kept as history: `surge_fee_amount` sat AFTER `timestamp` and
+  // the v6.1 tails were appended. T11 re-cut the payload under a NEW
+  // discriminator: indices instead of mints, the cascade in order, the two
+  // touched slots before / after, `timestamp`, then an `Option<SelloffWindow>`.
+  test("IDL declares the re-cut order with timestamp before the trailing Option", () => {
+    expect(idlFields(cofferPoolIdl as any, "SwapV2")).toEqual([
+      "pool", "user", "token_in_index", "token_out_index", "amount_in", "transfer_fee_in", "amount_in_net",
+      "swap_fee_rate", "effective_fee_rate", "protocol_fee_rate", "creator_fee_bps",
+      "fee_amount", "protocol_fee_amount", "creator_fee_amount", "amount_out_gross",
+      "surge_fee_amount", "surge_protocol_fee_amount", "surge_creator_fee_amount", "amount_out", "transfer_fee_out",
+      "in_before", "in_after", "out_before", "out_after", "timestamp", "selloff_window",
     ]);
+    expect((cofferPoolIdl as any).types.some((t: any) => t.name === "Swap")).toBe(false);
   });
 
-  test("decoder reads each field from the slot the IDL puts it in", () => {
+  test("decoder reads each field from the slot the IDL puts it in (distinct sentinels, window absent)", () => {
     const pool = Keypair.generate().publicKey;
     const user = Keypair.generate().publicKey;
-    const tokenIn = Keypair.generate().publicKey;
-    const tokenOut = Keypair.generate().publicKey;
-
-    // Distinct sentinel values so a shifted read cannot coincidentally pass.
+    const slot = (base: number) => Buffer.concat([u64(base + 1), u64(base + 2), u64(base + 3), u64(base + 4), u64(base + 5)]);
     const payload = Buffer.concat([
-      pool.toBuffer(),
-      user.toBuffer(),
-      tokenIn.toBuffer(),
-      tokenOut.toBuffer(),
-      u64(1_000), // amount_in
-      u64(2_000), // amount_out
-      u64(3_000), // fee_amount
-      u64(4_000), // protocol_fee_amount
-      i64(1_700_000_000), // timestamp  ← precedes surge on the wire
-      u64(5_000), // surge_fee_amount
-      u64(6_000), // transfer_fee_in
-      u64(7_000), // transfer_fee_out
+      pool.toBuffer(), user.toBuffer(), Buffer.from([2]), Buffer.from([0]),
+      u64(1_000), u64(10), u64(990), u32(3_000), u32(2_500), u16(1_000), u16(2_500),
+      u64(3_000), u64(300), u64(600), u64(2_000), u64(5_000), u64(500), u64(1_100), u64(1_900), u64(7_000),
+      slot(100), slot(200), slot(300), slot(400), i64(1_700_000_000), Buffer.from([0]),
     ]);
-
-    const [ev] = parseCofferPoolEvents([
-      programDataLog(discriminatorOf(cofferPoolIdl as any, "Swap"), payload),
-    ]);
-
-    expect(ev.kind).toBe("Swap");
-    if (ev.kind !== "Swap") throw new Error("unreachable");
-    expect(ev.amountIn.toNumber()).toBe(1_000);
-    expect(ev.amountOut.toNumber()).toBe(2_000);
-    expect(ev.feeAmount.toNumber()).toBe(3_000);
-    expect(ev.protocolFeeAmount.toNumber()).toBe(4_000);
-    // The two that swap places — the whole point of this test.
+    const [ev] = parseCofferPoolEvents([programDataLog(discriminatorOf(cofferPoolIdl as any, "SwapV2"), payload)]);
+    expect(ev.kind).toBe("SwapV2");
+    if (ev.kind !== "SwapV2") throw new Error("unreachable");
+    expect(ev.tokenInIndex).toBe(2); expect(ev.tokenOutIndex).toBe(0);
+    expect(ev.amountIn.toNumber()).toBe(1_000); expect(ev.transferFeeIn.toNumber()).toBe(10); expect(ev.amountInNet.toNumber()).toBe(990);
+    expect(ev.swapFeeRate).toBe(3_000); expect(ev.effectiveFeeRate).toBe(2_500); expect(ev.protocolFeeRate).toBe(1_000); expect(ev.creatorFeeBps).toBe(2_500);
+    expect(ev.feeAmount.toNumber()).toBe(3_000); expect(ev.protocolFeeAmount.toNumber()).toBe(300); expect(ev.creatorFeeAmount.toNumber()).toBe(600);
+    expect(ev.amountOutGross.toNumber()).toBe(2_000); expect(ev.surgeFeeAmount.toNumber()).toBe(5_000); expect(ev.surgeProtocolFeeAmount.toNumber()).toBe(500);
+    expect(ev.surgeCreatorFeeAmount.toNumber()).toBe(1_100); expect(ev.amountOut.toNumber()).toBe(1_900); expect(ev.transferFeeOut.toNumber()).toBe(7_000);
+    expect(ev.inBefore.virtualBalance.toNumber()).toBe(101); expect(ev.inAfter.surgeFeesOwed.toNumber()).toBe(205);
+    expect(ev.outBefore.actualBalance.toNumber()).toBe(302); expect(ev.outAfter.creatorFeesOwed.toNumber()).toBe(404);
     expect(ev.timestamp).toBe(1_700_000_000);
-    expect(ev.surgeFeeAmount.toNumber()).toBe(5_000);
-    expect(ev.transferFeeIn.toNumber()).toBe(6_000);
-    expect(ev.transferFeeOut.toNumber()).toBe(7_000);
+    expect(ev.selloffWindow).toBeNull();
   });
 
-  test("a v5 log without the transfer-fee tail decodes them as 0, not garbage", () => {
+  test("a v6 Swap log (legacy discriminator) is Unknown, never a shifted SwapV2", () => {
     const pk = () => Keypair.generate().publicKey.toBuffer();
-    const payload = Buffer.concat([
-      pk(),
-      pk(),
-      pk(),
-      pk(),
-      u64(1),
-      u64(2),
-      u64(3),
-      u64(4),
-      i64(1_700_000_000),
-      u64(5),
-      // no transfer_fee_in / transfer_fee_out
-    ]);
-    const [ev] = parseCofferPoolEvents([
-      programDataLog(discriminatorOf(cofferPoolIdl as any, "Swap"), payload),
-    ]);
-    if (ev.kind !== "Swap") throw new Error(`expected Swap, got ${ev.kind}`);
-    expect(ev.timestamp).toBe(1_700_000_000);
-    expect(ev.surgeFeeAmount.toNumber()).toBe(5);
-    expect(ev.transferFeeIn.toNumber()).toBe(0);
-    expect(ev.transferFeeOut.toNumber()).toBe(0);
+    const payload = Buffer.concat([pk(), pk(), pk(), pk(), u64(1), u64(2), u64(3), u64(4), i64(1_700_000_000), u64(5), u64(6), u64(7)]);
+    const [ev] = parseCofferPoolEvents([programDataLog(Buffer.from("516ce3becdd00ac4", "hex"), payload)]);
+    expect(ev.kind).toBe("Unknown");
+    if (ev.kind !== "Unknown") throw new Error("unreachable");
+    expect(ev.name).toBe("Swap"); expect(ev.data.replacedBy).toBe("SwapV2");
   });
 });
 
-describe("SingleTokenDepositDirect event (v6 planned zap)", () => {
-  test("IDL field order: no helper, dust_remaining is a vec", () => {
-    expect(idlFields(stldIdl as any, "SingleTokenDepositDirect")).toEqual([
-      "pool", "user", "token_in_index", "amount_in", "allocations", "deposited_amounts", "lp_received", "dust_remaining", "timestamp",
+describe("SingleTokenDepositDirectV2 event (v6.1 planned zap receipt)", () => {
+  test("IDL field order: plan hash + validity, inner_swap_count, dust_remaining is a vec, supply before / after", () => {
+    expect(idlFields(stldIdl as any, "SingleTokenDepositDirectV2")).toEqual([
+      "pool", "user", "token_in_index", "amount_in", "minimum_lp_amount", "allocations", "plan_expected_state", "plan_quoted_at", "plan_valid_until_slot",
+      "inner_swap_count", "deposited_amounts", "lp_received", "dust_remaining", "lp_supply_before", "lp_supply_after", "timestamp",
     ]);
+    const t = (stldIdl as any).types.find((c: any) => c.name === "SingleTokenDepositDirectV2");
+    expect(t.type.fields.find((f: any) => f.name === "dust_remaining").type).toEqual({ vec: "u64" });
+    expect(t.type.fields.find((f: any) => f.name === "plan_expected_state").type).toEqual({ array: ["u8", 32] });
   });
 
-  test("decoder returns the plan, measured debits and per-token dust", () => {
+  test("decoder returns the plan, measured debits, per-token dust and the supply delta", () => {
     const pk = () => Keypair.generate().publicKey.toBuffer();
     const payload = Buffer.concat([
-      pk(), // pool
-      pk(), // user
-      Buffer.from([2]), // token_in_index
-      u64(300), // amount_in
-      vecU64([200, 100, 0]), // allocations (sum = amount_in)
-      vecU64([200, 87, 0]), // deposited_amounts
-      u64(95), // lp_received
-      vecU64([0, 3, 0]), // dust_remaining
-      i64(1_700_000_321), // timestamp
+      pk(), pk(), Buffer.from([2]), u64(300), u64(90), vecU64([200, 100, 0]), Buffer.alloc(32, 7), i64(1_700_000_000), u64(1_000_123), Buffer.from([2]),
+      vecU64([200, 87, 0]), u64(95), vecU64([0, 3, 0]), u64(1_000), u64(1_095), i64(1_700_000_321),
     ]);
-    const [ev] = parseCofferPoolEvents([
-      programDataLog(discriminatorOf(stldIdl as any, "SingleTokenDepositDirect"), payload),
-    ]);
-    if (ev.kind !== "SingleTokenDepositDirect") throw new Error(`got ${ev.kind}`);
-    expect(ev.tokenInIndex).toBe(2);
-    expect(ev.amountIn.toNumber()).toBe(300);
-    expect(ev.allocations.map((b) => b.toNumber())).toEqual([200, 100, 0]);
-    expect(ev.depositedAmounts.map((b) => b.toNumber())).toEqual([200, 87, 0]);
-    expect(ev.lpReceived.toNumber()).toBe(95);
-    expect(ev.dustRemaining.map((b) => b.toNumber())).toEqual([0, 3, 0]);
+    const [ev] = parseCofferPoolEvents([programDataLog(discriminatorOf(stldIdl as any, "SingleTokenDepositDirectV2"), payload)]);
+    if (ev.kind !== "SingleTokenDepositDirectV2") throw new Error(`got ${ev.kind}`);
+    expect(ev.tokenInIndex).toBe(2); expect(ev.amountIn.toNumber()).toBe(300); expect(ev.minimumLpAmount.toNumber()).toBe(90);
+    expect(ev.allocations.map((b) => b.toNumber())).toEqual([200, 100, 0]); expect([...ev.planExpectedState]).toEqual(Array(32).fill(7));
+    expect(ev.planQuotedAt).toBe(1_700_000_000); expect(ev.planValidUntilSlot.toNumber()).toBe(1_000_123); expect(ev.innerSwapCount).toBe(2);
+    expect(ev.depositedAmounts.map((b) => b.toNumber())).toEqual([200, 87, 0]); expect(ev.lpReceived.toNumber()).toBe(95);
+    expect(ev.dustRemaining.map((b) => b.toNumber())).toEqual([0, 3, 0]); expect(ev.lpSupplyAfter.sub(ev.lpSupplyBefore).toNumber()).toBe(95);
     expect(ev.timestamp).toBe(1_700_000_321);
   });
 });
 
-describe("SingleTokenDeposit event (legacy v5 helper route, kept for history)", () => {
-  test("IDL has no slippage field and dust_refunded is a vec", () => {
-    const fields = idlFields(stldIdl as any, "SingleTokenDeposit");
-    expect(fields).toEqual([
-      "helper",
-      "pool",
-      "user",
-      "token_in_index",
-      "amount_in",
-      "allocations",
-      "deposited_amounts",
-      "lp_received",
-      "dust_refunded",
-      "timestamp",
-    ]);
-    const t = (stldIdl as any).types.find((c: any) => c.name === "SingleTokenDeposit");
-    const dust = t.type.fields.find((f: any) => f.name === "dust_refunded");
-    expect(dust.type).toEqual({ vec: "u64" });
-  });
-
-  test("decoder returns per-token dust and a correct timestamp", () => {
+describe("SingleTokenDeposit event (legacy v5 helper route, retired in v6.1)", () => {
+  test("the struct is gone from the IDL and its discriminator decodes as Unknown { retired }", () => {
+    expect((stldIdl as any).types.some((c: any) => c.name === "SingleTokenDeposit")).toBe(false);
+    expect((stldIdl as any).events.some((c: any) => c.name === "SingleTokenDeposit")).toBe(false);
     const pk = () => Keypair.generate().publicKey.toBuffer();
-    const payload = Buffer.concat([
-      pk(), // helper
-      pk(), // pool
-      pk(), // user
-      Buffer.from([1]), // token_in_index
-      u64(9_999), // amount_in
-      vecU64([10, 20, 30]), // allocations
-      vecU64([11, 21, 31]), // deposited_amounts
-      u64(4_242), // lp_received
-      vecU64([1, 2, 3]), // dust_refunded — Vec, not scalar
-      i64(1_700_000_123), // timestamp
-    ]);
-    const [ev] = parseCofferPoolEvents([
-      programDataLog(discriminatorOf(stldIdl as any, "SingleTokenDeposit"), payload),
-    ]);
-    if (ev.kind !== "SingleTokenDeposit") throw new Error(`got ${ev.kind}`);
-    expect(ev.tokenInIndex).toBe(1);
-    expect(ev.amountIn.toNumber()).toBe(9_999);
-    expect(ev.allocations.map((b) => b.toNumber())).toEqual([10, 20, 30]);
-    expect(ev.depositedAmounts.map((b) => b.toNumber())).toEqual([11, 21, 31]);
-    expect(ev.lpReceived.toNumber()).toBe(4_242);
-    expect(ev.dustRefunded.map((b) => b.toNumber())).toEqual([1, 2, 3]);
-    // If the phantom u32 slippage read came back, everything after amount_in
-    // shifts by 4 bytes and this timestamp is wrong.
-    expect(ev.timestamp).toBe(1_700_000_123);
+    const payload = Buffer.concat([pk(), pk(), pk(), Buffer.from([1]), u64(9_999), vecU64([10, 20, 30]), vecU64([11, 21, 31]), u64(4_242), vecU64([1, 2, 3]), i64(1_700_000_123)]);
+    const [ev] = parseCofferPoolEvents([programDataLog(Buffer.from("d7368968db27a4eb", "hex"), payload)]);
+    if (ev.kind !== "Unknown") throw new Error(`got ${ev.kind}`);
+    expect(ev.name).toBe("SingleTokenDeposit"); expect(ev.data.retired).toBe(true);
   });
 });
 

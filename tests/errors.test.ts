@@ -4,9 +4,13 @@ import { contractErrorMapForTests, toSdkError } from "../src/utils/errors";
 describe("CONTRACT_ERROR_MAP", () => {
   test("covers every coffer-pool IDL error code", () => {
     const map = contractErrorMapForTests();
+    // v6.1 (T22): 6104–6106 carry an SDK user-facing message instead of the terse IDL `msg`.
+    const userFacing = new Set(["VirtualBalanceNotAboveActual", "VirtualBalanceBelowFloor", "InvalidVirtualRescale"]);
     for (const anchorError of cofferPoolIdl.errors) {
       expect(map[anchorError.code]).toBeDefined();
-      expect(map[anchorError.code].message).toBe(anchorError.msg);
+      expect(map[anchorError.code].name).toBe(anchorError.name);
+      if (userFacing.has(anchorError.name)) expect(map[anchorError.code].message.length).toBeGreaterThan(anchorError.msg.length);
+      else expect(map[anchorError.code].message).toBe(anchorError.msg);
     }
   });
 

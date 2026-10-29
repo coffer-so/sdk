@@ -56,8 +56,9 @@ fields and one event the indexer must learn before v6 pools are indexed:
   off by the fees on Token-2022 fee mints.
 - `SingleTokenDepositDirect` (planned zap) replaces `SingleTokenDeposit`
   (helper route): no helper PDA, `dust_remaining` stays in the user's accounts,
-  `deposited_amounts` are measured join debits. Both decoders ship in
-  `parseCofferPoolEvents`/`parseContractEvents`.
+  `deposited_amounts` are measured join debits. v6.1 (T11) re-cut it again as
+  `SingleTokenDepositDirectV2` and retired `SingleTokenDeposit`; the v6.1
+  event set and the backend column mapping are in [EVENTS.md](EVENTS.md).
 - `PoolInitialized.pool_id`, `RangeManagerConfigSet.old/new_min_leverage_bps`.
 
 Pricing and APY code that replays `calc_out_given_in` must switch to the v6

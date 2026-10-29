@@ -571,6 +571,27 @@ export class AdminClient {
     });
   }
 
+  /**
+   * T22: `pool_rescale_virtual_balances(multiplier)` — multiply every slot's
+   * `virtual_balance` by `multiplier ≥ 2` (price-neutral; repairs a legacy
+   * pool at `V ≤ A` or below the per-slot floor). Admin only, D-class: direct
+   * while `Treasury.delay_secs == 0`, else queue
+   * `ProtocolActions.poolRescaleVirtualBalances` (kind 13). Allowed on a
+   * frozen pool. Preview with `CofferPoolClient.quoteRescaleVirtualBalances`.
+   */
+  poolRescaleVirtualBalancesIx(admin: PublicKey, config: PublicKey, pool: PublicKey, multiplier: BN | bigint | number) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_rescale_virtual_balances", { multiplier: rescaleMultiplierArg(multiplier) }, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** T22: `execute_pool_rescale_virtual_balances` for a ready kind-13 slot (the stored `{ pool, multiplier }` is applied). */
+  executePoolRescaleVirtualBalancesIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_rescale_virtual_balances", {}, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
   // ── v6.1 (T3) protocol-admin cooldown queue ──────────────────────────────
 
   /**
@@ -766,4 +787,12 @@ function quadRemaining(t: PoolTokenTransferAccounts): AccountMeta[] {
 function assertTailMeta(meta: AccountMeta): AccountMeta {
   if (meta.isSigner) throw new Error("AdminClient: transfer-hook / memo tail accounts cannot be signers");
   return { pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable };
+}
+
+/** `rescale_virtual_balances` multiplier as the coder's `u64` (`InvalidVirtualRescale` below 2 mirrors the program). */
+export function rescaleMultiplierArg(multiplier: BN | bigint | number): BN {
+  const m = BN.isBN(multiplier) ? multiplier : new BN(multiplier.toString());
+  if (m.isNeg() || m.bitLength() > 64) throw new Error("rescale_virtual_balances: multiplier must be an unsigned 64-bit integer");
+  if (m.ltn(2)) throw new Error("rescale_virtual_balances: multiplier must be ≥ 2 (InvalidVirtualRescale)");
+  return m;
 }

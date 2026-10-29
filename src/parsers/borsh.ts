@@ -124,6 +124,40 @@ export class BorshReader {
     return out;
   }
 
+  /** Borsh `Vec<bool>` (one canonical byte per entry). */
+  vecBool(): boolean[] {
+    const len = this.u32();
+    this.requireBytes(len);
+    const out: boolean[] = [];
+    for (let i = 0; i < len; i++) out.push(this.bool());
+    return out;
+  }
+
+  /** Borsh `Vec<T>` with a per-element reader (nested structs). */
+  vec<T>(read: (r: BorshReader) => T): T[] {
+    const len = this.u32();
+    if (len > this.remaining()) throw new Error(`BorshReader: vector length ${len} exceeds the ${this.remaining()} remaining bytes`);
+    const out: T[] = [];
+    for (let i = 0; i < len; i++) out.push(read(this));
+    return out;
+  }
+
+  /** Borsh fixed `[u8; n]`. */
+  u8Array(n: number): Buffer {
+    this.requireBytes(n);
+    const b = Buffer.from(this.buf.subarray(this.offset, this.offset + n));
+    this.offset += n;
+    return b;
+  }
+
+  /** Borsh `Option<T>`: tag byte `0` ⇒ `null`, `1` ⇒ value; any other tag is a wire error. */
+  option<T>(read: (r: BorshReader) => T): T | null {
+    const tag = this.u8();
+    if (tag === 0) return null;
+    if (tag !== 1) throw new Error(`BorshReader: invalid Option tag ${tag}`);
+    return read(this);
+  }
+
   private requireBytes(length: number): void {
     if (!Number.isSafeInteger(length) || length < 0 || length > this.remaining()) {
       throw new Error(`BorshReader: expected ${length} bytes at offset ${this.offset}, ${this.remaining()} remain`);

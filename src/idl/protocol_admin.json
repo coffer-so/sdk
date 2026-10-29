@@ -39,13 +39,15 @@
     {
       "name": "cancel_action",
       "docs": [
-        "Clear pending slot `kind` (0 = admin transfer … 12 = program op).",
-        "`NoPendingAction` when empty.",
+        "Clear pending slot `kind` (0 = admin transfer … 12 = program op,",
+        "13 = pool virtual-balance rescale). `NoPendingAction` when empty.",
         "",
         "# Authority",
         "`treasury.admin` OR `treasury.supervisor` (cancelling only ever",
         "restricts — the guardian key may stop a queued action, including a",
-        "stolen-key admin transfer)."
+        "stolen-key admin transfer) — EXCEPT kind 2 `SetSupervisor`, which is",
+        "`treasury.admin` only (v6.1 T22): the supervisor may not veto its own",
+        "revocation / replacement."
       ],
       "discriminator": [
         228,
@@ -294,6 +296,44 @@
         },
         {
           "name": "config",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_pool_rescale_virtual_balances",
+      "docs": [
+        "v6.1 (T22): execute the pending `PoolRescaleVirtualBalances` (kind",
+        "13) on the proposed pool with the proposed multiplier."
+      ],
+      "discriminator": [
+        122,
+        251,
+        145,
+        12,
+        101,
+        116,
+        230,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
           "writable": true
         },
         {
@@ -1371,6 +1411,61 @@
       ]
     },
     {
+      "name": "pool_rescale_virtual_balances",
+      "docs": [
+        "v6.1 (T22): price-neutral repair of a pool that violates the strict",
+        "leverage invariant (`virtual_balance > actual_balance` on every",
+        "slot, e.g. a migrated legacy pool at `V == A`): multiply every",
+        "slot's virtual balance by `multiplier` (`>= 2`), signing",
+        "`coffer_pool::rescale_virtual_balances` as the Treasury PDA. Pair",
+        "prices are unchanged; depth / leverage grows. Works on a frozen pool",
+        "so the repair can precede the unfreeze.",
+        "",
+        "D-class — direct only at `delay_secs == 0`, otherwise",
+        "`propose_action(PoolRescaleVirtualBalances { pool, multiplier })` →",
+        "`execute_pool_rescale_virtual_balances` (same `apply`).",
+        "",
+        "# Authority",
+        "`treasury.admin` ONLY (raising a pool's leverage is a governance",
+        "judgement with reserve-depletion exposure; never the supervisor)."
+      ],
+      "discriminator": [
+        10,
+        79,
+        77,
+        230,
+        227,
+        0,
+        208,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "multiplier",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "pool_set_hook_disabled",
       "docs": [
         "Flip a pool's native-hook emergency switch (v6.1, T9), signing",
@@ -1772,9 +1867,11 @@
         "Set or revoke the `supervisor` pubkey on Treasury.",
         "",
         "Supervisor can call ONLY the restricting circuit breakers",
-        "(`freeze_pools`, `pool_set_pool_enabled(false)`,",
-        "`pool_set_token_active(…, false)`, `pool_disable_range_manager`) and",
-        "`cancel_action` — nothing else (see `crate::authority`).",
+        "(`freeze_pools`, `pool_set_token_active(…, false)`,",
+        "`pool_disable_range_manager`) and `cancel_action` for every kind",
+        "except `SetSupervisor` (its own revocation, v6.1 T22) — nothing else",
+        "(see `crate::authority`). `pool_set_pool_enabled` is admin-only in",
+        "both directions (the supervisor freezes through `freeze_pools`).",
         "Single-step: admin sets it directly, no claim flow.",
         "Pass `Pubkey::default()` to revoke.",
         "",
@@ -2122,16 +2219,16 @@
   ],
   "events": [
     {
-      "name": "ActionCancelled",
+      "name": "ActionCancelledV2",
       "discriminator": [
-        121,
-        213,
-        205,
-        29,
-        226,
-        181,
-        230,
-        13
+        216,
+        218,
+        211,
+        91,
+        123,
+        182,
+        227,
+        152
       ]
     },
     {
@@ -2174,42 +2271,42 @@
       ]
     },
     {
-      "name": "AdminTransferInitiated",
+      "name": "AdminTransferInitiatedV2",
       "discriminator": [
-        157,
-        255,
-        0,
-        92,
-        52,
-        106,
-        16,
-        156
+        54,
+        232,
+        234,
+        14,
+        252,
+        123,
+        120,
+        193
       ]
     },
     {
-      "name": "AdminTransferred",
+      "name": "AdminTransferredV2",
       "discriminator": [
-        255,
-        147,
-        182,
-        5,
+        14,
+        187,
         199,
-        217,
-        38,
-        179
+        22,
+        17,
+        238,
+        79,
+        59
       ]
     },
     {
-      "name": "FundsWithdrawn",
+      "name": "FundsWithdrawnV2",
       "discriminator": [
-        56,
-        130,
-        230,
-        154,
-        35,
-        92,
-        11,
-        118
+        96,
+        121,
+        42,
+        227,
+        10,
+        232,
+        179,
+        180
       ]
     },
     {
@@ -2226,55 +2323,55 @@
       ]
     },
     {
-      "name": "PoolConfigInitialized",
+      "name": "PoolConfigInitializedV2",
       "discriminator": [
-        229,
-        220,
-        87,
-        241,
-        175,
-        165,
-        198,
-        28
-      ]
-    },
-    {
-      "name": "PoolDebugWithdrawn",
-      "discriminator": [
-        248,
-        239,
-        66,
-        141,
-        207,
-        160,
-        148,
-        123
-      ]
-    },
-    {
-      "name": "PoolEnabledSet",
-      "discriminator": [
-        176,
-        100,
-        94,
-        138,
+        73,
+        230,
         196,
-        137,
-        18,
-        151
+        34,
+        200,
+        193,
+        126,
+        141
       ]
     },
     {
-      "name": "PoolFeesCollected",
+      "name": "PoolDebugWithdrawnV2",
       "discriminator": [
+        70,
+        201,
         218,
+        38,
+        77,
+        167,
+        192,
+        47
+      ]
+    },
+    {
+      "name": "PoolEnabledSetV2",
+      "discriminator": [
+        55,
+        47,
+        160,
+        186,
+        127,
+        200,
+        155,
+        39
+      ]
+    },
+    {
+      "name": "PoolFeesCollectedV2",
+      "discriminator": [
+        237,
+        131,
+        105,
+        99,
+        188,
         74,
-        163,
-        42,
-        8,
-        152,
-        57,
-        242
+        7,
+        205
       ]
     },
     {
@@ -2291,68 +2388,81 @@
       ]
     },
     {
-      "name": "PoolProtocolAdminTransferAccepted",
+      "name": "PoolMigratedToV5ViaTreasury",
       "discriminator": [
-        235,
-        91,
-        63,
-        65,
-        174,
-        42,
-        55,
-        129
+        1,
+        170,
+        255,
+        209,
+        2,
+        50,
+        46,
+        143
       ]
     },
     {
-      "name": "PoolProtocolAdminTransferCancelled",
+      "name": "PoolProtocolAdminTransferAcceptedV2",
       "discriminator": [
-        206,
-        165,
-        112,
-        113,
-        203,
-        64,
-        37,
-        151
-      ]
-    },
-    {
-      "name": "PoolProtocolAdminTransferInitiated",
-      "discriminator": [
-        37,
+        191,
+        250,
+        116,
+        104,
         142,
-        248,
-        132,
-        123,
-        135,
+        42,
+        233,
+        124
+      ]
+    },
+    {
+      "name": "PoolProtocolAdminTransferCancelledV2",
+      "discriminator": [
+        165,
+        118,
+        161,
+        159,
+        247,
+        41,
+        134,
+        218
+      ]
+    },
+    {
+      "name": "PoolProtocolAdminTransferInitiatedV2",
+      "discriminator": [
+        222,
+        182,
+        113,
+        166,
+        175,
+        172,
+        211,
+        197
+      ]
+    },
+    {
+      "name": "PoolProtocolFeeRateSetV2",
+      "discriminator": [
+        153,
+        30,
+        128,
+        172,
+        169,
+        0,
+        45,
+        99
+      ]
+    },
+    {
+      "name": "PoolRangeManagerDisabledV2",
+      "discriminator": [
+        9,
+        112,
+        217,
+        153,
+        39,
+        146,
         94,
-        22
-      ]
-    },
-    {
-      "name": "PoolProtocolFeeRateSet",
-      "discriminator": [
-        189,
-        101,
-        241,
-        38,
-        49,
-        174,
-        49,
-        23
-      ]
-    },
-    {
-      "name": "PoolRangeManagerDisabled",
-      "discriminator": [
-        147,
-        23,
-        5,
-        147,
-        19,
-        71,
-        144,
-        27
+        242
       ]
     },
     {
@@ -2369,107 +2479,120 @@
       ]
     },
     {
-      "name": "PoolSwapsEnabledSet",
+      "name": "PoolSwapsEnabledSetV2",
       "discriminator": [
-        115,
-        111,
-        238,
-        152,
-        235,
-        26,
-        198,
-        168
-      ]
-    },
-    {
-      "name": "PoolTokenActiveSet",
-      "discriminator": [
-        90,
-        223,
-        24,
-        229,
-        249,
-        84,
-        133,
-        43
-      ]
-    },
-    {
-      "name": "PoolsFrozen",
-      "discriminator": [
-        113,
-        120,
-        15,
         95,
-        223,
-        23,
-        172,
-        162
+        214,
+        209,
+        101,
+        230,
+        119,
+        199,
+        190
       ]
     },
     {
-      "name": "PoolsUnfrozen",
+      "name": "PoolTokenActiveSetV2",
       "discriminator": [
-        124,
-        35,
-        103,
-        45,
-        1,
-        42,
-        62,
-        84
+        201,
+        243,
+        168,
+        123,
+        200,
+        68,
+        7,
+        64
       ]
     },
     {
-      "name": "ProgramClosed",
+      "name": "PoolVirtualBalancesRescaled",
       "discriminator": [
-        3,
-        105,
-        195,
-        187,
-        122,
-        1,
-        142,
-        8
+        226,
+        77,
+        97,
+        101,
+        51,
+        31,
+        17,
+        31
       ]
     },
     {
-      "name": "ProgramFrozen",
+      "name": "PoolsFrozenV2",
       "discriminator": [
+        55,
+        242,
+        196,
+        147,
+        189,
+        180,
         173,
-        128,
-        53,
-        239,
-        15,
-        38,
-        235,
-        203
+        81
       ]
     },
     {
-      "name": "ProgramUpgraded",
+      "name": "PoolsUnfrozenV2",
+      "discriminator": [
+        42,
+        146,
+        170,
+        163,
+        37,
+        199,
+        36,
+        92
+      ]
+    },
+    {
+      "name": "ProgramClosedV2",
+      "discriminator": [
+        174,
+        244,
+        231,
+        26,
+        115,
+        255,
+        101,
+        210
+      ]
+    },
+    {
+      "name": "ProgramFrozenV2",
+      "discriminator": [
+        243,
+        122,
+        184,
+        59,
+        89,
+        34,
+        20,
+        239
+      ]
+    },
+    {
+      "name": "ProgramUpgradedV2",
+      "discriminator": [
+        151,
+        209,
+        237,
+        174,
+        87,
+        31,
+        177,
+        153
+      ]
+    },
+    {
+      "name": "SolWithdrawnV2",
       "discriminator": [
         116,
-        102,
-        220,
-        4,
-        220,
-        250,
-        209,
-        13
-      ]
-    },
-    {
-      "name": "SolWithdrawn",
-      "discriminator": [
-        145,
-        249,
-        69,
-        48,
-        206,
-        86,
-        91,
-        66
+        65,
+        20,
+        23,
+        219,
+        198,
+        83,
+        44
       ]
     },
     {
@@ -2499,16 +2622,16 @@
       ]
     },
     {
-      "name": "TokenRegistered",
+      "name": "TokenRegisteredV2",
       "discriminator": [
-        210,
-        38,
-        249,
-        182,
-        79,
-        112,
-        240,
-        225
+        24,
+        7,
+        196,
+        150,
+        11,
+        43,
+        183,
+        183
       ]
     },
     {
@@ -2525,16 +2648,16 @@
       ]
     },
     {
-      "name": "TreasuryInitialized",
+      "name": "TreasuryInitializedV2",
       "discriminator": [
-        199,
-        73,
-        174,
-        205,
-        59,
-        145,
-        55,
-        179
+        50,
+        149,
+        100,
+        124,
+        50,
+        45,
+        71,
+        165
       ]
     },
     {
@@ -2551,16 +2674,16 @@
       ]
     },
     {
-      "name": "UpgradeAuthorityTransferred",
+      "name": "UpgradeAuthorityTransferredV2",
       "discriminator": [
-        133,
-        198,
-        107,
-        90,
-        50,
-        182,
-        192,
-        64
+        26,
+        17,
+        41,
+        183,
+        215,
+        74,
+        140,
+        192
       ]
     }
   ],
@@ -2663,10 +2786,12 @@
   ],
   "types": [
     {
-      "name": "ActionCancelled",
+      "name": "ActionCancelledV2",
       "docs": [
-        "Emitted by `cancel_action` (admin or supervisor — the supervisor may",
-        "cancel because cancelling only ever restricts)."
+        "`cancel_action` (actor: `admin` or `supervisor` — cancelling only ever",
+        "restricts; `SetSupervisor` is admin-only): slot `kind` cleared (kind 0",
+        "additionally emits `AdminTransferCancelled`). Re-cut of",
+        "`ActionCancelled` (+ `actor_kind`)."
       ],
       "type": {
         "kind": "struct",
@@ -2678,6 +2803,10 @@
           {
             "name": "authority",
             "type": "pubkey"
+          },
+          {
+            "name": "actor_kind",
+            "type": "u8"
           },
           {
             "name": "kind",
@@ -2697,8 +2826,8 @@
     {
       "name": "ActionExecuted",
       "docs": [
-        "Emitted by every `execute_*` next to the typed event of the applied",
-        "change (`FundsWithdrawn`, `ProgramUpgraded`, `PoolsUnfrozen`, …)."
+        "Secondary event of every `execute_*` (next to the typed event of the",
+        "applied change): slot `kind` was cleared."
       ],
       "type": {
         "kind": "struct",
@@ -2733,10 +2862,9 @@
     {
       "name": "ActionProposed",
       "docs": [
-        "Emitted by `propose_action`: slot `kind` now holds `payload`",
-        "(`borsh(ProtocolAction)`, variant tag first — the same values the",
-        "account stores inline, or the full vectors for the hash-pinned kinds)",
-        "and becomes executable at `eta`. Re-proposing a kind overwrites it."
+        "`propose_action` (actor: `admin`): slot `kind` now holds `payload`",
+        "(`borsh(ProtocolAction)`, variant tag first) and becomes executable at",
+        "`eta`. Re-proposing a kind overwrites it."
       ],
       "type": {
         "kind": "struct",
@@ -2752,7 +2880,7 @@
           {
             "name": "kind",
             "docs": [
-              "`ProtocolActionKind` as `u8` (1 = SetDelay … 12 = ProgramOp)."
+              "`ProtocolActionKind` as `u8` (1 = SetDelay … 13 = PoolRescale…)."
             ],
             "type": "u8"
           },
@@ -2777,6 +2905,11 @@
     },
     {
       "name": "AdminTransferCancelled",
+      "docs": [
+        "`cancel_admin_transfer` / `cancel_action(kind 0)` (actor: `admin`, or",
+        "the supervisor through `cancel_action`): `pending_admin` cleared.",
+        "Unchanged since v6."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -2800,7 +2933,12 @@
       }
     },
     {
-      "name": "AdminTransferInitiated",
+      "name": "AdminTransferInitiatedV2",
+      "docs": [
+        "`initiate_admin_transfer` (actor: `admin`): `pending_admin`",
+        "`previous_pending_admin` → `pending_admin`, `pending_admin_eta` → `eta`",
+        "(T3). Re-cut of `AdminTransferInitiated`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -2813,26 +2951,31 @@
             "type": "pubkey"
           },
           {
+            "name": "previous_pending_admin",
+            "type": "pubkey"
+          },
+          {
             "name": "pending_admin",
             "type": "pubkey"
           },
           {
-            "name": "timestamp",
+            "name": "eta",
             "type": "i64"
           },
           {
-            "name": "eta",
-            "docs": [
-              "v6.1 (T3, appended): earliest `accept_admin_transfer` time",
-              "(`now + delay_secs`)."
-            ],
+            "name": "timestamp",
             "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "AdminTransferred",
+      "name": "AdminTransferredV2",
+      "docs": [
+        "`accept_admin_transfer` (actor: the pending admin): `admin` old → new,",
+        "`admin_epoch` old → new (every pending proposal voided, T3). Re-cut of",
+        "`AdminTransferred`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -2849,22 +2992,27 @@
             "type": "pubkey"
           },
           {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "old_epoch",
+            "type": "u32"
           },
           {
             "name": "new_epoch",
-            "docs": [
-              "v6.1 (T3, appended): `admin_epoch` after the change; every pending",
-              "proposal of the previous admin was voided."
-            ],
             "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "FundsWithdrawn",
+      "name": "FundsWithdrawnV2",
+      "docs": [
+        "`withdraw` / `execute_withdraw` (actor: `admin`): `amount` of `mint`",
+        "moved from the Treasury `vault` to `recipient`. Re-cut of",
+        "`FundsWithdrawn` (+ vault, vault balance before / after)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -2881,11 +3029,23 @@
             "type": "pubkey"
           },
           {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
             "name": "recipient",
             "type": "pubkey"
           },
           {
             "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "vault_balance_before",
+            "type": "u64"
+          },
+          {
+            "name": "vault_balance_after",
             "type": "u64"
           },
           {
@@ -2946,6 +3106,30 @@
                 32
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingPoolRescale",
+      "docs": [
+        "v6.1 (T22): `pool_rescale_virtual_balances(pool, multiplier)` — the",
+        "price-neutral repair of a pool violating the strict leverage invariant."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "multiplier",
+            "type": "u64"
           }
         ]
       }
@@ -3166,8 +3350,8 @@
     {
       "name": "PoolAltInitializedByTreasury",
       "docs": [
-        "Emitted when the operator provisions a per-pool ALT via",
-        "`pool_initialize_alt`. Counterpart to coffer_pools `PoolAltInitialized`."
+        "`pool_initialize_alt` (actor: `admin`) → `PoolAltInitialized`.",
+        "Unchanged."
       ],
       "type": {
         "kind": "struct",
@@ -3196,12 +3380,21 @@
       }
     },
     {
-      "name": "PoolConfigInitialized",
+      "name": "PoolConfigInitializedV2",
+      "docs": [
+        "`pool_initialize_config` (actor: `admin`) → `ConfigInitializedV2`.",
+        "Re-cut of `PoolConfigInitialized` (+ `admin`; − the rate, which the",
+        "inner event carries)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -3209,10 +3402,6 @@
             "type": "pubkey"
           },
           {
-            "name": "default_protocol_fee_rate",
-            "type": "u16"
-          },
-          {
             "name": "timestamp",
             "type": "i64"
           }
@@ -3220,12 +3409,21 @@
       }
     },
     {
-      "name": "PoolDebugWithdrawn",
+      "name": "PoolDebugWithdrawnV2",
+      "docs": [
+        "`pool_debug_withdraw_liquidity` / `execute_pool_debug_withdraw` (actor:",
+        "`admin`) → `DebugLiquidityWithdrawnV2`. Re-cut of `PoolDebugWithdrawn`",
+        "(+ `admin`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -3240,7 +3438,12 @@
       }
     },
     {
-      "name": "PoolEnabledSet",
+      "name": "PoolEnabledSetV2",
+      "docs": [
+        "`pool_set_pool_enabled` / `execute_pool_set_pool_enabled` (actor:",
+        "`admin`) → `PoolEnabledUpdated`. Re-cut of `PoolEnabledSet` (−",
+        "duplicate `enabled`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -3249,23 +3452,15 @@
             "type": "pubkey"
           },
           {
-            "name": "pool",
+            "name": "admin",
             "type": "pubkey"
           },
           {
-            "name": "enabled",
-            "type": "bool"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "pool",
+            "type": "pubkey"
           },
           {
             "name": "old_enabled",
-            "docs": [
-              "Before/after of `pool.pool_enabled` (read pre-CPI) + acting admin.",
-              "Appended (wire append-only); `enabled` == `new_enabled`."
-            ],
             "type": "bool"
           },
           {
@@ -3273,19 +3468,28 @@
             "type": "bool"
           },
           {
-            "name": "admin",
-            "type": "pubkey"
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "PoolFeesCollected",
+      "name": "PoolFeesCollectedV2",
+      "docs": [
+        "`pool_collect_protocol_fees` (actor: `admin`) →",
+        "`ProtocolFeesCollectedV2` (amounts + recipients). Re-cut of",
+        "`PoolFeesCollected` (+ `admin`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -3302,8 +3506,7 @@
     {
       "name": "PoolHookDisabledSet",
       "docs": [
-        "v6.1 (T9): `pool_set_hook_disabled` — the protocol admin flipped a",
-        "pool's native-hook emergency switch (CPI `coffer_pool::set_hook_disabled`)."
+        "`pool_set_hook_disabled` (actor: `admin`, T9) → `HookDisabledSet`."
       ],
       "type": {
         "kind": "struct",
@@ -3330,9 +3533,6 @@
           },
           {
             "name": "admin",
-            "docs": [
-              "`treasury.admin` (admin only — no supervisor path)."
-            ],
             "type": "pubkey"
           },
           {
@@ -3343,12 +3543,52 @@
       }
     },
     {
-      "name": "PoolProtocolAdminTransferAccepted",
+      "name": "PoolMigratedToV5ViaTreasury",
+      "docs": [
+        "`pool_migrate_to_v5` (actor: `admin`) → `PoolMigrationV5Applied`. New",
+        "in v6.1 (the wrapper emitted nothing before)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "reactivate_tokens",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolProtocolAdminTransferAcceptedV2",
+      "docs": [
+        "`pool_accept_protocol_admin_transfer` (actor: `admin`) →",
+        "`ProtocolAdminTransferred`. Re-cut (+ `admin`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -3363,12 +3603,20 @@
       }
     },
     {
-      "name": "PoolProtocolAdminTransferCancelled",
+      "name": "PoolProtocolAdminTransferCancelledV2",
+      "docs": [
+        "`pool_cancel_protocol_admin_transfer` (actor: `admin`) →",
+        "`ProtocolAdminTransferCancelled`. Re-cut (+ `admin`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -3383,12 +3631,21 @@
       }
     },
     {
-      "name": "PoolProtocolAdminTransferInitiated",
+      "name": "PoolProtocolAdminTransferInitiatedV2",
+      "docs": [
+        "`pool_initiate_protocol_admin_transfer` /",
+        "`execute_pool_protocol_admin_transfer` (actor: `admin`) →",
+        "`ProtocolAdminTransferInitiated`. Re-cut (+ `admin`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -3407,53 +3664,11 @@
       }
     },
     {
-      "name": "PoolProtocolFeeRateSet",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "treasury",
-            "type": "pubkey"
-          },
-          {
-            "name": "pool",
-            "type": "pubkey"
-          },
-          {
-            "name": "protocol_fee_rate",
-            "type": "u16"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "old_rate",
-            "docs": [
-              "Before/after of `pool.protocol_fee_rate` (read pre-CPI) + acting",
-              "admin. Appended (wire append-only); `protocol_fee_rate` == `new_rate`."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "new_rate",
-            "type": "u16"
-          },
-          {
-            "name": "admin",
-            "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PoolRangeManagerDisabled",
+      "name": "PoolProtocolFeeRateSetV2",
       "docs": [
-        "Emitted by `pool_disable_range_manager` (v6.1, T6): the Treasury PDA",
-        "forced `pool.range_manager_enabled = false` through coffer-pool's",
-        "protocol-admin disable path; `manager` (the pubkey, left intact) and",
-        "`old_enabled` are the pre-CPI values. Not emitted on a locked pool (the",
-        "CPI fails with `RangeManagerLocked` before any write)."
+        "`pool_set_protocol_fee_rate` / `execute_pool_set_protocol_fee_rate`",
+        "(actor: `admin`) → `ProtocolFeeRateUpdated`. `old_rate` read pre-CPI.",
+        "Re-cut of `PoolProtocolFeeRateSet` (− duplicate `protocol_fee_rate`)."
       ],
       "type": {
         "kind": "struct",
@@ -3463,14 +3678,53 @@
             "type": "pubkey"
           },
           {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
             "name": "pool",
             "type": "pubkey"
           },
           {
+            "name": "old_rate",
+            "type": "u16"
+          },
+          {
+            "name": "new_rate",
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolRangeManagerDisabledV2",
+      "docs": [
+        "`pool_disable_range_manager` (actor: `admin` or `supervisor`, T6):",
+        "`range_manager_enabled` `old_enabled` → false with the pubkey left",
+        "intact → `RangeManagerSetV2`. Re-cut of `PoolRangeManagerDisabled`",
+        "(+ `actor_kind`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
             "name": "authority",
-            "docs": [
-              "`treasury.admin` or `treasury.supervisor` (restricting direction)."
-            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "actor_kind",
+            "type": "u8"
+          },
+          {
+            "name": "pool",
             "type": "pubkey"
           },
           {
@@ -3490,6 +3744,11 @@
     },
     {
       "name": "PoolSolWithdrawnViaTreasury",
+      "docs": [
+        "`pool_withdraw_sol` / `execute_pool_withdraw_sol` (actor: `admin`):",
+        "wrapper around `coffer_pool::withdraw_sol` (`PoolSolWithdrawnV2`).",
+        "Unchanged."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -3521,7 +3780,11 @@
       }
     },
     {
-      "name": "PoolSwapsEnabledSet",
+      "name": "PoolSwapsEnabledSetV2",
+      "docs": [
+        "`pool_set_swaps_enabled` (actor: `admin`) → `SwapsEnabledUpdatedV2`.",
+        "Re-cut of `PoolSwapsEnabledSet` (− duplicate `enabled`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -3530,23 +3793,15 @@
             "type": "pubkey"
           },
           {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
             "name": "pool",
             "type": "pubkey"
           },
           {
-            "name": "enabled",
-            "type": "bool"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
             "name": "old_enabled",
-            "docs": [
-              "Before/after of `pool.swaps_enabled` (read pre-CPI) + acting admin.",
-              "Appended (wire append-only); `enabled` == `new_enabled`."
-            ],
             "type": "bool"
           },
           {
@@ -3554,17 +3809,62 @@
             "type": "bool"
           },
           {
-            "name": "admin",
-            "type": "pubkey"
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "PoolTokenActiveSet",
+      "name": "PoolTokenActiveSetV2",
       "docs": [
-        "Emitted when admin/supervisor flips a token's input kill switch via",
-        "`pool_set_token_active`."
+        "`pool_set_token_active` (actor: `admin` or `supervisor` — the",
+        "supervisor may only deactivate) → `TokenActiveSetV2`. Re-cut of",
+        "`PoolTokenActiveSet` (+ `actor_kind`; − duplicate `is_active`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "actor_kind",
+            "type": "u8"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_index",
+            "type": "u8"
+          },
+          {
+            "name": "old_is_active",
+            "type": "bool"
+          },
+          {
+            "name": "new_is_active",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolVirtualBalancesRescaled",
+      "docs": [
+        "`pool_rescale_virtual_balances` / `execute_pool_rescale_virtual_balances`",
+        "(actor: `admin`, T22) → `VirtualBalancesRescaled` (per-slot old / new)."
       ],
       "type": {
         "kind": "struct",
@@ -3578,43 +3878,67 @@
             "type": "pubkey"
           },
           {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "multiplier",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolsFrozenV2",
+      "docs": [
+        "`freeze_pools` (actor: `admin` or `supervisor`): every listed pool's",
+        "`pool_enabled` → false; `old_enabled[i]` is the pre-CPI value (a",
+        "re-freeze is idempotent and still logged). Re-cut of `PoolsFrozen`",
+        "(+ `actor_kind`; − `pool_count`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
             "name": "authority",
             "type": "pubkey"
           },
           {
-            "name": "token_index",
+            "name": "actor_kind",
             "type": "u8"
           },
           {
-            "name": "is_active",
-            "type": "bool"
+            "name": "pools",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "old_enabled",
+            "type": {
+              "vec": "bool"
+            }
           },
           {
             "name": "timestamp",
             "type": "i64"
-          },
-          {
-            "name": "old_is_active",
-            "docs": [
-              "Before/after of `tokens[token_index].config.is_active` (read",
-              "pre-CPI). Appended (wire append-only); `is_active` == `new_is_active`."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "new_is_active",
-            "type": "bool"
           }
         ]
       }
     },
     {
-      "name": "PoolsFrozen",
+      "name": "PoolsUnfrozenV2",
       "docs": [
-        "Emitted by `freeze_pools` after every per-pool CPI has succeeded.",
-        "`pool_count` matches the number of `[config, pool]` pairs the caller",
-        "passed via `remaining_accounts`. `authority` is the actual signer —",
-        "either `treasury.admin` or `treasury.supervisor`."
+        "`unfreeze_pools` / `execute_unfreeze_pools` (actor: `admin` only).",
+        "Mirrors `PoolsFrozenV2`."
       ],
       "type": {
         "kind": "struct",
@@ -3628,22 +3952,11 @@
             "type": "pubkey"
           },
           {
-            "name": "pool_count",
-            "type": "u32"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "actor_kind",
+            "type": "u8"
           },
           {
             "name": "pools",
-            "docs": [
-              "Which pools were touched, and what `pool_enabled` was BEFORE the",
-              "call — index-aligned. Without these an indexer cannot tell a real",
-              "transition from an idempotent re-freeze, nor which pools a batch",
-              "actually covered. Appended (wire append-only), matching the",
-              "old/new convention the rest of this program follows."
-            ],
             "type": {
               "vec": "pubkey"
             }
@@ -3653,14 +3966,20 @@
             "type": {
               "vec": "bool"
             }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "PoolsUnfrozen",
+      "name": "ProgramClosedV2",
       "docs": [
-        "Emitted by `unfreeze_pools`. Mirrors `PoolsFrozen`."
+        "`close_pool_program` / `execute_close_pool_program` (actor: `admin`):",
+        "`program` closed, lamports to `recipient`. Re-cut of `ProgramClosed`",
+        "(+ `admin`, `programdata`)."
       ],
       "type": {
         "kind": "struct",
@@ -3670,46 +3989,15 @@
             "type": "pubkey"
           },
           {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "pool_count",
-            "type": "u32"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "pools",
-            "docs": [
-              "See `PoolsFrozen`."
-            ],
-            "type": {
-              "vec": "pubkey"
-            }
-          },
-          {
-            "name": "old_enabled",
-            "type": {
-              "vec": "bool"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "ProgramClosed",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "treasury",
+            "name": "admin",
             "type": "pubkey"
           },
           {
             "name": "program",
+            "type": "pubkey"
+          },
+          {
+            "name": "programdata",
             "type": "pubkey"
           },
           {
@@ -3724,12 +4012,25 @@
       }
     },
     {
-      "name": "ProgramFrozen",
+      "name": "ProgramFrozenV2",
+      "docs": [
+        "`freeze_pool_program` / `execute_freeze_pool_program` (actor: `admin`):",
+        "`program`'s upgrade authority (the Treasury PDA) → none, for ever.",
+        "Re-cut of `ProgramFrozen` (+ `admin`, `program`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "program",
             "type": "pubkey"
           },
           {
@@ -3744,7 +4045,12 @@
       }
     },
     {
-      "name": "ProgramUpgraded",
+      "name": "ProgramUpgradedV2",
+      "docs": [
+        "`upgrade_pool_program` / `execute_upgrade_program` (actor: `admin`):",
+        "`program`'s programdata replaced from `buffer`, rent refund to `spill`.",
+        "Re-cut of `ProgramUpgraded` (+ `admin`, `buffer`, `spill`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -3753,7 +4059,19 @@
             "type": "pubkey"
           },
           {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
             "name": "program",
+            "type": "pubkey"
+          },
+          {
+            "name": "buffer",
+            "type": "pubkey"
+          },
+          {
+            "name": "spill",
             "type": "pubkey"
           },
           {
@@ -3937,12 +4255,30 @@
                 "type": "pubkey"
               }
             ]
+          },
+          {
+            "name": "PoolRescaleVirtualBalances",
+            "fields": [
+              {
+                "name": "pool",
+                "type": "pubkey"
+              },
+              {
+                "name": "multiplier",
+                "type": "u64"
+              }
+            ]
           }
         ]
       }
     },
     {
-      "name": "SolWithdrawn",
+      "name": "SolWithdrawnV2",
+      "docs": [
+        "`withdraw_sol` / `execute_withdraw_sol` (actor: `admin`): lamports out",
+        "of the Treasury account itself. Re-cut of `SolWithdrawn` (+ before /",
+        "after)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -3963,6 +4299,14 @@
             "type": "u64"
           },
           {
+            "name": "treasury_lamports_before",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_lamports_after",
+            "type": "u64"
+          },
+          {
             "name": "timestamp",
             "type": "i64"
           }
@@ -3971,6 +4315,11 @@
     },
     {
       "name": "StldSolWithdrawnViaTreasury",
+      "docs": [
+        "`stld_withdraw_sol` / `execute_stld_withdraw_sol` (actor: `admin`):",
+        "wrapper around `single_token_liquidity::withdraw_sol`",
+        "(`StldSolWithdrawnV2` carries the lamports before / after). Unchanged."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -4004,8 +4353,8 @@
     {
       "name": "SupervisorSet",
       "docs": [
-        "Emitted by `set_supervisor`. `new_supervisor == Pubkey::default()`",
-        "means the role was revoked."
+        "`set_supervisor` / `execute_set_supervisor` (actor: `admin`).",
+        "`new_supervisor == Pubkey::default()` revokes the role. Unchanged."
       ],
       "type": {
         "kind": "struct",
@@ -4034,12 +4383,21 @@
       }
     },
     {
-      "name": "TokenRegistered",
+      "name": "TokenRegisteredV2",
+      "docs": [
+        "`register_token` (actor: `admin`): vault PDA created for `mint`;",
+        "`token_count` old → new (`token_index = u8::MAX` when the registry is",
+        "full and the vault was created unlisted). Re-cut of `TokenRegistered`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -4052,6 +4410,14 @@
           },
           {
             "name": "token_index",
+            "type": "u8"
+          },
+          {
+            "name": "token_count_before",
+            "type": "u8"
+          },
+          {
+            "name": "token_count_after",
             "type": "u8"
           },
           {
@@ -4077,7 +4443,9 @@
         "v2 (818 bytes): same + `supervisor: Pubkey` appended at the end.",
         "v3 (1624 bytes, v6.1 T3): same + the cooldown block appended after",
         "`supervisor` (`delay_secs`, `admin_epoch`, `pending_admin_eta`, twelve",
-        "typed `pending_*` slots, `reserved_v61[125]`). Existing v1 / v2",
+        "typed `pending_*` slots, `reserved_v61[125]`; T22 carved the 48-byte",
+        "kind-13 slot from the reserve's front → `reserved_v61[77]`, `LEN`",
+        "unchanged). Existing v1 / v2",
         "accounts are grown in place by the admin-paid",
         "`migrate_treasury_layout_v61` instruction (zero tail ⇒ delay 0, epoch",
         "0, nothing pending); until then every instruction that reads the",
@@ -4102,7 +4470,8 @@
         "| 10 PoolProtocolAdminTransfer | `pending_pool_protocol_admin_transfer` | `config, new_admin: Pubkey` | 1282 | 72 |",
         "| 11 UpgradeProgram | `pending_upgrade_program` | `program, buffer: Pubkey` | 1354 | 72 |",
         "| 12 ProgramOp | `pending_program_op` | `op: u8, program, target: Pubkey` | 1426 | 73 |",
-        "| | `reserved_v61` | | 1499 | 125 |"
+        "| 13 PoolRescaleVirtualBalances (T22) | `pending_pool_rescale_virtual_balances` | `pool: Pubkey, multiplier: u64` | 1499 | 48 |",
+        "| | `reserved_v61` | | 1547 | 77 |"
       ],
       "type": {
         "kind": "struct",
@@ -4361,6 +4730,17 @@
             }
           },
           {
+            "name": "pending_pool_rescale_virtual_balances",
+            "docs": [
+              "kind 13 (v6.1 T22, carved from the reserve's front @1499)"
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingPoolRescale"
+              }
+            }
+          },
+          {
             "name": "reserved_v61",
             "docs": [
               "v6.1 reserve (zero). Later tasks carve from its front; `LEN` stays."
@@ -4368,7 +4748,7 @@
             "type": {
               "array": [
                 "u8",
-                125
+                77
               ]
             }
           }
@@ -4378,8 +4758,8 @@
     {
       "name": "TreasuryDelayChanged",
       "docs": [
-        "Emitted whenever `treasury.delay_secs` changes (direct `set_delay` at",
-        "delay 0, or `execute_set_delay`)."
+        "`set_delay` / `execute_set_delay` (actor: `admin`): `delay_secs` old →",
+        "new."
       ],
       "type": {
         "kind": "struct",
@@ -4408,7 +4788,11 @@
       }
     },
     {
-      "name": "TreasuryInitialized",
+      "name": "TreasuryInitializedV2",
+      "docs": [
+        "`initialize` (actor: the program's upgrade authority = `payer`).",
+        "Creation event. Re-cut of `TreasuryInitialized` (+ `payer`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -4421,6 +4805,10 @@
             "type": "pubkey"
           },
           {
+            "name": "payer",
+            "type": "pubkey"
+          },
+          {
             "name": "timestamp",
             "type": "i64"
           }
@@ -4430,7 +4818,7 @@
     {
       "name": "TreasuryLayoutMigrated",
       "docs": [
-        "Emitted by `migrate_treasury_layout_v61`: the account grew from",
+        "`migrate_treasury_layout_v61` (actor: `admin`): the account grew from",
         "`old_len` (786 or 818) to `new_len` (1624) with a zero tail."
       ],
       "type": {
@@ -4460,7 +4848,13 @@
       }
     },
     {
-      "name": "UpgradeAuthorityTransferred",
+      "name": "UpgradeAuthorityTransferredV2",
+      "docs": [
+        "`transfer_upgrade_authority` / `execute_transfer_upgrade_authority`",
+        "(actor: `admin`): `program`'s upgrade authority `old_authority` (the",
+        "Treasury PDA) → `new_authority`. Re-cut of `UpgradeAuthorityTransferred`",
+        "(+ `admin`, `program`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -4469,7 +4863,19 @@
             "type": "pubkey"
           },
           {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "program",
+            "type": "pubkey"
+          },
+          {
             "name": "programdata",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_authority",
             "type": "pubkey"
           },
           {
@@ -4479,14 +4885,6 @@
           {
             "name": "timestamp",
             "type": "i64"
-          },
-          {
-            "name": "old_authority",
-            "docs": [
-              "Previous BPF-loader upgrade authority (read pre-transfer). Appended",
-              "(wire append-only)."
-            ],
-            "type": "pubkey"
           }
         ]
       }

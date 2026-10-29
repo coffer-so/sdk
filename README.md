@@ -22,14 +22,16 @@ Pick by the program version you talk to:
 
 ## Contract compatibility
 
-This release targets `contracts` **v6.1** (branch `v6.1`, `9094945` + the T9
-hooks merge): the 2304-byte pool layout, LP metadata, seed deposits, admin
-cooldowns, vault-PDA fee claims, deposit / withdraw / creator fees, surge
-buckets, sidelined tokens, native hooks and the atomic deploy. The vendored
-IDLs match that revision; `address` fields carry the v6 deployment ids and
-`MAINNET_V51_FACTORY_PROGRAMS` the v6.1 factory. Typed
-`buildContractInstruction` covers all 104 instructions, `parseContractEvents`
-all 79 events, and `decodeContractAccount` every declared account. See
+This release targets `contracts` **v6.1** (`v6.1-t11` at `409067d`: T9 hooks,
+T22 leverage invariant, T11 events): the 2304-byte pool layout, LP metadata,
+seed deposits, admin cooldowns, vault-PDA fee claims, deposit / withdraw /
+creator fees, surge buckets, sidelined tokens, native hooks, the atomic
+deploy, the strict leverage invariant with `rescale_virtual_balances` and the
+re-cut `…V2` events. The vendored IDLs match that revision; `address` fields
+carry the v6 deployment ids and `MAINNET_V51_FACTORY_PROGRAMS` the v6.1
+factory. Typed `buildContractInstruction` covers all 107 instructions,
+`parseContractEvents` all 79 events, and `decodeContractAccount` every
+declared account. See
 [the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for usage and
 limits, and [the exact state-field mapping](docs/STATE_FIELDS.md) for decoded
 account data.
@@ -262,7 +264,7 @@ insufficient funds) short-circuit.
 | `PlannedZapClient` | `quote`, `replayAt`, `ensureUserTokenAccountIxs`, `resolveExtraAccounts`, `buildIx`, `buildTx`, `walletLookupAddresses`, `prepareWalletLookupTable`, `waitForWalletLookupTable`, `poolLookupTable`, `compileTransaction`; see [PLANNED_ZAP.md](docs/PLANNED_ZAP.md) |
 | `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializePoolIx` |
 | `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 29 protocol-admin instructions |
-| Generic ABI | `buildContractInstruction` for all 59 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 59 events |
+| Generic ABI | `buildContractInstruction` for all 107 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 79 events; `parseTransactionEvents` with invoke-stack attribution ([EVENTS.md](docs/EVENTS.md)) |
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation; `buildPlannedZapIx`, `stateCommitment`, `compilePlannedZapTransaction`; `resolveTransferExtraAccounts` |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 | XP snapshots | Frozen results of finished epochs and campaigns — `getLeaderboardEpochSnapshot`, `getCampaignSnapshotTop`, …; see [XP snapshots guide](docs/XP_SNAPSHOTS.md) |
@@ -311,7 +313,10 @@ For 7+-token pools compile the zap with the pool ALT plus a wallet-owned ALT
 (`prepareWalletLookupTable`); neither quoting nor compiling creates an ALT.
 
 The complete typed event API keeps snake_case fields and full-width BN values.
-The camelCase `parseCofferPoolEvents` compatibility API also recognizes all 58
-current events, but uses numeric timestamps and some legacy default fields.
-Malformed/truncated events become `Unknown`; it is not proof of program
-provenance or transaction success.
+The camelCase `parseCofferPoolEvents` API recognizes all 79 current events
+(typed `…V2` shapes for the trading / liquidity / admin events, the IDL coder
+for the rest) with numeric timestamps; pre-T11 (v6) discriminators and the
+retired `PoolStateLog` / `MaxSelloffWindowAdvanced` / `SingleTokenDeposit`
+are reported as `Unknown { legacy }`. Malformed/truncated events become
+`Unknown`; it is not proof of program provenance or transaction success —
+`parseTransactionEvents` attributes lines to the invoke stack.

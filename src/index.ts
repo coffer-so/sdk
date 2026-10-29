@@ -155,16 +155,6 @@ export type {
   BuiltTx,
   DeployPoolParams,
   CofferPoolEvent,
-  PoolInitializedEvent,
-  SwapEvent,
-  LiquidityAddedEvent,
-  LiquidityRemovedEvent,
-  ProtocolFeesCollectedEvent,
-  PoolEnabledUpdatedEvent,
-  SwapsEnabledUpdatedEvent,
-  SingleTokenDepositEvent,
-  PoolStateLogEvent,
-  MaxSelloffWindowAdvancedEvent,
   UnknownEvent,
   TokenChange,
   RangeManagerUpdateParams,
@@ -330,4 +320,18 @@ export type {
 export type { PendingPoolAction, PoolHookInfo, LpMetadata } from "./types/pool";
 export type { SwapQuoteOptions, LpPriceQuote } from "./types/tx";
 export type { PendingActionsStatus, PendingActionStatus } from "./clients/quote-math";
-export type { PoolInfoEvent } from "./types/events";
+// ─── v6.1 (SDK 0.3.0): T11 re-cut events, T22 leverage invariant ─────────────
+export {
+  parseTransactionEvents, decodeEventLine, logTruncated, EVENT_TABLES, eventProgramOf, TYPED_EVENT_NAMES, PROGRAM_DATA_PREFIX,
+  swapSurgeLpAmount, swapSlotDeltas, applySwapToVectors,
+} from "./parsers/events";
+export type { AttributedEvent } from "./parsers/events";
+export { RECUT_EVENTS, RETIRED_EVENTS, LEGACY_EVENT_DISCRIMINATORS } from "./parsers/eventPins";
+export type { LegacyEventPin } from "./parsers/eventPins";
+export { ACTOR_KINDS, ACTOR_KIND, actorKindName } from "./types/events";
+export type {
+  ActorKindName, SlotState, SelloffWindowState, SwapV2Event, LiquidityAddedV2Event, LiquidityRemovedV2Event, PoolInitializedV2Event, PoolInfoV2Event,
+  ProtocolFeesCollectedV2Event, CreatorFeesClaimedV2Event, SidelinedTokenFundedEvent, VirtualBalancesRescaledEvent, HookInvokedEvent, HookDisabledSetEvent,
+  PoolEnabledUpdatedEvent, SwapsEnabledUpdatedV2Event, TokenActiveSetV2Event, RangeManagerUpdatedV2Event, MaxSelloffSetV2Event, SingleTokenDepositDirectV2Event,
+  AdditionalContractEvent, TypedEventName,
+} from "./types/events";

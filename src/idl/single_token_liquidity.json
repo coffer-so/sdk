@@ -304,42 +304,29 @@
   ],
   "events": [
     {
-      "name": "SingleTokenDeposit",
+      "name": "SingleTokenDepositDirectV2",
       "discriminator": [
-        215,
-        54,
-        137,
-        104,
-        219,
-        39,
-        164,
-        235
+        241,
+        19,
+        248,
+        153,
+        142,
+        202,
+        203,
+        242
       ]
     },
     {
-      "name": "SingleTokenDepositDirect",
+      "name": "StldSolWithdrawnV2",
       "discriminator": [
-        78,
-        128,
-        118,
         93,
-        148,
-        179,
-        216,
-        112
-      ]
-    },
-    {
-      "name": "StldSolWithdrawn",
-      "discriminator": [
-        24,
-        246,
-        27,
-        39,
-        222,
-        196,
-        135,
-        61
+        145,
+        93,
+        126,
+        81,
+        13,
+        2,
+        166
       ]
     }
   ],
@@ -1806,35 +1793,28 @@
       }
     },
     {
-      "name": "SingleTokenDeposit",
+      "name": "SingleTokenDepositDirectV2",
       "docs": [
-        "Receipt of the retired v5 `deposit_single_token` route. Nothing emits it",
-        "any more (the route was removed under audit L-16); the declaration is",
-        "kept so indexers can still decode historic v5 logs from the IDL and so",
-        "the event list stays append-only.",
+        "`deposit_single_token_planned` (actor: any user) — the zap receipt,",
+        "emitted LAST in the transaction after the inner coffer-pool `SwapV2`",
+        "(one per executed leg) and `LiquidityAddedV2` events. Those inner events",
+        "carry the per-leg before / after state; this receipt binds the plan the",
+        "user signed to what the wallet actually spent and received.",
         "",
-        "# Fields",
-        "* `helper`                   — helper PDA pubkey.",
-        "* `pool`                     — Coffer Pool PDA.",
-        "* `user`                     — depositor.",
-        "* `token_in_index`           — index of the supplied token.",
-        "* `amount_in`                — raw input.",
-        "* `allocations`              — pre-CPI per-token slice plan.",
-        "* `deposited_amounts`        — post-CPI helper balances actually fed",
-        "to `add_liquidity` (after the v5 LP-ratio pre-cap).",
-        "* `lp_received`             — LP minted to the user.",
-        "* `dust_refunded`            — per-token refund helper → user, index",
-        "aligned with `allocations` / `deposited_amounts`. Previously a single",
-        "sum across every mint, which added raw amounts of different decimals",
-        "together and produced a number that meant nothing."
+        "Re-cut of `SingleTokenDepositDirect` (+ the plan commitment, the LP",
+        "supply before / after, `inner_swap_count`, `minimum_lp_amount`).",
+        "",
+        "* `allocations[i]` — gross input spent on the swap into slot `i`",
+        "(`allocations[token_in_index]` is the input slice reserved for the join);",
+        "their sum is `amount_in`",
+        "* `deposited_amounts[i]` — measured wallet debit of slot `i` by the join",
+        "* `dust_remaining[i]` — this zap's unspent budget left in the wallet",
+        "(pre-existing balances excluded)",
+        "* `lp_received` — LP minted to the user (`≥ minimum_lp_amount`)"
       ],
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "helper",
-            "type": "pubkey"
-          },
           {
             "name": "pool",
             "type": "pubkey"
@@ -1852,70 +1832,43 @@
             "type": "u64"
           },
           {
+            "name": "minimum_lp_amount",
+            "type": "u64"
+          },
+          {
             "name": "allocations",
             "type": {
               "vec": "u64"
             }
           },
           {
-            "name": "deposited_amounts",
-            "type": {
-              "vec": "u64"
-            }
-          },
-          {
-            "name": "lp_received",
-            "type": "u64"
-          },
-          {
-            "name": "dust_refunded",
+            "name": "plan_expected_state",
             "docs": [
-              "Index-aligned with `allocations` / `deposited_amounts`. Summing raw",
-              "amounts across mints of different decimals — the previous `u64` —",
-              "is not a meaningful quantity."
+              "`AllocationPlan.expected_state` — the pool / supply / mint / epoch",
+              "commitment the plan was quoted against (verified on chain)."
             ],
             "type": {
-              "vec": "u64"
+              "array": [
+                "u8",
+                32
+              ]
             }
           },
           {
-            "name": "timestamp",
+            "name": "plan_quoted_at",
             "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SingleTokenDepositDirect",
-      "docs": [
-        "Receipt for the direct route. `deposited_amounts` are measured actual",
-        "token debits of the join (after both crops); `dust_remaining` contains",
-        "only this zap's unspent budget, excluding all prior wallet balances."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "pool",
-            "type": "pubkey"
           },
           {
-            "name": "user",
-            "type": "pubkey"
-          },
-          {
-            "name": "token_in_index",
-            "type": "u8"
-          },
-          {
-            "name": "amount_in",
+            "name": "plan_valid_until_slot",
             "type": "u64"
           },
           {
-            "name": "allocations",
-            "type": {
-              "vec": "u64"
-            }
+            "name": "inner_swap_count",
+            "docs": [
+              "Legs with `allocations[i] > 0`, `i != token_in_index` — the number of",
+              "inner `SwapV2` events this receipt follows."
+            ],
+            "type": "u8"
           },
           {
             "name": "deposited_amounts",
@@ -1934,6 +1887,14 @@
             }
           },
           {
+            "name": "lp_supply_before",
+            "type": "u64"
+          },
+          {
+            "name": "lp_supply_after",
+            "type": "u64"
+          },
+          {
             "name": "timestamp",
             "type": "i64"
           }
@@ -1941,10 +1902,11 @@
       }
     },
     {
-      "name": "StldSolWithdrawn",
+      "name": "StldSolWithdrawnV2",
       "docs": [
-        "Emitted by `withdraw_sol` after lamports move out of a stld-owned",
-        "account."
+        "`withdraw_sol` (actor: `config.protocol_admin` = Treasury PDA, via",
+        "`protocol_admin::stld_withdraw_sol`): lamports moved out of the pool's",
+        "helper PDA. Re-cut of `StldSolWithdrawn` (+ before / after)."
       ],
       "type": {
         "kind": "struct",
@@ -1963,6 +1925,14 @@
           },
           {
             "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "source_lamports_before",
+            "type": "u64"
+          },
+          {
+            "name": "source_lamports_after",
             "type": "u64"
           },
           {

@@ -13,10 +13,23 @@ test("bounds checks reject invalid skips and oversized vectors before reading", 
   expect(() => new BorshReader(Buffer.from([2])).bool()).toThrow(/bool/);
 });
 
-test("short current Swap event becomes Unknown instead of inventing a zero surge fee", () => {
-  const discriminator=Buffer.from(IDLS.cofferPool.events.find(e=>e.name==="Swap")!.discriminator);
-  // Four public keys, four u64 quantities and one i64 timestamp. The required
-  // trailing surge_fee_amount is deliberately missing from this current ABI.
-  const data=Buffer.concat([discriminator,Buffer.alloc(4*32+5*8)]);
+test("short current SwapV2 event becomes Unknown instead of inventing zero slots", () => {
+  const discriminator=Buffer.from(IDLS.cofferPool.events.find(e=>e.name==="SwapV2")!.discriminator);
+  // Two public keys, the two indices and the twenty scalar cascade fields; the
+  // four SlotState blocks, the timestamp and the Option tag are missing.
+  const data=Buffer.concat([discriminator,Buffer.alloc(2*32+2+8*3+4*2+2*2+8*9)]);
   expect(parseCofferPoolEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("Unknown");
+});
+
+test("Option / Vec<bool> / fixed array readers", () => {
+  const r = new BorshReader(Buffer.from([1, 7, 0, 2, 0, 0, 0, 1, 0, 9, 8]));
+  expect(r.option((x) => x.u8())).toBe(7);
+  expect(r.option((x) => x.u8())).toBeNull();
+  expect(r.vecBool()).toEqual([true, false]);
+  expect([...r.u8Array(2)]).toEqual([9, 8]);
+  expect(() => new BorshReader(Buffer.from([2])).option((x) => x.u8())).toThrow(/Option tag/);
+  expect(() => new BorshReader(Buffer.from([1])).option((x) => x.u8())).toThrow(/bytes/);
+  expect(() => new BorshReader(Buffer.from([5, 0, 0, 0, 1])).vecBool()).toThrow(/bytes/);
+  expect(() => new BorshReader(Buffer.from([2, 0, 0, 0, 1, 3])).vecBool()).toThrow(/bool/);
+  expect(() => new BorshReader(Buffer.from([0xff, 0xff, 0xff, 0xff])).vec((x) => x.u8())).toThrow(/vector length/);
 });

@@ -1,6 +1,6 @@
 # Exact decoded state mapping
 
-Target: `@coffer_so/sdk-v6` 0.2.0; contract source `contracts` v6.1 (branch `v6.1`, all feature tasks L0/T1/T2/T3/T5/T6/T7/T8/T9/T10/T12/T14/T15 merged).
+Target: `@coffer_so/sdk-v6` 0.3.0; contract source `contracts` v6.1 (`v6.1-t11` at `409067d`: L0/T1/T2/T3/T5/T6/T7/T8/T9/T10/T11/T12/T14/T15/T22).
 v6 added the `"V5M1"` migration marker in `CofferPool.reserved[0..4]` (`v5Migrated`); v6.1 (L0) grows
 `CofferPool` 1683 → **2304 bytes** by APPENDING a block after the frozen legacy `reserved[16]` — every
 pre-existing offset is unchanged — and `Treasury` 818 → **1624 bytes** (T3). The 1683-byte account is
@@ -181,4 +181,4 @@ The example assumes an existing pool client/config and `configAddress: PublicKey
 
 `tests/account-state.test.ts` compares the manual decoder and every operational `sync()` field against an independent IDL-driven Borsh fixture. It covers all ten token slots, nonzero padding, mixed token programs, negative i64, u64 values above `Number.MAX_SAFE_INTEGER`, malformed discriminators/booleans and precise numeric-conversion failures.
 
-`tests/contract-abi.test.ts` covers all complete config/Treasury/pool layouts, all 104 instructions and all 79 events. `tests/v61-decoder.test.ts` pins every v6.1 offset against the contracts' `tests/utils/v61-layout.ts` table (2304-byte and 1683-byte pools, Treasury v1/v2/v3, LP metadata). `scripts/check-contract-abi.cjs --contracts-dir ... --idl-dir idl --ignore-address` compares the bundled IDLs with a chosen checkout’s committed IDLs.
+`tests/contract-abi.test.ts` covers all complete config/Treasury/pool layouts, all 107 instructions and all 79 events. `tests/v61-decoder.test.ts` pins every v6.1 offset against the contracts' `tests/utils/v61-layout.ts` table (2304-byte and 1683-byte pools, Treasury v1/v2/v3, LP metadata). `scripts/check-contract-abi.cjs --contracts-dir ... --idl-dir idl --ignore-address` compares the bundled IDLs with a chosen checkout’s committed IDLs.

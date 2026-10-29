@@ -1,401 +1,457 @@
 /**
- * v6.1 (T4) event parsing: every append-only tail (T2 / T15 / T14 / T12 /
- * T7 / T3 / T9 / T5 / T1), the pre-upgrade log shapes (tails absent →
- * defaults), the new v6.1 events through the generic decoder, and the error
- * code map (6070–6103, protocol-admin 6010–6018).
+ * v6.1 (T11) events: the re-cut `…V2` wire (before / after state,
+ * `actor_kind`, `SwapV2` with `SlotState` pairs + `Option<SelloffWindow>`),
+ * the retired / legacy discriminators (→ `Unknown`), decoder round-trips
+ * against the IDL-generated fixtures, CPI attribution, and the error map
+ * (coffer_pool 6070–6106, protocol_admin 6010–6018).
  */
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { IDLS } from "../src/idl";
-import { parseCofferPoolEvents } from "../src/parsers/events";
+import { EVENT_TABLES, TYPED_EVENT_NAMES, applySwapToVectors, decodeEventLine, eventProgramOf, logTruncated, parseCofferPoolEvents, parseTransactionEvents, swapSlotDeltas, swapSurgeLpAmount } from "../src/parsers/events";
+import { LEGACY_EVENT_DISCRIMINATORS, RECUT_EVENTS, RETIRED_EVENTS } from "../src/parsers/eventPins";
 import { parseContractEvents } from "../src/parsers/contracts";
+import { ACTOR_KIND, actorKindName } from "../src/types/events";
 import { describeProgramError, toSdkError, contractErrorMapForTests } from "../src/utils/errors";
-import { eventLog, truncatedEventLog, normalize } from "./helpers/borshFixture";
-import type { SwapEvent, LiquidityAddedEvent, LiquidityRemovedEvent, PoolInitializedEvent, PoolStateLogEvent, PoolInfoEvent, ProtocolFeesCollectedEvent } from "../src/types/events";
+import { eventLog, encodeFields, normalize, truncatedEventLog } from "./helpers/borshFixture";
+import type { SwapV2Event, LiquidityAddedV2Event, LiquidityRemovedV2Event, PoolInitializedV2Event, PoolInfoV2Event, SingleTokenDepositDirectV2Event, RangeManagerUpdatedV2Event, MaxSelloffSetV2Event } from "../src/types/events";
+import type { ContractProgram } from "../src/types/contracts";
+import cofferFixtures from "./fixtures/events/coffer_pool.json";
+import adminFixtures from "./fixtures/events/protocol_admin.json";
+import stldFixtures from "./fixtures/events/single_token_liquidity.json";
 
 const idl = IDLS.cofferPool as any;
 const pa = IDLS.protocolAdmin as any;
+const stld = IDLS.singleTokenLiquidity as any;
 const key = (n: number) => new PublicKey(Buffer.alloc(32, n));
 const bn = (v: number | string | bigint) => new BN(v.toString());
-const fieldsOf = (name: string): string[] => idl.types.find((t: any) => t.name === name).type.fields.map((f: any) => f.name);
+const fieldsOf = (name: string, which: any = idl): any[] => which.types.find((t: any) => t.name === name).type.fields;
 const disc = (name: string, which: any = idl) => Buffer.from(which.events.find((e: any) => e.name === name).discriminator).toString("hex");
+const log = (bytes: Buffer) => `Program data: ${bytes.toString("base64")}`;
 
-// ── idl/abi-pins.json (contracts v6.1 @ T9 merge), verbatim ─────────────────
-const PINNED_EVENTS: Record<string, string> = {
-  Swap: "516ce3becdd00ac4", LiquidityAdded: "9a1add6cee40d9a1", LiquidityRemoved: "e169d8277c74a9bd", PoolInitialized: "6476ad570cc6fee5",
-  PoolStateLog: "3bfeed6fa30a8ce0", PoolInfo: "cf145761fbd4ea2d", ProtocolFeesCollected: "a5227d9b0f5663bf", PoolLayoutMigrated: "d76c54bce76b958b",
-  SidelinedTokenFunded: "66b6f2f4a938371e", CreatorFeeBpsUpdated: "daac9f0e72c734f6", CreatorFeesClaimed: "bdb215b5abb38301", RangeManagerLocked: "0439dd3ab121b956",
-  LiquidityFeesUpdated: "d416863ab8626d7a", LiquidityFeesLocked: "32ccabf97d4a7a00", PoolActionProposed: "643d9bd50da52d88", PoolActionExecuted: "9111bccbd7911a49",
-  PoolActionCancelled: "41c24ba08a8df701", PoolAdminDelayChanged: "20543aa252b068a2", HookInvoked: "c911e873727c14a6", HookDisabledSet: "2fd46b429e9ded90",
-};
-const PINNED_PA_EVENTS: Record<string, string> = {
-  PoolRangeManagerDisabled: "931705931347901b", ActionProposed: "d132e8dfcec20f43", ActionExecuted: "74659224a099b6e9", ActionCancelled: "79d5cd1de2b5e60d",
-  TreasuryDelayChanged: "0f6da496a64677fd", TreasuryLayoutMigrated: "9b65b4d1089b0305", PoolHookDisabledSet: "31a23aae65056678",
-};
-const PINNED_ERRORS: Record<number, string> = {
-  6070: "LayoutVersionMismatch", 6071: "AlreadyMigrated", 6072: "PinnedDecimalsMismatch", 6073: "PoolAlreadySeeded", 6074: "InitialLpSupplyTooLarge",
-  6075: "TokenNotSidelined", 6076: "LpNameInvalid", 6077: "LpSymbolInvalid", 6078: "LpUriInvalid", 6079: "CreatorFeeBpsMaxExceeded", 6080: "CreatorFeesUnclaimed",
-  6081: "RangeManagerLocked", 6082: "RangeManagerMustBeUnset", 6083: "LiquidityFeeMaxExceeded", 6084: "LiquidityFeesLocked", 6085: "LiquidityFeesAlreadyLocked",
-  6086: "DepositFeeConsumesAll", 6087: "WithdrawFeeConsumesAll", 6088: "SurgeBucketOverflow", 6089: "CooldownRequired", 6090: "CooldownNotElapsed",
-  6091: "NoPendingAction", 6092: "ActionExpired", 6093: "DelayTooLarge", 6094: "PendingPayloadMismatch", 6095: "HookDenied", 6096: "HookInvalidResponse",
-  6097: "HookCuExceeded", 6098: "HookInvalidConfig", 6099: "HookAccountsInvalid", 6100: "HookProgramInvalid", 6101: "HookPaused", 6102: "HookRegisterRejected",
-  6103: "HookFlagsMismatch",
-};
-const PINNED_PA_ERRORS: Record<number, string> = {
-  6010: "CooldownRequired", 6011: "CooldownNotElapsed", 6012: "NoPendingAction", 6013: "ActionExpired", 6014: "DelayTooLarge", 6015: "PendingAccountsMismatch",
-  6016: "BufferAuthorityMismatch", 6017: "AlreadyMigrated", 6018: "InvalidPendingAdmin",
-};
+type Fixture = { name: string; variant: string; discriminator: string; base64: string; value: any };
+const FIXTURES: Array<[ContractProgram, any, Fixture]> = [
+  ...(cofferFixtures.events as Fixture[]).map((f) => ["cofferPool", idl, f] as [ContractProgram, any, Fixture]),
+  ...(adminFixtures.events as Fixture[]).map((f) => ["protocolAdmin", pa, f] as [ContractProgram, any, Fixture]),
+  ...(stldFixtures.events as Fixture[]).map((f) => ["singleTokenLiquidity", stld, f] as [ContractProgram, any, Fixture]),
+];
 
-const swapValue = () => ({
-  pool: key(1), user: key(2), token_in: key(3), token_out: key(4), amount_in: bn("18446744073709551615"), amount_out: bn(990), fee_amount: bn(30),
-  protocol_fee_amount: bn(3), timestamp: bn(-1700000000), surge_fee_amount: bn(10), transfer_fee_in: bn(1), transfer_fee_out: bn(2), swap_fee_rate: 3000,
-  protocol_fee_rate: 1000, surge_protocol_fee_amount: bn(1), creator_fee_amount: bn(6), surge_creator_fee_amount: bn(2), creator_fee_bps: 2500,
-  surge_fee_lp_amount: bn(7), effective_fee_rate: 2500,
-});
-const addedValue = () => ({
-  pool: key(1), user: key(2), token_amounts: [bn(100), bn(0), bn(300)], lp_amount: bn(995), timestamp: bn(1700000000), is_seed: true,
-  credited_amounts: [bn(99), bn(0), bn(297)], lp_supply_before: bn(0), lp_supply_after: bn(995), initial_lp_supply: bn(1_000_000_000), deposit_fee_lp: bn(5),
-  deposit_fee_bps: 50, surge_buy_in: [bn(1), bn(0), bn(3)],
-});
-const removedValue = () => ({
-  pool: key(1), user: key(2), lp_amount: bn(500), token_amounts: [bn(90), bn(0)], timestamp: bn(1700000001), withdraw_fee_amounts: [bn(10), bn(0)],
-  withdraw_fee_bps: 1000, lp_supply_before: bn(1000), lp_supply_after: bn(500), surge_amounts: [bn(4), bn(0)],
-});
-const initValue = () => ({
-  pool: key(1), config: key(2), token_count: 3, lp_mint: key(3), timestamp: bn(1700000002), banned_extensions: bn(0), pool_id: bn("9007199254740993"),
-  lp_name: "USDC-USDT Coffer LP", lp_symbol: "cLP-USDX", lp_uri: "https://arweave.net/abc", lp_token_program: key(9), creator_fee_bps: 2500, deposit_fee_bps: 5,
-  withdraw_fee_bps: 7, hook_program: key(41), hook_flags: 0b1110000, hook_fee_min: 100, hook_fee_max: 50000, hook_max_cu: 60000, hook_accounts_len: 4,
-});
-const stateLogValue = () => ({
-  pool: key(1), virtual_balances: [bn(1), bn(2)], actual_balances: [bn(3), bn(4)], protocol_fees_owed: [bn(5), bn(6)], timestamp: bn(1700000003),
-  creator_fees_owed: [bn(7), bn(8)], deposit_fee_bps: 5, withdraw_fee_bps: 7, liquidity_fee_lock: 1, surge_fees_owed: [bn(9), bn(10)],
-  pool_admin_delay_secs: 86400, pool_admin_epoch: 3, pending_actions_mask: 0b101,
-});
-const infoValue = () => ({
-  pool: key(1), config: key(2), lp_mint: key(3), token_count: 2, pool_id: bn(5), tokens: [key(10), key(11)], token_vaults: [key(20), key(21)],
-  normalized_weights: [bn(5000), bn(5000)], virtual_balances: [bn(1), bn(2)], actual_balances: [bn(3), bn(4)], protocol_fees_owed: [bn(5), bn(6)],
-  swap_fee_rate: 3000, protocol_fee_rate: 1000, pool_enabled: true, swaps_enabled: false, token_programs: [key(30), key(31)], timestamp: bn(1700000004),
-  creator_fee_bps: 2500, creator_fees_owed: [bn(7), bn(8)], range_manager_locked: true, deposit_fee_bps: 5, withdraw_fee_bps: 7, liquidity_fee_lock: 1,
-  surge_fees_owed: [bn(9), bn(10)], pool_admin_delay_secs: 86400, pool_admin_epoch: 3, pending_actions_mask: 0b11, pending_etas: [bn(1), bn(2), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(-5)],
-  hook_program: key(41), hook_flags: 0b1110000, hook_disabled: 1, hook_fee_min: 100, hook_fee_max: 50000, hook_max_cu: 60000, hook_accounts_len: 4,
-});
+/** Fixture value (IDL names, strings for wide ints) → what the camelCase API returns, normalised. */
+const SMALL_I64 = new Set(["timestamp", "plan_quoted_at", "window_start_timestamp"]);
+function camelExpected(value: any, key?: string): any {
+  if (Array.isArray(value)) return value.map((v) => camelExpected(v, key));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k === "kind" ? "actionKind" : k.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase()), camelExpected(v, k)]));
+  }
+  if (typeof value === "string" && key && SMALL_I64.has(key) && /^-?\d+$/.test(value)) return Number(value);
+  return value;
+}
+/** Fixture value → the `parseContractEvents` shape (BN / PublicKey / Buffer), for the re-encode round trip. */
+function revive(value: any, type: any, which: any): any {
+  if (type === "pubkey") return new PublicKey(value);
+  if (type === "bytes") return Buffer.from(value);
+  if (typeof type === "string") return /^[ui](64|128|256)$/.test(type) ? new BN(value) : value;
+  if (type.vec) return value.map((v: any) => revive(v, type.vec, which));
+  if (type.array) return value.map((v: any) => revive(v, type.array[0], which));
+  if (type.option) return value === null ? null : revive(value, type.option, which);
+  if (type.defined) {
+    const def = which.types.find((x: any) => x.name === type.defined.name).type;
+    return Object.fromEntries(def.fields.map((f: any) => [f.name, revive(value[f.name], f.type, which)]));
+  }
+  throw new Error(JSON.stringify(type));
+}
 
-const one = <T>(log: string): T => {
-  const out = parseCofferPoolEvents([log]);
+const one = <T>(line: string): T => {
+  const out = parseCofferPoolEvents([line]);
   expect(out).toHaveLength(1);
   return out[0] as unknown as T;
 };
 
 // ── positive ────────────────────────────────────────────────────────────────
 
-describe("event discriminators and tails are pinned to idl/abi-pins.json", () => {
-  test("[P01] every pinned coffer_pool / protocol_admin event discriminator matches the shipped IDL", () => {
-    for (const [name, hex] of Object.entries(PINNED_EVENTS)) expect(disc(name)).toBe(hex);
-    for (const [name, hex] of Object.entries(PINNED_PA_EVENTS)) expect(disc(name, pa)).toBe(hex);
-  });
-  test("[P02] appended tails sit in the documented order", () => {
-    expect(fieldsOf("Swap").slice(-8)).toEqual(["swap_fee_rate", "protocol_fee_rate", "surge_protocol_fee_amount", "creator_fee_amount", "surge_creator_fee_amount", "creator_fee_bps", "surge_fee_lp_amount", "effective_fee_rate"]);
-    expect(fieldsOf("LiquidityAdded").slice(5)).toEqual(["is_seed", "credited_amounts", "lp_supply_before", "lp_supply_after", "initial_lp_supply", "deposit_fee_lp", "deposit_fee_bps", "surge_buy_in"]);
-    expect(fieldsOf("LiquidityRemoved").slice(5)).toEqual(["withdraw_fee_amounts", "withdraw_fee_bps", "lp_supply_before", "lp_supply_after", "surge_amounts"]);
-    expect(fieldsOf("PoolInitialized").slice(7)).toEqual(["lp_name", "lp_symbol", "lp_uri", "lp_token_program", "creator_fee_bps", "deposit_fee_bps", "withdraw_fee_bps", "hook_program", "hook_flags", "hook_fee_min", "hook_fee_max", "hook_max_cu", "hook_accounts_len"]);
-    expect(fieldsOf("PoolStateLog").slice(5)).toEqual(["creator_fees_owed", "deposit_fee_bps", "withdraw_fee_bps", "liquidity_fee_lock", "surge_fees_owed", "pool_admin_delay_secs", "pool_admin_epoch", "pending_actions_mask"]);
-    expect(fieldsOf("PoolInfo").slice(17)).toEqual(["creator_fee_bps", "creator_fees_owed", "range_manager_locked", "deposit_fee_bps", "withdraw_fee_bps", "liquidity_fee_lock", "surge_fees_owed", "pool_admin_delay_secs", "pool_admin_epoch", "pending_actions_mask", "pending_etas", "hook_program", "hook_flags", "hook_disabled", "hook_fee_min", "hook_fee_max", "hook_max_cu", "hook_accounts_len"]);
-    expect(fieldsOf("ProtocolFeesCollected").slice(-1)).toEqual(["recipients"]);
-  });
-});
-
-describe("Swap", () => {
-  test("[P03] full v6.1 log: every tail field is typed", () => {
-    const e = one<SwapEvent>(eventLog(idl, "Swap", swapValue()));
-    expect(e.kind).toBe("Swap"); expect(e.amountIn.toString()).toBe("18446744073709551615"); expect(e.timestamp).toBe(-1700000000);
-    expect(e.surgeFeeAmount.toNumber()).toBe(10); expect(e.transferFeeIn.toNumber()).toBe(1); expect(e.transferFeeOut.toNumber()).toBe(2);
-    expect(e.swapFeeRate).toBe(3000); expect(e.protocolFeeRate).toBe(1000); expect(e.surgeProtocolFeeAmount.toNumber()).toBe(1);
-    expect(e.creatorFeeAmount.toNumber()).toBe(6); expect(e.surgeCreatorFeeAmount.toNumber()).toBe(2); expect(e.creatorFeeBps).toBe(2500);
-    expect(e.surgeFeeLpAmount.toNumber()).toBe(7); expect(e.effectiveFeeRate).toBe(2500); expect(e.v61Tail).toBe(true);
-  });
-  test("[P04] the typed decoder agrees with the generic IDL decoder field by field", () => {
-    const log = eventLog(idl, "Swap", swapValue());
-    const generic = parseContractEvents([log], "cofferPool")[0].data as any;
-    const typed = one<SwapEvent>(log) as any;
-    for (const f of fieldsOf("Swap")) {
-      const camel = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-      const expected = f === "timestamp" ? generic[f].toNumber() : generic[f];
-      expect(normalize(typed[camel])).toEqual(normalize(expected));
-    }
-  });
-  test("[P05] a v5 log (prefix + surge only) decodes with zero tails and v61Tail=false", () => {
-    const e = one<SwapEvent>(truncatedEventLog(idl, "Swap", swapValue(), 10));
-    expect(e.surgeFeeAmount.toNumber()).toBe(10); expect(e.transferFeeIn.isZero()).toBe(true); expect(e.swapFeeRate).toBe(0);
-    expect(e.creatorFeeBps).toBe(0); expect(e.surgeFeeLpAmount.isZero()).toBe(true); expect(e.effectiveFeeRate).toBe(0); expect(e.v61Tail).toBe(false);
-  });
-  test("[P06] a v6 log (through transfer_fee_out) keeps the transfer fees and defaults the v6.1 tail", () => {
-    const e = one<SwapEvent>(truncatedEventLog(idl, "Swap", swapValue(), 12));
-    expect(e.transferFeeOut.toNumber()).toBe(2); expect(e.protocolFeeRate).toBe(0); expect(e.v61Tail).toBe(false);
-  });
-  test("[P07] a T15-era log (no T14/T12/T9 tails) reports effective_fee_rate = swap_fee_rate", () => {
-    const e = one<SwapEvent>(truncatedEventLog(idl, "Swap", swapValue(), 15));
-    expect(e.swapFeeRate).toBe(3000); expect(e.effectiveFeeRate).toBe(3000); expect(e.creatorFeeAmount.isZero()).toBe(true); expect(e.v61Tail).toBe(false);
-  });
-});
-
-describe("LiquidityAdded / LiquidityRemoved", () => {
-  test("[P08] full LiquidityAdded tail (T2 + T7 + T12)", () => {
-    const e = one<LiquidityAddedEvent>(eventLog(idl, "LiquidityAdded", addedValue()));
-    expect(e.isSeed).toBe(true); expect(e.creditedAmounts.map(Number)).toEqual([99, 0, 297]); expect(e.lpSupplyBefore.isZero()).toBe(true);
-    expect(e.lpSupplyAfter.toNumber()).toBe(995); expect(e.initialLpSupply.toNumber()).toBe(1_000_000_000); expect(e.depositFeeLp.toNumber()).toBe(5);
-    expect(e.depositFeeBps).toBe(50); expect(e.surgeBuyIn.map(Number)).toEqual([1, 0, 3]); expect(e.v61Tail).toBe(true);
-  });
-  test("[P09] pre-v6.1 LiquidityAdded (5 fields) decodes with defaults", () => {
-    const e = one<LiquidityAddedEvent>(truncatedEventLog(idl, "LiquidityAdded", addedValue(), 5));
-    expect(e.lpAmount.toNumber()).toBe(995); expect(e.isSeed).toBe(false); expect(e.creditedAmounts).toEqual([]); expect(e.surgeBuyIn).toEqual([]); expect(e.v61Tail).toBe(false);
-  });
-  test("[P10] a T2-era LiquidityAdded (10 fields) has the seed tail but no fee / buy-in", () => {
-    const e = one<LiquidityAddedEvent>(truncatedEventLog(idl, "LiquidityAdded", addedValue(), 10));
-    expect(e.initialLpSupply.toNumber()).toBe(1_000_000_000); expect(e.depositFeeBps).toBe(0); expect(e.surgeBuyIn).toEqual([]); expect(e.v61Tail).toBe(false);
-  });
-  test("[P11] full LiquidityRemoved tail (T7 + T12)", () => {
-    const e = one<LiquidityRemovedEvent>(eventLog(idl, "LiquidityRemoved", removedValue()));
-    expect(e.tokenAmounts.map(Number)).toEqual([90, 0]); expect(e.withdrawFeeAmounts.map(Number)).toEqual([10, 0]); expect(e.withdrawFeeBps).toBe(1000);
-    expect(e.lpSupplyBefore.toNumber()).toBe(1000); expect(e.lpSupplyAfter.toNumber()).toBe(500); expect(e.surgeAmounts.map(Number)).toEqual([4, 0]); expect(e.v61Tail).toBe(true);
-  });
-  test("[P12] pre-v6.1 LiquidityRemoved decodes with defaults", () => {
-    const e = one<LiquidityRemovedEvent>(truncatedEventLog(idl, "LiquidityRemoved", removedValue(), 5));
-    expect(e.withdrawFeeAmounts).toEqual([]); expect(e.withdrawFeeBps).toBe(0); expect(e.surgeAmounts).toEqual([]); expect(e.v61Tail).toBe(false);
-  });
-  test("[P13] generic parity for LiquidityAdded / LiquidityRemoved", () => {
-    for (const [name, value] of [["LiquidityAdded", addedValue()], ["LiquidityRemoved", removedValue()]] as const) {
-      const log = eventLog(idl, name, value);
-      const generic = parseContractEvents([log], "cofferPool")[0].data as any;
-      const typed = one<any>(log);
-      for (const f of fieldsOf(name)) {
-        const camel = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-        expect(normalize(typed[camel])).toEqual(normalize(f === "timestamp" ? generic[f].toNumber() : generic[f]));
+describe("event pins (idl/abi-pins.json @ 409067d)", () => {
+  test("[P01] every re-cut event's NEW discriminator matches the shipped IDL, and the legacy one is gone from it", () => {
+    for (const [program, which] of [["cofferPool", idl], ["protocolAdmin", pa], ["singleTokenLiquidity", stld]] as const) {
+      for (const [name, pin] of Object.entries(RECUT_EVENTS[program])) {
+        expect(disc(name, which)).toBe(pin.discriminator);
+        expect(which.events.some((e: any) => e.name === pin.legacyName)).toBe(false);
+        expect(EVENT_TABLES[program].get(pin.legacyDiscriminator)).toBeUndefined();
+      }
+      for (const [name, hex] of Object.entries(RETIRED_EVENTS[program])) {
+        expect(which.events.some((e: any) => e.name === name)).toBe(false);
+        expect(EVENT_TABLES[program].get(hex)).toBeUndefined();
       }
     }
   });
-});
-
-describe("PoolInitialized / PoolStateLog / PoolInfo / ProtocolFeesCollected", () => {
-  test("[P14] full PoolInitialized tail (T1 strings, T14, T7, T9)", () => {
-    const e = one<PoolInitializedEvent>(eventLog(idl, "PoolInitialized", initValue()));
-    expect(e.poolId.toString()).toBe("9007199254740993"); expect(e.lpName).toBe("USDC-USDT Coffer LP"); expect(e.lpSymbol).toBe("cLP-USDX");
-    expect(e.lpUri).toBe("https://arweave.net/abc"); expect(e.lpTokenProgram.equals(key(9))).toBe(true); expect(e.creatorFeeBps).toBe(2500);
-    expect(e.depositFeeBps).toBe(5); expect(e.withdrawFeeBps).toBe(7); expect(e.hookProgram.equals(key(41))).toBe(true); expect(e.hookFlags).toBe(0b1110000);
-    expect(e.hookFeeMin).toBe(100); expect(e.hookFeeMax).toBe(50000); expect(e.hookMaxCu).toBe(60000); expect(e.hookAccountsLen).toBe(4);
+  test("[P02] the tables hold 41 / 36 / 2 events, no discriminator is shared and every one is sha256(event:<Name>)", () => {
+    expect(EVENT_TABLES.cofferPool.size).toBe(41); expect(EVENT_TABLES.protocolAdmin.size).toBe(36); expect(EVENT_TABLES.singleTokenLiquidity.size).toBe(2);
+    const all = [...EVENT_TABLES.cofferPool.keys(), ...EVENT_TABLES.protocolAdmin.keys(), ...EVENT_TABLES.singleTokenLiquidity.keys()];
+    expect(new Set(all).size).toBe(79);
+    expect(LEGACY_EVENT_DISCRIMINATORS.size).toBe(19 + 24 + 2 + 3);
+    for (const hex of all) expect(LEGACY_EVENT_DISCRIMINATORS.has(hex)).toBe(false);
+    expect(eventProgramOf(disc("SwapV2"))).toEqual({ program: "cofferPool", name: "SwapV2" });
+    expect(eventProgramOf(disc("PoolsFrozenV2", pa))).toEqual({ program: "protocolAdmin", name: "PoolsFrozenV2" });
+    expect(eventProgramOf("00".repeat(8))).toBeNull();
   });
-  test("[P15] unicode LP names round-trip", () => {
-    const v = initValue(); v.lp_name = "Café Пул LP";
-    expect(one<PoolInitializedEvent>(eventLog(idl, "PoolInitialized", v)).lpName).toBe(v.lp_name);
+  test("[P03] SwapV2 is laid out as documented: 343-byte payload without a window, 399 with one, tag byte @342", () => {
+    const some = (cofferFixtures.events as Fixture[]).find((f) => f.name === "SwapV2" && f.variant === "some")!;
+    const none = (cofferFixtures.events as Fixture[]).find((f) => f.name === "SwapV2" && f.variant === "none")!;
+    expect(Buffer.from(some.base64, "base64").length - 8).toBe(399);
+    expect(Buffer.from(none.base64, "base64").length - 8).toBe(343);
+    expect(Buffer.from(none.base64, "base64")[8 + 342]).toBe(0);
+    expect(Buffer.from(some.base64, "base64")[8 + 342]).toBe(1);
+    expect(fieldsOf("SwapV2").map((f) => f.name).slice(-6)).toEqual(["in_before", "in_after", "out_before", "out_after", "timestamp", "selloff_window"]);
+    expect(fieldsOf("SlotState").map((f) => f.name)).toEqual(["virtual_balance", "actual_balance", "protocol_fees_owed", "creator_fees_owed", "surge_fees_owed"]);
+    expect(fieldsOf("SelloffWindow").map((f) => f.name)).toEqual(["effective_selloff_before", "effective_selloff", "max_selloff_cap", "vb_snapshot", "previous_selloff", "current_selloff", "window_start_timestamp"]);
   });
-  test("[P16] a v6 PoolInitialized (through pool_id) defaults the v6.1 tail", () => {
-    const e = one<PoolInitializedEvent>(truncatedEventLog(idl, "PoolInitialized", initValue(), 7));
-    expect(e.poolId.toString()).toBe("9007199254740993"); expect(e.lpName).toBe(""); expect(e.lpTokenProgram.equals(PublicKey.default)).toBe(true);
-    expect(e.hookProgram.equals(PublicKey.default)).toBe(true); expect(e.hookAccountsLen).toBe(0);
-  });
-  test("[P17] a v5 PoolInitialized (no pool_id) still decodes", () => {
-    const e = one<PoolInitializedEvent>(truncatedEventLog(idl, "PoolInitialized", initValue(), 5));
-    expect(e.poolId.isZero()).toBe(true); expect(e.deprecatedBannedExtensions.isZero()).toBe(true);
-  });
-  test("[P18] full PoolStateLog tail (T14, T7, T12, T3)", () => {
-    const e = one<PoolStateLogEvent>(eventLog(idl, "PoolStateLog", stateLogValue()));
-    expect(e.creatorFeesOwed.map(Number)).toEqual([7, 8]); expect(e.depositFeeBps).toBe(5); expect(e.withdrawFeeBps).toBe(7); expect(e.liquidityFeeLock).toBe(1);
-    expect(e.surgeFeesOwed.map(Number)).toEqual([9, 10]); expect(e.poolAdminDelaySecs).toBe(86400); expect(e.poolAdminEpoch).toBe(3); expect(e.pendingActionsMask).toBe(0b101); expect(e.v61Tail).toBe(true);
-  });
-  test("[P19] pre-v6.1 PoolStateLog (5 fields) decodes with defaults", () => {
-    const e = one<PoolStateLogEvent>(truncatedEventLog(idl, "PoolStateLog", stateLogValue(), 5));
-    expect(e.protocolFeesOwed.map(Number)).toEqual([5, 6]); expect(e.creatorFeesOwed).toEqual([]); expect(e.surgeFeesOwed).toEqual([]); expect(e.pendingActionsMask).toBe(0); expect(e.v61Tail).toBe(false);
-  });
-  test("[P20] full PoolInfo tail incl. pending_etas (signed) and the hook block", () => {
-    const e = one<PoolInfoEvent>(eventLog(idl, "PoolInfo", infoValue()));
-    expect(e.kind).toBe("PoolInfo"); expect(e.tokens[1].equals(key(11))).toBe(true); expect(e.swapsEnabled).toBe(false);
-    expect(e.creatorFeeBps).toBe(2500); expect(e.rangeManagerLocked).toBe(true); expect(e.liquidityFeeLock).toBe(1); expect(e.surgeFeesOwed.map(Number)).toEqual([9, 10]);
-    expect(e.pendingEtas).toHaveLength(11); expect(e.pendingEtas[10].toString()).toBe("-5"); expect(e.pendingActionsMask).toBe(0b11);
-    expect(e.hookProgram.equals(key(41))).toBe(true); expect(e.hookDisabled).toBe(1); expect(e.hookAccountsLen).toBe(4); expect(e.v61Tail).toBe(true);
-  });
-  test("[P21] pre-v6.1 PoolInfo (17 fields) decodes with defaults", () => {
-    const e = one<PoolInfoEvent>(truncatedEventLog(idl, "PoolInfo", infoValue(), 17));
-    expect(e.timestamp).toBe(1700000004); expect(e.creatorFeeBps).toBe(0); expect(e.pendingEtas).toEqual([]); expect(e.hookProgram.equals(PublicKey.default)).toBe(true); expect(e.v61Tail).toBe(false);
-  });
-  test("[P22] generic parity for PoolInitialized / PoolStateLog / PoolInfo", () => {
-    for (const [name, value] of [["PoolInitialized", initValue()], ["PoolStateLog", stateLogValue()], ["PoolInfo", infoValue()]] as const) {
-      const log = eventLog(idl, name, value);
-      const generic = parseContractEvents([log], "cofferPool")[0].data as any;
-      const typed = one<any>(log);
-      for (const f of fieldsOf(name)) {
-        const camel = f === "banned_extensions" ? "deprecatedBannedExtensions" : f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-        expect(normalize(typed[camel])).toEqual(normalize(f === "timestamp" ? generic[f].toNumber() : generic[f]));
-      }
+  test("[P04] the typed decoder set covers the trading / liquidity / admin events a backend indexes", () => {
+    for (const name of ["SwapV2", "LiquidityAddedV2", "LiquidityRemovedV2", "PoolInitializedV2", "PoolInfoV2", "SingleTokenDepositDirectV2", "VirtualBalancesRescaled", "HookInvoked"]) {
+      expect(TYPED_EVENT_NAMES).toContain(name);
     }
-  });
-  test("[P23] ProtocolFeesCollected recipients (T5) and the pre-T5 shape", () => {
-    const v = { pool: key(1), authority: key(2), token_amounts: [bn(1), bn(0)], timestamp: bn(5), recipients: [key(70), key(1)] };
-    const e = one<ProtocolFeesCollectedEvent>(eventLog(idl, "ProtocolFeesCollected", v));
-    expect(e.recipients.map((k) => k.toBase58())).toEqual([key(70).toBase58(), key(1).toBase58()]);
-    expect(one<ProtocolFeesCollectedEvent>(truncatedEventLog(idl, "ProtocolFeesCollected", v, 4)).recipients).toEqual([]);
+    for (const name of TYPED_EVENT_NAMES) expect(eventProgramOf(disc(name, name === "SingleTokenDepositDirectV2" ? stld : idl))?.name).toBe(name);
   });
 });
 
-describe("new v6.1 events decode through the generic IDL path", () => {
-  const cases: Array<[string, any, (e: any) => void]> = [
-    ["PoolLayoutMigrated", { pool: key(1), payer: key(2), old_len: 1683, new_len: 2304, layout_version: 1, timestamp: bn(9) }, (e) => { expect(e.oldLen).toBe(1683); expect(e.newLen).toBe(2304); expect(e.layoutVersion).toBe(1); expect(e.timestamp).toBe(9); }],
-    ["SidelinedTokenFunded", { pool: key(1), authority: key(2), token_index: 2, amount_charged: bn(100), amount_credited: bn(99), actual_after: bn(99), virtual_balance: bn(5), lp_supply: bn(7), timestamp: bn(1) }, (e) => { expect(e.tokenIndex).toBe(2); expect(e.amountCredited.toNumber()).toBe(99); expect(e.virtualBalance.toNumber()).toBe(5); }],
-    ["CreatorFeeBpsUpdated", { pool: key(1), authority: key(2), old_bps: 0, new_bps: 2500, timestamp: bn(1) }, (e) => { expect(e.oldBps).toBe(0); expect(e.newBps).toBe(2500); }],
-    ["CreatorFeesClaimed", { pool: key(1), authority: key(2), token_amounts: [bn(1), bn(2)], timestamp: bn(1) }, (e) => expect(e.tokenAmounts.map(Number)).toEqual([1, 2])],
-    ["RangeManagerLocked", { pool: key(1), authority: key(2), timestamp: bn(3) }, (e) => expect(e.authority.equals(key(2))).toBe(true)],
-    ["LiquidityFeesUpdated", { pool: key(1), authority: key(2), old_deposit_fee_bps: 0, old_withdraw_fee_bps: 0, new_deposit_fee_bps: 5, new_withdraw_fee_bps: 7, timestamp: bn(1) }, (e) => { expect(e.newDepositFeeBps).toBe(5); expect(e.newWithdrawFeeBps).toBe(7); }],
-    ["LiquidityFeesLocked", { pool: key(1), authority: key(2), deposit_fee_bps: 5, withdraw_fee_bps: 7, timestamp: bn(1) }, (e) => expect(e.withdrawFeeBps).toBe(7)],
-    ["PoolActionProposed", { pool: key(1), authority: key(2), kind: 2, payload: Buffer.from([1, 0x88, 0x13, 0, 0]), eta: bn(1700000000), epoch: 3, timestamp: bn(1) }, (e) => { expect(e.kind).toBe("PoolActionProposed"); expect(e.actionKind).toBe(2); expect([...e.payload]).toEqual([1, 0x88, 0x13, 0, 0]); expect(e.eta.toNumber()).toBe(1700000000); expect(e.epoch).toBe(3); }],
-    ["PoolActionExecuted", { pool: key(1), authority: key(2), kind: 9, eta: bn(5), epoch: 1, timestamp: bn(6) }, (e) => { expect(e.actionKind).toBe(9); expect(e.eta.toNumber()).toBe(5); }],
-    ["PoolActionCancelled", { pool: key(1), authority: key(2), kind: 10, eta: bn(5), timestamp: bn(6) }, (e) => expect(e.actionKind).toBe(10)],
-    ["PoolAdminDelayChanged", { pool: key(1), authority: key(2), old_delay_secs: 0, new_delay_secs: 86400, timestamp: bn(6) }, (e) => expect(e.newDelaySecs).toBe(86400)],
-    ["HookInvoked", { pool: key(1), hook_program: key(41), callback: 1, verdict: 0, has_fee_override: true, fee_override: 123456, cu_used: 5340, timestamp: bn(6) }, (e) => { expect(e.callback).toBe(1); expect(e.hasFeeOverride).toBe(true); expect(e.feeOverride).toBe(123456); expect(e.cuUsed).toBe(5340); }],
-    ["HookDisabledSet", { pool: key(1), authority: key(2), old_disabled: false, new_disabled: true, pause_when_disabled: true, timestamp: bn(6) }, (e) => { expect(e.newDisabled).toBe(true); expect(e.pauseWhenDisabled).toBe(true); }],
-  ];
-  test.each(cases)("[P24] %s", (name, value, check) => {
-    const e = one<any>(eventLog(idl, name, value));
-    expect(e.kind).toBe(name);
-    check(e);
+describe("decoder round trips against the IDL-generated fixtures", () => {
+  test.each(FIXTURES.map(([program, which, f]) => [`${program}.${f.name}#${f.variant}`, program, which, f] as const))("[P05] %s", (_label, program, which, f) => {
+    const line = `Program data: ${f.base64}`;
+    expect(f.discriminator).toBe(disc(f.name, which));
+    // generic (IDL names, BN) — exact
+    const generic = parseContractEvents([line], program);
+    expect(generic).toHaveLength(1);
+    expect(generic[0].kind).toBe(f.name);
+    expect(normalize(generic[0].data)).toEqual(f.value);
+    // camelCase API — typed or generic path, same values
+    const camel = one<any>(line);
+    expect(camel.kind).toBe(f.name);
+    const { kind: _k, ...rest } = camel;
+    expect(normalize(rest)).toEqual(camelExpected(f.value));
+    // round trip: decoded (generic) → independent encoder → the fixture bytes
+    const reencoded = Buffer.concat([Buffer.from(f.discriminator, "hex"), encodeFields(revive(f.value, { defined: { name: f.name } }, which), fieldsOf(f.name, which), which)]);
+    expect(reencoded.toString("base64")).toBe(f.base64);
+    // attribution: the flat lookup names the right program
+    expect(decodeEventLine(f.base64).program).toBe(program);
   });
-  const paCases: Array<[string, any, (e: any) => void]> = [
-    ["ActionProposed", { treasury: key(1), admin: key(2), kind: 11, payload: Buffer.from([10, 1, 2]), eta: bn(7), epoch: 2, timestamp: bn(8) }, (e) => { expect(e.actionKind).toBe(11); expect([...e.payload]).toEqual([10, 1, 2]); }],
-    ["ActionExecuted", { treasury: key(1), admin: key(2), kind: 6, eta: bn(7), epoch: 2, timestamp: bn(8) }, (e) => expect(e.actionKind).toBe(6)],
-    ["ActionCancelled", { treasury: key(1), authority: key(2), kind: 0, eta: bn(7), timestamp: bn(8) }, (e) => expect(e.actionKind).toBe(0)],
-    ["TreasuryDelayChanged", { treasury: key(1), admin: key(2), old_delay_secs: 1, new_delay_secs: 2, timestamp: bn(8) }, (e) => expect(e.newDelaySecs).toBe(2)],
-    ["TreasuryLayoutMigrated", { treasury: key(1), admin: key(2), old_len: 818, new_len: 1624, timestamp: bn(8) }, (e) => { expect(e.oldLen).toBe(818); expect(e.newLen).toBe(1624); }],
-    ["PoolRangeManagerDisabled", { treasury: key(1), pool: key(2), authority: key(3), manager: key(4), old_enabled: true, timestamp: bn(8) }, (e) => expect(e.oldEnabled).toBe(true)],
-    ["PoolHookDisabledSet", { treasury: key(1), pool: key(2), hook_program: key(41), old_disabled: false, new_disabled: true, admin: key(3), timestamp: bn(8) }, (e) => expect(e.hookProgram.equals(key(41))).toBe(true)],
-    ["AdminTransferInitiated", { treasury: key(1), current_admin: key(2), pending_admin: key(3), timestamp: bn(8), eta: bn(99) }, (e) => expect(e.eta.toNumber()).toBe(99)],
-    ["AdminTransferred", { treasury: key(1), old_admin: key(2), new_admin: key(3), timestamp: bn(8), new_epoch: 4 }, (e) => expect(e.newEpoch).toBe(4)],
-  ];
-  test.each(paCases)("[P25] protocol_admin %s", (name, value, check) => {
-    const e = one<any>(eventLog(pa, name, value));
-    expect(e.kind).toBe(name);
-    check(e);
-  });
-  test("[P26] the T3 tails on PoolAdminTransferInitiated / Transferred / Disabled", () => {
-    const a = one<any>(eventLog(idl, "PoolAdminTransferInitiated", { pool: key(1), current_admin: key(2), pending_admin: key(3), timestamp: bn(1), eta: bn(77) }));
-    expect(a.eta.toNumber()).toBe(77);
-    const b = one<any>(eventLog(idl, "PoolAdminTransferred", { pool: key(1), old_admin: key(2), new_admin: key(3), timestamp: bn(1), new_epoch: 5 }));
-    expect(b.newEpoch).toBe(5);
-    const c = one<any>(eventLog(idl, "PoolAdminDisabled", { pool: key(1), old_admin: key(2), timestamp: bn(1), new_epoch: 6 }));
-    expect(c.newEpoch).toBe(6);
+  test("[P06] every program's whole event set is fixtured (41 + 36 + 2 names)", () => {
+    const names = (p: ContractProgram) => new Set(FIXTURES.filter(([x]) => x === p).map(([, , f]) => f.name));
+    expect(names("cofferPool").size).toBe(41); expect(names("protocolAdmin").size).toBe(36); expect(names("singleTokenLiquidity").size).toBe(2);
   });
 });
 
-describe("error code map (v6.1)", () => {
-  test("[P27] coffer-pool 6070–6103 names and SDK codes", () => {
-    for (const [code, name] of Object.entries(PINNED_ERRORS)) {
-      const d = describeProgramError(Number(code), "cofferPool");
-      expect(d?.name).toBe(name);
-      expect(d?.sdkCode).not.toBe("unknown");
-    }
-    expect(describeProgramError(6070)?.sdkCode).toBe("pool_layout_outdated");
-    expect(describeProgramError(6089)?.sdkCode).toBe("cooldown");
-    expect(describeProgramError(6095)?.sdkCode).toBe("hook_rejected");
-    expect(describeProgramError(6101)?.sdkCode).toBe("hook_rejected");
-    expect(describeProgramError(6086)?.sdkCode).toBe("amount_too_small");
-    expect(describeProgramError(6087)?.sdkCode).toBe("amount_too_small");
-    expect(describeProgramError(6076)?.sdkCode).toBe("invalid_input");
+describe("SwapV2", () => {
+  const swapValue = (window: any) => ({
+    pool: key(1), user: key(2), token_in_index: 0, token_out_index: 1, amount_in: bn(1_000_000), transfer_fee_in: bn(1_000), amount_in_net: bn(999_000),
+    swap_fee_rate: 3000, effective_fee_rate: 2500, protocol_fee_rate: 1000, creator_fee_bps: 2500, fee_amount: bn(2_498), protocol_fee_amount: bn(250),
+    creator_fee_amount: bn(562), amount_out_gross: bn(990_000), surge_fee_amount: bn(10_000), surge_protocol_fee_amount: bn(1_000), surge_creator_fee_amount: bn(2_250),
+    amount_out: bn(980_000), transfer_fee_out: bn(980),
+    in_before: { virtual_balance: bn(2_000_000_000), actual_balance: bn(1_000_000_000), protocol_fees_owed: bn(5), creator_fees_owed: bn(6), surge_fees_owed: bn(7) },
+    in_after: { virtual_balance: bn(2_000_998_188), actual_balance: bn(1_000_998_188), protocol_fees_owed: bn(255), creator_fees_owed: bn(568), surge_fees_owed: bn(7) },
+    out_before: { virtual_balance: bn(3_000_000_000), actual_balance: bn(1_500_000_000), protocol_fees_owed: bn(0), creator_fees_owed: bn(0), surge_fees_owed: bn(100) },
+    out_after: { virtual_balance: bn(2_999_010_000), actual_balance: bn(1_499_010_000), protocol_fees_owed: bn(1_000), creator_fees_owed: bn(2_250), surge_fees_owed: bn(6_850) },
+    timestamp: bn(-1_700_000_000), selloff_window: window,
   });
-  test("[P28] protocol-admin 6010–6018", () => {
-    for (const [code, name] of Object.entries(PINNED_PA_ERRORS)) expect(describeProgramError(Number(code), "protocolAdmin")?.name).toBe(name);
-    expect(describeProgramError(6010, "protocolAdmin")?.sdkCode).toBe("cooldown");
-    expect(describeProgramError(6017, "protocolAdmin")?.sdkCode).toBe("unsupported_pool_state");
+  const window = { effective_selloff_before: bn(10), effective_selloff: bn(1_000_010), max_selloff_cap: bn(300_000_000), vb_snapshot: bn(3_000_000_000), previous_selloff: bn(10), current_selloff: bn(1_000_000), window_start_timestamp: bn(1_699_999_000) };
+  test("[P07] a capped out-token carries its window inline; before / after slots are typed; the timestamp is signed", () => {
+    const e = one<SwapV2Event>(eventLog(idl, "SwapV2", swapValue(window)));
+    expect(e.kind).toBe("SwapV2"); expect(e.tokenInIndex).toBe(0); expect(e.tokenOutIndex).toBe(1); expect(e.timestamp).toBe(-1_700_000_000);
+    expect(e.effectiveFeeRate).toBe(2500); expect(e.swapFeeRate).toBe(3000); expect(e.amountInNet.toNumber()).toBe(999_000); expect(e.amountOutGross.toNumber()).toBe(990_000);
+    expect(e.inAfter.actualBalance.toString()).toBe("1000998188"); expect(e.outAfter.surgeFeesOwed.toNumber()).toBe(6_850);
+    expect(e.selloffWindow).not.toBeNull(); expect(e.selloffWindow!.effectiveSelloffBefore.toNumber()).toBe(10); expect(e.selloffWindow!.windowStartTimestamp).toBe(1_699_999_000);
   });
-  test("[P29] toSdkError maps a raw custom program error from either format", () => {
-    expect(toSdkError(new Error("custom program error: 0x17b6")).code).toBe("pool_layout_outdated"); // 6070
-    expect(toSdkError(new Error("Error Number: 6095")).code).toBe("hook_rejected");
-    expect(toSdkError(new Error("Error Number: 6010"), "protocolAdmin").code).toBe("cooldown");
-    expect(toSdkError(new Error("Error Number: 6010")).code).toBe("invalid_input"); // coffer-pool 6010 = ProtocolFeeRateMaxExceeded
+  test("[P08] an uncapped out-token has selloffWindow = null (343-byte payload)", () => {
+    const line = eventLog(idl, "SwapV2", swapValue(null));
+    expect(Buffer.from(line.slice("Program data: ".length), "base64").length).toBe(8 + 343);
+    expect(one<SwapV2Event>(line).selloffWindow).toBeNull();
   });
-  test("[P30] the error table is append-only: every code 6000..6103 is defined exactly once", () => {
+  test("[P09] the cascade is replayable from the event alone: in.actual += net − protocol − creator; out.actual −= gross; out.surge += LP share", () => {
+    const e = one<SwapV2Event>(eventLog(idl, "SwapV2", swapValue(null)));
+    const d = swapSlotDeltas(e);
+    expect(d.in.actualBalance.toString()).toBe(e.amountInNet.sub(e.protocolFeeAmount).sub(e.creatorFeeAmount).toString());
+    expect(d.in.virtualBalance.toString()).toBe(d.in.actualBalance.toString());
+    expect(d.in.protocolFeesOwed.toString()).toBe(e.protocolFeeAmount.toString()); expect(d.in.creatorFeesOwed.toString()).toBe(e.creatorFeeAmount.toString());
+    expect(d.out.actualBalance.toString()).toBe(e.amountOutGross.neg().toString()); expect(d.out.virtualBalance.toString()).toBe(e.amountOutGross.neg().toString());
+    expect(d.out.protocolFeesOwed.toString()).toBe(e.surgeProtocolFeeAmount.toString()); expect(d.out.creatorFeesOwed.toString()).toBe(e.surgeCreatorFeeAmount.toString());
+    expect(swapSurgeLpAmount(e).toNumber()).toBe(10_000 - 1_000 - 2_250); expect(d.out.surgeFeesOwed.toString()).toBe(swapSurgeLpAmount(e).toString());
+    expect(e.amountOut.toString()).toBe(e.amountOutGross.sub(e.surgeFeeAmount).toString());
+  });
+  test("[P10] applySwapToVectors patches exactly the two touched slots", () => {
+    const e = one<SwapV2Event>(eventLog(idl, "SwapV2", { ...swapValue(null), token_in_index: 2, token_out_index: 0 }));
+    const vectors = { virtualBalances: [bn(1), bn(2), bn(3)], actualBalances: [bn(1), bn(2), bn(3)], protocolFeesOwed: [bn(1), bn(2), bn(3)], creatorFeesOwed: [bn(1), bn(2), bn(3)], surgeFeesOwed: [bn(1), bn(2), bn(3)] };
+    const after = applySwapToVectors(e, vectors);
+    expect(after.virtualBalances.map(String)).toEqual([e.outAfter.virtualBalance.toString(), "2", e.inAfter.virtualBalance.toString()]);
+    expect(after.surgeFeesOwed.map(String)).toEqual([e.outAfter.surgeFeesOwed.toString(), "2", e.inAfter.surgeFeesOwed.toString()]);
+    expect(vectors.virtualBalances.map(String)).toEqual(["1", "2", "3"]);
+  });
+});
+
+describe("LiquidityAddedV2 / LiquidityRemovedV2 / receipts", () => {
+  test("[P11] LiquidityAddedV2 surfaces lp_supply_before/after and the six vectors; a seed has supply 0 → lp_amount", () => {
+    const v = {
+      pool: key(1), user: key(2), is_seed: true, token_amounts: [bn(100), bn(0), bn(300)], credited_amounts: [bn(99), bn(0), bn(297)], surge_buy_in: [bn(0), bn(0), bn(0)],
+      lp_amount: bn("1000000000000"), deposit_fee_lp: bn(0), deposit_fee_bps: 0, lp_supply_before: bn(0), lp_supply_after: bn("1000000000000"),
+      virtual_balances_before: [bn(1000), bn(1000), bn(1000)], virtual_balances_after: [bn(1000), bn(1000), bn(1000)], actual_balances_before: [bn(0), bn(0), bn(0)],
+      actual_balances_after: [bn(99), bn(0), bn(297)], surge_fees_owed_before: [bn(0), bn(0), bn(0)], surge_fees_owed_after: [bn(0), bn(0), bn(0)], timestamp: bn(1_700_000_000),
+    };
+    const e = one<LiquidityAddedV2Event>(eventLog(idl, "LiquidityAddedV2", v));
+    expect(e.isSeed).toBe(true); expect(e.lpSupplyBefore.isZero()).toBe(true); expect(e.lpSupplyAfter.toString()).toBe("1000000000000");
+    expect(e.lpSupplyAfter.toString()).toBe(e.lpSupplyBefore.add(e.lpAmount).toString());
+    expect(e.actualBalancesAfter.map(Number)).toEqual([99, 0, 297]); expect(e.creditedAmounts.map(Number)).toEqual([99, 0, 297]); expect(e.depositFeeBps).toBe(0);
+    e.creditedAmounts.forEach((c, i) => expect(c.toString()).toBe(e.actualBalancesAfter[i].sub(e.actualBalancesBefore[i]).add(e.surgeFeesOwedAfter[i].sub(e.surgeFeesOwedBefore[i])).toString()));
+  });
+  test("[P12] LiquidityRemovedV2: effective burn ≤ requested, hooks_bypassed, per-leg transfer fees, supply after = before − burn", () => {
+    const v = {
+      pool: key(1), user: key(2), requested_lp: bn(600), lp_amount: bn(500), token_amounts: [bn(90), bn(0)], surge_amounts: [bn(4), bn(0)], withdraw_fee_amounts: [bn(10), bn(0)],
+      withdraw_fee_bps: 1000, transfer_fees_out: [bn(1), bn(0)], hooks_bypassed: true, lp_supply_before: bn(1000), lp_supply_after: bn(500),
+      virtual_balances_before: [bn(200), bn(300)], virtual_balances_after: [bn(110), bn(300)], actual_balances_before: [bn(190), bn(0)], actual_balances_after: [bn(100), bn(0)],
+      surge_fees_owed_before: [bn(8), bn(0)], surge_fees_owed_after: [bn(4), bn(0)], timestamp: bn(1_700_000_001),
+    };
+    const e = one<LiquidityRemovedV2Event>(eventLog(idl, "LiquidityRemovedV2", v));
+    expect(e.requestedLp.toNumber()).toBe(600); expect(e.lpAmount.toNumber()).toBe(500); expect(e.hooksBypassed).toBe(true);
+    expect(e.lpSupplyAfter.toString()).toBe(e.lpSupplyBefore.sub(e.lpAmount).toString());
+    expect(e.actualBalancesBefore[0].sub(e.actualBalancesAfter[0]).toNumber()).toBe(90); expect(e.surgeFeesOwedBefore[0].sub(e.surgeFeesOwedAfter[0]).toNumber()).toBe(4);
+    expect(e.transferFeesOut.map(Number)).toEqual([1, 0]); expect(e.virtualBalancesAfter[0].gt(e.actualBalancesAfter[0])).toBe(true);
+  });
+  test("[P13] SingleTokenDepositDirectV2 is self-contained: plan hash, quoted_at, valid_until_slot, inner_swap_count, supply before / after", () => {
+    const v = {
+      pool: key(1), user: key(2), token_in_index: 2, amount_in: bn(300), minimum_lp_amount: bn(90), allocations: [bn(200), bn(100), bn(0)],
+      plan_expected_state: Array.from({ length: 32 }, (_, i) => i), plan_quoted_at: bn(1_700_000_000), plan_valid_until_slot: bn(1_000_123), inner_swap_count: 2,
+      deposited_amounts: [bn(200), bn(87), bn(0)], lp_received: bn(95), dust_remaining: [bn(0), bn(3), bn(0)], lp_supply_before: bn(1_000), lp_supply_after: bn(1_095), timestamp: bn(1_700_000_321),
+    };
+    const e = one<SingleTokenDepositDirectV2Event>(eventLog(stld, "SingleTokenDepositDirectV2", v));
+    expect(e.kind).toBe("SingleTokenDepositDirectV2"); expect([...e.planExpectedState]).toEqual(Array.from({ length: 32 }, (_, i) => i));
+    expect(e.planQuotedAt).toBe(1_700_000_000); expect(e.planValidUntilSlot.toNumber()).toBe(1_000_123); expect(e.innerSwapCount).toBe(2);
+    expect(e.lpReceived.toNumber()).toBe(95); expect(e.lpSupplyAfter.sub(e.lpSupplyBefore).toString()).toBe(e.lpReceived.toString()); expect(e.dustRemaining.map(Number)).toEqual([0, 3, 0]);
+  });
+  test("[P14] PoolInitializedV2 is the whole creation record (mints, programs, decimals, weights, vbs, rates, LP metadata, hook block)", () => {
+    const v = {
+      pool: key(1), config: key(2), pool_id: bn("9007199254740993"), pool_admin: key(3), lp_mint: key(4), lp_token_program: key(5), token_count: 2, mints: [key(10), key(11)],
+      token_programs: [key(20), key(21)], decimals: Buffer.from([6, 9]), normalized_weights: [bn(5000), bn(5000)], initial_virtual_balances: [bn(1_000_000), bn(1_000_000_000)],
+      swap_fee_rate: 3000, protocol_fee_rate: 1000, creator_fee_bps: 2500, deposit_fee_bps: 5, withdraw_fee_bps: 7, lp_name: "Café Пул LP", lp_symbol: "cLP", lp_uri: "https://x",
+      hook_program: key(41), hook_flags: 0b1110000, hook_fee_min: 100, hook_fee_max: 50_000, hook_max_cu: 60_000, hook_accounts_len: 4, timestamp: bn(1_700_000_002),
+    };
+    const e = one<PoolInitializedV2Event>(eventLog(idl, "PoolInitializedV2", v));
+    expect(e.poolId.toString()).toBe("9007199254740993"); expect(e.mints[1].equals(key(11))).toBe(true); expect(e.decimals).toEqual([6, 9]); expect(e.lpName).toBe("Café Пул LP");
+    expect(e.initialVirtualBalances.map(String)).toEqual(["1000000", "1000000000"]); expect(e.hookFlags).toBe(0b1110000); expect(e.hookAccountsLen).toBe(4); expect(e.poolAdmin.equals(key(3))).toBe(true);
+  });
+  test("[P15] PoolInfoV2: full view incl. is_active, selloff_policy (7 fields), range-manager block, cooldown summary, hook block, timestamp LAST", () => {
+    const policy = { max_selloff_pct: 300, period_length: 60, fee_threshold_pct: 100, fee_slope_low_pct: 10, fee_slope_high_pct: 900, fee_slope_mid_pct: 700, fee_kink_pct: 80 };
+    const v = {
+      pool: key(1), config: key(2), pool_id: bn(5), layout_version: 1, pool_admin: key(3), pending_pool_admin: key(4), pending_pool_admin_eta: bn(-5), lp_mint: key(6), token_count: 2,
+      tokens: [key(10), key(11)], token_vaults: [key(20), key(21)], token_programs: [key(30), key(31)], decimals: Buffer.from([9, 6]), normalized_weights: [bn(5000), bn(5000)],
+      virtual_balances: [bn(2), bn(4)], actual_balances: [bn(1), bn(3)], protocol_fees_owed: [bn(5), bn(6)], creator_fees_owed: [bn(7), bn(8)], surge_fees_owed: [bn(9), bn(10)],
+      is_active: [true, false], selloff_policy: [policy, { ...policy, fee_kinkPct: undefined, fee_kink_pct: 0 }], swap_fee_rate: 3000, protocol_fee_rate: 1000, creator_fee_bps: 2500,
+      deposit_fee_bps: 5, withdraw_fee_bps: 7, liquidity_fee_lock: 1, pool_enabled: true, swaps_enabled: false, range_manager: key(50), range_manager_enabled: true, range_manager_locked: false,
+      range_manager_max_vb_change_pct: 500, range_manager_max_weight_change_pct: 600, range_manager_min_update_interval_secs: 60, range_manager_max_leverage_bps: 30_000,
+      range_manager_min_leverage_bps: 11_000, range_manager_last_updated: bn(1_699_999_999), lookup_table: key(60), pool_admin_delay_secs: 86_400, pool_admin_epoch: 3,
+      pending_actions_mask: 0b11, pending_etas: [bn(1), bn(2), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(-5)], hook_program: key(41), hook_flags: 0b1110000,
+      hook_disabled: 1, hook_fee_min: 100, hook_fee_max: 50_000, hook_max_cu: 60_000, hook_accounts_len: 4, timestamp: bn(1_700_000_004),
+    };
+    const e = one<PoolInfoV2Event>(eventLog(idl, "PoolInfoV2", v));
+    expect(e.layoutVersion).toBe(1); expect(e.pendingPoolAdminEta.toString()).toBe("-5"); expect(e.isActive).toEqual([true, false]); expect(e.selloffPolicy[0].feeKinkPct).toBe(80);
+    expect(e.selloffPolicy[1].feeKinkPct).toBe(0); expect(e.rangeManagerMinLeverageBps).toBe(11_000); expect(e.pendingEtas).toHaveLength(11); expect(e.pendingEtas[10].toString()).toBe("-5");
+    expect(e.hookDisabled).toBe(1); expect(e.timestamp).toBe(1_700_000_004); expect(e.decimals).toEqual([9, 6]);
+  });
+});
+
+describe("admin / before-after events", () => {
+  test("[P16] actor_kind is typed on SwapsEnabledUpdatedV2 / TokenActiveSetV2 and named by actorKindName", () => {
+    const a = one<any>(eventLog(idl, "SwapsEnabledUpdatedV2", { pool: key(1), authority: key(2), actor_kind: 2, old_value: true, new_value: false, timestamp: bn(1) }));
+    expect(a.kind).toBe("SwapsEnabledUpdatedV2"); expect(a.actorKind).toBe(ACTOR_KIND.PROTOCOL_ADMIN); expect(actorKindName(a.actorKind)).toBe("PROTOCOL_ADMIN");
+    const t = one<any>(eventLog(idl, "TokenActiveSetV2", { pool: key(1), authority: key(2), actor_kind: 3, token_index: 4, old_value: true, new_value: false, timestamp: bn(1) }));
+    expect(t.tokenIndex).toBe(4); expect(actorKindName(t.actorKind)).toBe("SUPERVISOR"); expect(actorKindName(9)).toBe("UNKNOWN(9)");
+  });
+  test("[P17] RangeManagerUpdatedV2 is sparse: indices as numbers, old (CAS) / new per touched slot", () => {
+    const e = one<RangeManagerUpdatedV2Event>(eventLog(idl, "RangeManagerUpdatedV2", {
+      pool: key(1), manager: key(2), vb_indices: Buffer.from([0, 3]), vb_old_values: [bn(100), bn(200)], vb_new_values: [bn(110), bn(190)], weight_indices: Buffer.from([1]),
+      weight_old_values: [bn(5000)], weight_new_values: [bn(5100)], timestamp: bn(7),
+    }));
+    expect(e.vbIndices).toEqual([0, 3]); expect(e.vbNewValues.map(Number)).toEqual([110, 190]); expect(e.weightIndices).toEqual([1]); expect(e.weightNewValues.map(Number)).toEqual([5100]);
+  });
+  test("[P18] MaxSelloffSetV2 carries both policies in full (old and new, all 7 fields)", () => {
+    const p = (k: number) => ({ max_selloff_pct: 300, period_length: 60, fee_threshold_pct: 100, fee_slope_low_pct: 10, fee_slope_high_pct: 900, fee_slope_mid_pct: 700, fee_kink_pct: k });
+    const e = one<MaxSelloffSetV2Event>(eventLog(idl, "MaxSelloffSetV2", { pool: key(1), authority: key(2), old_params: [p(0), p(1)], new_params: [p(80), p(81)], timestamp: bn(7) }));
+    expect(e.oldParams.map((x) => x.feeKinkPct)).toEqual([0, 1]); expect(e.newParams.map((x) => x.feeKinkPct)).toEqual([80, 81]); expect(e.newParams[0].periodLength).toBe(60);
+  });
+  test("[P19] VirtualBalancesRescaled (T22) and HookInvoked / HookDisabledSet (T9)", () => {
+    const r = one<any>(eventLog(idl, "VirtualBalancesRescaled", { pool: key(1), authority: key(2), multiplier: bn(1_000_000_000), old_virtual_balances: [bn(1), bn(13_099)], new_virtual_balances: [bn(1_000_000_000), bn("13099000000000")], timestamp: bn(7) }));
+    expect(r.kind).toBe("VirtualBalancesRescaled"); expect(r.multiplier.toString()).toBe("1000000000"); expect(r.newVirtualBalances[1].toString()).toBe("13099000000000");
+    const h = one<any>(eventLog(idl, "HookInvoked", { pool: key(1), hook_program: key(41), callback: 1, verdict: 0, has_fee_override: true, fee_override: 123_456, cu_used: 5_340, timestamp: bn(6) }));
+    expect(h.callback).toBe(1); expect(h.hasFeeOverride).toBe(true); expect(h.feeOverride).toBe(123_456); expect(h.cuUsed).toBe(5_340);
+    const d = one<any>(eventLog(idl, "HookDisabledSet", { pool: key(1), authority: key(2), old_disabled: false, new_disabled: true, pause_when_disabled: true, timestamp: bn(6) }));
+    expect(d.newDisabled).toBe(true); expect(d.pauseWhenDisabled).toBe(true);
+  });
+  test("[P20] generic-path events decode with camelCase keys recursively and `kind` → `actionKind`", () => {
+    const e = one<any>(eventLog(pa, "ActionCancelledV2", { treasury: key(1), authority: key(2), actor_kind: 3, kind: 2, eta: bn(7), timestamp: bn(8) }));
+    expect(e.kind).toBe("ActionCancelledV2"); expect(e.actionKind).toBe(2); expect(e.actorKind).toBe(3); expect(e.eta.toNumber()).toBe(7); expect(e.timestamp).toBe(8);
+    const f = one<any>(eventLog(pa, "PoolsFrozenV2", { treasury: key(1), authority: key(2), actor_kind: 3, pools: [key(5), key(6)], old_enabled: [true, false], timestamp: bn(8) }));
+    expect(f.pools.map((k: PublicKey) => k.toBase58())).toEqual([key(5).toBase58(), key(6).toBase58()]); expect(f.oldEnabled).toEqual([true, false]);
+    const m = one<any>(eventLog(idl, "PoolMigrationV5Applied", { pool: key(1), authority: key(2), actor_kind: 2, reactivate_tokens: true, token_count: 3, reactivated: 2, timestamp: bn(8) }));
+    expect(m.kind).toBe("PoolMigrationV5Applied"); expect(m.reactivated).toBe(2);
+    const w = one<any>(eventLog(pa, "FundsWithdrawnV2", { treasury: key(1), admin: key(2), mint: key(3), vault: key(4), recipient: key(5), amount: bn(9), vault_balance_before: bn(10), vault_balance_after: bn(1), timestamp: bn(8) }));
+    expect(w.vaultBalanceBefore.toNumber()).toBe(10); expect(w.vaultBalanceAfter.toNumber()).toBe(1);
+  });
+  test("[P21] parseTransactionEvents attributes every line to the program on top of the invoke stack", () => {
+    const coffer = key(100).toBase58(), stldId = key(101).toBase58();
+    const swap = eventLog(idl, "SwapV2", (cofferFixtures.events as Fixture[]).find((f) => f.name === "SwapV2" && f.variant === "none")!.value && revive((cofferFixtures.events as Fixture[]).find((f) => f.name === "SwapV2" && f.variant === "none")!.value, { defined: { name: "SwapV2" } }, idl));
+    const receipt = `Program data: ${(stldFixtures.events as Fixture[]).find((f) => f.name === "SingleTokenDepositDirectV2")!.base64}`;
+    const logs = [
+      `Program ${stldId} invoke [1]`, "Program log: Instruction: DepositSingleTokenPlanned",
+      `Program ${coffer} invoke [2]`, "Program log: Instruction: Swap", swap, `Program ${coffer} success`,
+      `Program ${coffer} invoke [2]`, swap, `Program ${coffer} success`,
+      receipt, `Program ${stldId} success`,
+    ];
+    const out = parseTransactionEvents(logs, { cofferPool: key(100), singleTokenLiquidity: key(101) });
+    expect(out.map((e) => [e.event.kind, e.program, e.depth, e.programId === coffer ? "coffer" : "stld"])).toEqual([
+      ["SwapV2", "cofferPool", 2, "coffer"], ["SwapV2", "cofferPool", 2, "coffer"], ["SingleTokenDepositDirectV2", "singleTokenLiquidity", 1, "stld"],
+    ]);
+    expect(out[0].lineIndex).toBe(4); expect(out[2].lineIndex).toBe(9);
+    // without ids the flat lookup still decodes everything, at the right depth
+    const flat = parseTransactionEvents(logs);
+    expect(flat.map((e) => e.event.kind)).toEqual(["SwapV2", "SwapV2", "SingleTokenDepositDirectV2"]); expect(flat.map((e) => e.depth)).toEqual([2, 2, 1]);
+    expect(logTruncated(logs)).toBe(false); expect(logTruncated([...logs, "Log truncated"])).toBe(true);
+  });
+});
+
+describe("error code map (v6.1 incl. T22)", () => {
+  test("[P22] coffer-pool 6104–6106 have user-facing messages and non-generic SDK codes", () => {
+    expect(describeProgramError(6104)).toMatchObject({ name: "VirtualBalanceNotAboveActual", sdkCode: "leverage_invariant" });
+    expect(describeProgramError(6105)).toMatchObject({ name: "VirtualBalanceBelowFloor", sdkCode: "leverage_invariant" });
+    expect(describeProgramError(6106)).toMatchObject({ name: "InvalidVirtualRescale", sdkCode: "invalid_input" });
+    expect(describeProgramError(6104)!.message).toMatch(/rescale_virtual_balances/);
+    expect(describeProgramError(6105)!.message).toMatch(/one whole token/);
+    expect(describeProgramError(6106)!.message).toMatch(/≥ 2/);
+    expect(toSdkError(new Error("custom program error: 0x17d8")).code).toBe("leverage_invariant"); // 6104
+    expect(toSdkError(new Error("Error Number: 6105")).humanMessage).toMatch(/one whole token/);
+  });
+  test("[P23] the table is append-only: every code 6000..6106 defined once; protocol-admin still 6010–6018", () => {
     const table = contractErrorMapForTests("cofferPool");
-    for (let c = 6000; c <= 6103; c++) expect(table[c]).toBeDefined();
-    expect(Object.keys(table)).toHaveLength(104);
+    for (let c = 6000; c <= 6106; c++) expect(table[c]).toBeDefined();
+    expect(Object.keys(table)).toHaveLength(107);
     expect(Object.keys(contractErrorMapForTests("protocolAdmin"))).toHaveLength(19);
+    expect(describeProgramError(6095)?.sdkCode).toBe("hook_rejected"); expect(describeProgramError(6089)?.sdkCode).toBe("cooldown"); expect(describeProgramError(6070)?.sdkCode).toBe("pool_layout_outdated");
+    expect(describeProgramError(6010, "protocolAdmin")?.sdkCode).toBe("cooldown"); expect(describeProgramError(6018, "protocolAdmin")?.name).toBe("InvalidPendingAdmin");
   });
 });
 
 // ── negative ────────────────────────────────────────────────────────────────
 
-describe("malformed / foreign logs", () => {
-  test("[N01] a Swap log cut inside a field is reported as Unknown, never a half value", () => {
-    const full = eventLog(idl, "Swap", swapValue());
-    const bytes = Buffer.from(full.slice("Program data: ".length), "base64").subarray(0, 8 + 32 * 4 + 3);
-    const out = parseCofferPoolEvents([`Program data: ${bytes.toString("base64")}`]);
-    expect(out[0].kind).toBe("Unknown");
+describe("legacy / retired / malformed logs", () => {
+  test("[N01] every legacy discriminator of a re-cut event is Unknown with the legacy name and its successor", () => {
+    for (const [program, pins] of Object.entries(RECUT_EVENTS) as Array<[ContractProgram, any]>) {
+      for (const [name, pin] of Object.entries<any>(pins)) {
+        const [e] = parseCofferPoolEvents([log(Buffer.concat([Buffer.from(pin.legacyDiscriminator, "hex"), Buffer.alloc(64, 1)]))]);
+        expect(e.kind).toBe("Unknown"); expect((e as any).name).toBe(pin.legacyName);
+        expect((e as any).data).toMatchObject({ legacy: true, retired: false, replacedBy: name, program });
+      }
+    }
   });
-  test("[N02] a Vec tail cut inside the vector is Unknown", () => {
-    const full = Buffer.from(eventLog(idl, "LiquidityAdded", addedValue()).slice("Program data: ".length), "base64");
-    const out = parseCofferPoolEvents([`Program data: ${full.subarray(0, full.length - 3).toString("base64")}`]);
-    expect(out[0].kind).toBe("Unknown");
+  test("[N02] the retired PoolStateLog / MaxSelloffWindowAdvanced / SingleTokenDeposit discriminators are Unknown { retired: true }", () => {
+    for (const [name, hex] of [["PoolStateLog", "3bfeed6fa30a8ce0"], ["MaxSelloffWindowAdvanced", "e5e3a31e16b74e39"], ["SingleTokenDeposit", "d7368968db27a4eb"]]) {
+      const [e] = parseCofferPoolEvents([log(Buffer.concat([Buffer.from(hex, "hex"), Buffer.alloc(100)]))]);
+      expect(e.kind).toBe("Unknown"); expect((e as any).name).toBe(name); expect((e as any).data.retired).toBe(true); expect((e as any).data.replacedBy).toBeNull();
+      expect(parseContractEvents([log(Buffer.concat([Buffer.from(hex, "hex"), Buffer.alloc(100)]))])).toHaveLength(0);
+    }
   });
-  test("[N03] a PoolInitialized string longer than the buffer is Unknown", () => {
-    const full = Buffer.from(eventLog(idl, "PoolInitialized", initValue()).slice("Program data: ".length), "base64");
-    const cut = full.subarray(0, 8 + 32 + 32 + 1 + 32 + 8 + 8 + 8 + 4 + 3); // length prefix says 19 bytes, 3 present
-    expect(parseCofferPoolEvents([`Program data: ${cut.toString("base64")}`])[0].kind).toBe("Unknown");
+  test("[N03] a v6 Swap log (legacy discriminator + a valid v6 payload) never decodes as SwapV2", () => {
+    const v6 = Buffer.concat([Buffer.from("516ce3becdd00ac4", "hex"), key(1).toBuffer(), key(2).toBuffer(), key(3).toBuffer(), key(4).toBuffer(), Buffer.alloc(8 * 6)]);
+    const [e] = parseCofferPoolEvents([log(v6)]);
+    expect(e.kind).toBe("Unknown"); expect((e as any).name).toBe("Swap"); expect((e as any).data.replacedBy).toBe("SwapV2");
   });
-  test("[N04] an unknown discriminator is Unknown with the raw payload", () => {
-    const out = parseCofferPoolEvents([`Program data: ${Buffer.concat([Buffer.alloc(8, 0xaa), Buffer.alloc(40)]).toString("base64")}`]);
-    expect(out[0].kind).toBe("Unknown"); expect((out[0] as any).name).toBe("unknown");
+  test("[N04] a SwapV2 cut inside a slot or inside the window is Unknown, never a half value", () => {
+    const full = Buffer.from((cofferFixtures.events as Fixture[]).find((f) => f.name === "SwapV2" && f.variant === "some")!.base64, "base64");
+    for (const cut of [8 + 32 * 2 + 1, 8 + 150, 8 + 342, 8 + 343 + 10, full.length - 1]) {
+      const [e] = parseCofferPoolEvents([log(full.subarray(0, cut))]);
+      expect(e.kind).toBe("Unknown"); expect((e as any).name).toBe("SwapV2"); expect((e as any).data.error).toMatch(/BorshReader|bytes/);
+    }
   });
-  test("[N05] lines that are not `Program data:` are ignored", () => {
-    expect(parseCofferPoolEvents(["Program log: hello", "Program 8iQt… invoke [1]", "Program data: AAAA"])).toHaveLength(0);
+  test("[N05] a SwapV2 whose Option tag is neither 0 nor 1 is Unknown", () => {
+    const full = Buffer.from((cofferFixtures.events as Fixture[]).find((f) => f.name === "SwapV2" && f.variant === "none")!.base64, "base64");
+    full[8 + 342] = 2;
+    const [e] = parseCofferPoolEvents([log(full)]);
+    expect(e.kind).toBe("Unknown"); expect((e as any).data.error).toMatch(/Option tag/);
   });
-  test("[N06] a non-canonical bool inside a tail (is_seed = 2) is Unknown", () => {
-    const full = Buffer.from(eventLog(idl, "LiquidityAdded", addedValue()).slice("Program data: ".length), "base64");
-    full[8 + 32 + 32 + 4 + 3 * 8 + 8 + 8] = 2;
-    expect(parseCofferPoolEvents([`Program data: ${full.toString("base64")}`])[0].kind).toBe("Unknown");
+  test("[N06] trailing bytes after a complete typed payload are ignored (the IDL coder behaves the same)", () => {
+    const full = Buffer.from((cofferFixtures.events as Fixture[]).find((f) => f.name === "LiquidityAddedV2")!.base64, "base64");
+    const padded = Buffer.concat([full, Buffer.from([1, 2, 3])]);
+    expect(parseCofferPoolEvents([log(padded)])[0].kind).toBe("LiquidityAddedV2");
+    expect(parseContractEvents([log(padded)], "cofferPool")[0]?.kind).toBe("LiquidityAddedV2");
   });
-  test("[N07] a PoolInfo log with range_manager_locked = 3 is Unknown", () => {
-    const full = Buffer.from(eventLog(idl, "PoolInfo", infoValue()).slice("Program data: ".length), "base64");
-    const generic = parseContractEvents([`Program data: ${full.toString("base64")}`], "cofferPool");
-    expect(generic[0].kind).toBe("PoolInfo");
-    // locate the flag: after creator_fees_owed (4 + 2*8) which follows creator_fee_bps (2) which follows timestamp
-    const prefixLen = (() => {
-      const names = fieldsOf("PoolInfo"); const idx = names.indexOf("range_manager_locked");
-      return 8 + Buffer.from(truncatedEventLog(idl, "PoolInfo", infoValue(), idx).slice("Program data: ".length), "base64").length - 8;
-    })();
-    full[prefixLen] = 3;
-    expect(parseCofferPoolEvents([`Program data: ${full.toString("base64")}`])[0].kind).toBe("Unknown");
+  test("[N07] a Vec length prefix past the buffer is Unknown (LiquidityRemovedV2, PoolInfoV2 pending_etas)", () => {
+    const removed = Buffer.from((cofferFixtures.events as Fixture[]).find((f) => f.name === "LiquidityRemovedV2")!.base64, "base64");
+    removed.writeUInt32LE(1_000_000, 8 + 32 * 2 + 16);
+    expect(parseCofferPoolEvents([log(removed)])[0].kind).toBe("Unknown");
+    const info = (cofferFixtures.events as Fixture[]).find((f) => f.name === "PoolInfoV2")!;
+    const names = fieldsOf("PoolInfoV2").map((f) => f.name);
+    const off = 8 + Buffer.from(truncatedEventLog(idl, "PoolInfoV2", revive(info.value, { defined: { name: "PoolInfoV2" } }, idl), names.indexOf("pending_etas")).slice("Program data: ".length), "base64").length - 8;
+    const buf = Buffer.from(info.base64, "base64"); buf.writeUInt32LE(1_000, off);
+    expect(parseCofferPoolEvents([log(buf)])[0].kind).toBe("Unknown");
   });
-  test("[N08] the generic decoder refuses a truncated v6.1 log (strict Borsh) while the typed one tolerates it", () => {
-    const log = truncatedEventLog(idl, "Swap", swapValue(), 10);
-    expect(parseContractEvents([log], "cofferPool")).toHaveLength(0);
-    expect(parseCofferPoolEvents([log])[0].kind).toBe("Swap");
+  test("[N08] a non-canonical bool (is_seed = 2, hooks_bypassed = 7) is Unknown", () => {
+    const added = Buffer.from((cofferFixtures.events as Fixture[]).find((f) => f.name === "LiquidityAddedV2")!.base64, "base64");
+    added[8 + 64] = 2;
+    expect(parseCofferPoolEvents([log(added)])[0].kind).toBe("Unknown");
+    const removed = (cofferFixtures.events as Fixture[]).find((f) => f.name === "LiquidityRemovedV2")!;
+    const names = fieldsOf("LiquidityRemovedV2").map((f) => f.name);
+    const off = Buffer.from(truncatedEventLog(idl, "LiquidityRemovedV2", revive(removed.value, { defined: { name: "LiquidityRemovedV2" } }, idl), names.indexOf("hooks_bypassed")).slice("Program data: ".length), "base64").length;
+    const buf = Buffer.from(removed.base64, "base64"); buf[off] = 7;
+    expect(parseCofferPoolEvents([log(buf)])[0].kind).toBe("Unknown");
   });
-  test("[N09] trailing garbage after a complete v6.1 Swap is ignored by the typed decoder (future append)", () => {
-    const full = Buffer.from(eventLog(idl, "Swap", swapValue()).slice("Program data: ".length), "base64");
-    const e = parseCofferPoolEvents([`Program data: ${Buffer.concat([full, Buffer.from([1, 2, 3])]).toString("base64")}`])[0] as SwapEvent;
-    expect(e.kind).toBe("Swap"); expect(e.effectiveFeeRate).toBe(2500);
+  test("[N09] a PoolInitializedV2 string longer than the buffer is Unknown; a bad UTF-8 length still refuses", () => {
+    const init = (cofferFixtures.events as Fixture[]).find((f) => f.name === "PoolInitializedV2")!;
+    const names = fieldsOf("PoolInitializedV2").map((f) => f.name);
+    const off = Buffer.from(truncatedEventLog(idl, "PoolInitializedV2", revive(init.value, { defined: { name: "PoolInitializedV2" } }, idl), names.indexOf("lp_name")).slice("Program data: ".length), "base64").length;
+    const buf = Buffer.from(init.base64, "base64"); buf.writeUInt32LE(100_000, off);
+    expect(parseCofferPoolEvents([log(buf)])[0].kind).toBe("Unknown");
   });
-  test("[N10] a protocol-admin log is not decoded with the coffer-pool table and vice versa", () => {
-    const log = eventLog(pa, "TreasuryDelayChanged", { treasury: key(1), admin: key(2), old_delay_secs: 1, new_delay_secs: 2, timestamp: bn(8) });
-    expect(parseContractEvents([log], "cofferPool")).toHaveLength(0);
-    expect(parseContractEvents([log], "protocolAdmin")[0].kind).toBe("TreasuryDelayChanged");
+  test("[N10] unknown discriminators / non-`Program data:` lines / short payloads", () => {
+    const [u] = parseCofferPoolEvents([log(Buffer.concat([Buffer.alloc(8, 0xaa), Buffer.alloc(40)]))]);
+    expect(u.kind).toBe("Unknown"); expect((u as any).name).toBe("unknown"); expect((u as any).data.disc).toBe("aa".repeat(8));
+    expect(parseCofferPoolEvents(["Program log: hello", "Program 8iQt… invoke [1]"])).toHaveLength(0);
+    expect(parseCofferPoolEvents(["Program data: AAAA"])[0].kind).toBe("Unknown");
   });
-  test("[N11] unknown error codes map to undefined / unknown", () => {
-    expect(describeProgramError(6104)).toBeUndefined();
+  test("[N11] a timestamp outside the safe-integer range is Unknown on the camelCase API (BN on the IDL API)", () => {
+    const v = { pool: key(1), authority: key(2), old_value: true, new_value: false, timestamp: new BN(1).shln(62) };
+    const line = eventLog(idl, "PoolEnabledUpdated", v);
+    expect(parseContractEvents([line], "cofferPool")[0].kind).toBe("PoolEnabledUpdated");
+    expect(parseCofferPoolEvents([line])[0].kind).toBe("Unknown");
+  });
+  test("[N12] with program ids, a coffer-pool event logged under the STLD id is Unknown (foreign payload), and vice versa", () => {
+    const stldId = key(101).toBase58();
+    const swap = `Program data: ${(cofferFixtures.events as Fixture[]).find((f) => f.name === "SwapV2" && f.variant === "none")!.base64}`;
+    const out = parseTransactionEvents([`Program ${stldId} invoke [1]`, swap, `Program ${stldId} success`], { singleTokenLiquidity: key(101) });
+    expect(out[0].event.kind).toBe("Unknown"); expect(out[0].program).toBeNull(); expect((out[0].event as any).data.program).toBe("singleTokenLiquidity");
+    const receipt = `Program data: ${(stldFixtures.events as Fixture[]).find((f) => f.name === "SingleTokenDepositDirectV2")!.base64}`;
+    const out2 = parseTransactionEvents([`Program ${key(100).toBase58()} invoke [1]`, receipt, `Program ${key(100).toBase58()} success`], { cofferPool: key(100) });
+    expect(out2[0].event.kind).toBe("Unknown");
+  });
+  test("[N13] a protocol-admin log is not decoded with the coffer-pool table and vice versa", () => {
+    const line = eventLog(pa, "TreasuryDelayChanged", { treasury: key(1), admin: key(2), old_delay_secs: 1, new_delay_secs: 2, timestamp: bn(8) });
+    expect(parseContractEvents([line], "cofferPool")).toHaveLength(0);
+    expect(parseContractEvents([line], "protocolAdmin")[0].kind).toBe("TreasuryDelayChanged");
+    expect(decodeEventLine(line.slice("Program data: ".length), "cofferPool").event.kind).toBe("Unknown");
+  });
+  test("[N14] no fixture decodes under another program's table; both decoders refuse a payload cut by one byte (Anchor's reader would zero-fill it)", () => {
+    for (const [program, , f] of FIXTURES) {
+      for (const other of ["cofferPool", "protocolAdmin", "singleTokenLiquidity"] as ContractProgram[]) {
+        if (other === program) continue;
+        expect(parseContractEvents([`Program data: ${f.base64}`], other)).toHaveLength(0);
+      }
+      const cut = Buffer.from(f.base64, "base64").subarray(0, -1);
+      expect(parseContractEvents([log(cut)], program)).toHaveLength(0);
+      const [camel] = parseCofferPoolEvents([log(cut)]);
+      expect(camel.kind).toBe("Unknown"); expect((camel as any).name).toBe(f.name);
+    }
+  });
+  test("[N15] unknown error codes map to undefined / unknown (6107, PA 6019)", () => {
+    expect(describeProgramError(6107)).toBeUndefined();
     expect(describeProgramError(6019, "protocolAdmin")).toBeUndefined();
-    expect(toSdkError(new Error("custom program error: 0x17d8")).code).toBe("unknown"); // 6104
+    expect(toSdkError(new Error("custom program error: 0x17db")).code).toBe("unknown"); // 6107
   });
-  test("[N12] the pre-T19 BannedExtension code 6025 is still defined but never a v6.1 error", () => {
-    expect(describeProgramError(6025)?.name).toBe("BannedExtension");
-  });
-  test("[N13] cooldown events never shadow the discriminator with their kind field", () => {
-    const e = one<any>(eventLog(idl, "PoolActionExecuted", { pool: key(1), authority: key(2), kind: 4, eta: bn(5), epoch: 1, timestamp: bn(6) }));
-    expect(e.kind).toBe("PoolActionExecuted"); expect(e.actionKind).toBe(4);
-  });
-  test("[N14] PoolInfo pending_etas with a wrong length prefix is Unknown", () => {
-    const full = Buffer.from(eventLog(idl, "PoolInfo", infoValue()).slice("Program data: ".length), "base64");
-    const names = fieldsOf("PoolInfo"); const idx = names.indexOf("pending_etas");
-    const off = Buffer.from(truncatedEventLog(idl, "PoolInfo", infoValue(), idx).slice("Program data: ".length), "base64").length;
-    full.writeUInt32LE(1000, off);
-    expect(parseCofferPoolEvents([`Program data: ${full.toString("base64")}`])[0].kind).toBe("Unknown");
-  });
-  test("[N15] every pinned name exists in the IDL (no silent rename)", () => {
-    for (const name of Object.keys(PINNED_EVENTS)) expect(idl.events.some((e: any) => e.name === name)).toBe(true);
-    for (const name of Object.keys(PINNED_PA_EVENTS)) expect(pa.events.some((e: any) => e.name === name)).toBe(true);
-    for (const name of Object.values(PINNED_ERRORS)) expect(idl.errors.some((e: any) => e.name === name)).toBe(true);
+  test("[N16] every pinned legacy name is absent from the IDLs and every typed name is present", () => {
+    for (const pin of LEGACY_EVENT_DISCRIMINATORS.values()) {
+      const which = pin.program === "cofferPool" ? idl : pin.program === "protocolAdmin" ? pa : stld;
+      expect(which.events.some((e: any) => e.name === pin.legacyName)).toBe(false);
+    }
+    for (const name of TYPED_EVENT_NAMES) expect([...idl.events, ...stld.events].some((e: any) => e.name === name)).toBe(true);
   });
 });

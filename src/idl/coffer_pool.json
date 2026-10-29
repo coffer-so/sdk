@@ -1607,6 +1607,57 @@
       ]
     },
     {
+      "name": "rescale_virtual_balances",
+      "docs": [
+        "v6.1 (T22): price-neutral repair of a pool that violates the strict",
+        "leverage invariant (`virtual_balance > actual_balance` on every slot,",
+        "e.g. a migrated legacy pool at `V == A`): multiply EVERY slot's",
+        "virtual balance by `multiplier` (`>= 2`, checked `u64`), rescale the",
+        "sell-off windows, then require the invariant and the per-slot floor",
+        "(`min_virtual_balance`) on the result. Pair prices `V_i : V_j` are",
+        "unchanged; only depth / leverage grows. Allowed on a disabled pool so",
+        "the repair can precede the unfreeze.",
+        "",
+        "# Authority",
+        "`config.protocol_admin` (= Treasury PDA) — reached through",
+        "`protocol_admin::pool_rescale_virtual_balances` (D-class: queued",
+        "under the Treasury cooldown when a delay is in force).",
+        "",
+        "# Errors",
+        "`InvalidVirtualRescale`, `MathOverflow`, `VirtualBalanceNotAboveActual`,",
+        "`VirtualBalanceBelowFloor`, `Unauthorized`."
+      ],
+      "discriminator": [
+        220,
+        81,
+        160,
+        144,
+        189,
+        70,
+        169,
+        235
+      ],
+      "accounts": [
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "multiplier",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "seed_liquidity",
       "docs": [
         "Seed the pool's first liquidity and mint a creator-chosen LP",
@@ -2429,16 +2480,16 @@
   ],
   "events": [
     {
-      "name": "ConfigInitialized",
+      "name": "ConfigInitializedV2",
       "discriminator": [
-        181,
-        49,
-        200,
-        156,
-        19,
-        167,
-        178,
-        91
+        122,
+        37,
+        226,
+        76,
+        12,
+        124,
+        91,
+        56
       ]
     },
     {
@@ -2455,29 +2506,29 @@
       ]
     },
     {
-      "name": "CreatorFeesClaimed",
+      "name": "CreatorFeesClaimedV2",
       "discriminator": [
-        189,
+        165,
+        17,
+        91,
+        185,
+        28,
+        174,
         178,
-        21,
-        181,
-        171,
-        179,
-        131,
-        1
+        130
       ]
     },
     {
-      "name": "DebugLiquidityWithdrawn",
+      "name": "DebugLiquidityWithdrawnV2",
       "discriminator": [
-        174,
-        59,
-        149,
-        22,
-        135,
-        129,
-        129,
-        83
+        106,
+        253,
+        151,
+        3,
+        224,
+        46,
+        14,
+        85
       ]
     },
     {
@@ -2507,16 +2558,16 @@
       ]
     },
     {
-      "name": "LiquidityAdded",
+      "name": "LiquidityAddedV2",
       "discriminator": [
-        154,
-        26,
-        221,
-        108,
-        238,
-        64,
-        217,
-        161
+        50,
+        67,
+        15,
+        36,
+        144,
+        54,
+        120,
+        32
       ]
     },
     {
@@ -2546,42 +2597,29 @@
       ]
     },
     {
-      "name": "LiquidityRemoved",
+      "name": "LiquidityRemovedV2",
       "discriminator": [
-        225,
-        105,
-        216,
-        39,
-        124,
-        116,
-        169,
-        189
+        230,
+        127,
+        63,
+        38,
+        28,
+        46,
+        157,
+        7
       ]
     },
     {
-      "name": "MaxSelloffSet",
+      "name": "MaxSelloffSetV2",
       "discriminator": [
-        134,
-        183,
-        49,
-        134,
-        82,
-        138,
-        85,
-        234
-      ]
-    },
-    {
-      "name": "MaxSelloffWindowAdvanced",
-      "discriminator": [
-        229,
-        227,
-        163,
-        30,
-        22,
-        183,
-        78,
-        57
+        197,
+        205,
+        79,
+        43,
+        168,
+        176,
+        125,
+        202
       ]
     },
     {
@@ -2637,16 +2675,16 @@
       ]
     },
     {
-      "name": "PoolAdminDisabled",
+      "name": "PoolAdminDisabledV2",
       "discriminator": [
-        158,
-        98,
-        202,
-        37,
-        243,
-        57,
-        247,
-        87
+        241,
+        252,
+        105,
+        52,
+        208,
+        27,
+        25,
+        229
       ]
     },
     {
@@ -2663,29 +2701,29 @@
       ]
     },
     {
-      "name": "PoolAdminTransferInitiated",
+      "name": "PoolAdminTransferInitiatedV2",
       "discriminator": [
-        33,
-        195,
-        202,
-        133,
-        209,
-        42,
-        157,
-        78
+        189,
+        5,
+        231,
+        62,
+        87,
+        62,
+        91,
+        39
       ]
     },
     {
-      "name": "PoolAdminTransferred",
+      "name": "PoolAdminTransferredV2",
       "discriminator": [
-        123,
-        48,
-        231,
-        186,
-        53,
-        67,
-        156,
-        254
+        61,
+        196,
+        22,
+        243,
+        118,
+        160,
+        26,
+        76
       ]
     },
     {
@@ -2715,29 +2753,29 @@
       ]
     },
     {
-      "name": "PoolInfo",
+      "name": "PoolInfoV2",
       "discriminator": [
-        207,
-        20,
-        87,
-        97,
-        251,
-        212,
+        220,
+        83,
+        82,
+        84,
+        50,
         234,
-        45
+        87,
+        135
       ]
     },
     {
-      "name": "PoolInitialized",
+      "name": "PoolInitializedV2",
       "discriminator": [
-        100,
-        118,
-        173,
-        87,
-        12,
-        198,
-        254,
-        229
+        165,
+        217,
+        243,
+        66,
+        227,
+        136,
+        161,
+        243
       ]
     },
     {
@@ -2754,42 +2792,29 @@
       ]
     },
     {
-      "name": "PoolMigratedToV5",
+      "name": "PoolMigrationV5Applied",
       "discriminator": [
-        95,
-        55,
-        157,
-        61,
-        92,
-        6,
-        79,
-        105
+        97,
+        106,
+        34,
+        31,
+        225,
+        208,
+        234,
+        135
       ]
     },
     {
-      "name": "PoolSolWithdrawn",
+      "name": "PoolSolWithdrawnV2",
       "discriminator": [
-        82,
-        220,
-        173,
-        175,
-        24,
-        165,
-        172,
-        233
-      ]
-    },
-    {
-      "name": "PoolStateLog",
-      "discriminator": [
-        59,
-        254,
-        237,
-        111,
-        163,
-        10,
-        140,
-        224
+        239,
+        30,
+        229,
+        248,
+        121,
+        221,
+        154,
+        6
       ]
     },
     {
@@ -2845,16 +2870,16 @@
       ]
     },
     {
-      "name": "ProtocolFeesCollected",
+      "name": "ProtocolFeesCollectedV2",
       "discriminator": [
-        165,
-        34,
-        125,
-        155,
-        15,
-        86,
-        99,
-        191
+        224,
+        116,
+        92,
+        247,
+        69,
+        62,
+        94,
+        71
       ]
     },
     {
@@ -2884,29 +2909,29 @@
       ]
     },
     {
-      "name": "RangeManagerSet",
+      "name": "RangeManagerSetV2",
       "discriminator": [
-        62,
-        152,
-        235,
-        91,
-        195,
-        238,
-        83,
-        202
+        44,
+        103,
+        204,
+        219,
+        176,
+        185,
+        55,
+        154
       ]
     },
     {
-      "name": "RangeManagerUpdated",
+      "name": "RangeManagerUpdatedV2",
       "discriminator": [
-        132,
-        144,
-        100,
-        144,
-        149,
-        205,
-        212,
-        24
+        239,
+        219,
+        46,
+        84,
+        245,
+        193,
+        204,
+        82
       ]
     },
     {
@@ -2923,19 +2948,6 @@
       ]
     },
     {
-      "name": "Swap",
-      "discriminator": [
-        81,
-        108,
-        227,
-        190,
-        205,
-        208,
-        10,
-        196
-      ]
-    },
-    {
       "name": "SwapFeeRateUpdated",
       "discriminator": [
         101,
@@ -2949,29 +2961,55 @@
       ]
     },
     {
-      "name": "SwapsEnabledUpdated",
+      "name": "SwapV2",
       "discriminator": [
-        55,
-        116,
-        118,
-        138,
-        102,
-        26,
-        227,
-        223
+        185,
+        91,
+        233,
+        47,
+        107,
+        230,
+        149,
+        147
       ]
     },
     {
-      "name": "TokenActiveSet",
+      "name": "SwapsEnabledUpdatedV2",
       "discriminator": [
-        168,
-        221,
-        25,
-        146,
-        234,
-        230,
-        232,
-        100
+        225,
+        49,
+        200,
+        138,
+        151,
+        109,
+        36,
+        98
+      ]
+    },
+    {
+      "name": "TokenActiveSetV2",
+      "discriminator": [
+        113,
+        112,
+        160,
+        80,
+        172,
+        161,
+        198,
+        50
+      ]
+    },
+    {
+      "name": "VirtualBalancesRescaled",
+      "discriminator": [
+        104,
+        127,
+        109,
+        39,
+        20,
+        151,
+        217,
+        139
       ]
     }
   ],
@@ -3495,6 +3533,21 @@
       "code": 6103,
       "name": "HookFlagsMismatch",
       "msg": "Hook declared flags differ from the requested flags"
+    },
+    {
+      "code": 6104,
+      "name": "VirtualBalanceNotAboveActual",
+      "msg": "virtual_balance must stay strictly above actual_balance"
+    },
+    {
+      "code": 6105,
+      "name": "VirtualBalanceBelowFloor",
+      "msg": "virtual_balance below the per-slot minimum (one whole token)"
+    },
+    {
+      "code": 6106,
+      "name": "InvalidVirtualRescale",
+      "msg": "Invalid virtual rescale multiplier (must be >= 2)"
     }
   ],
   "types": [
@@ -4520,22 +4573,14 @@
       }
     },
     {
-      "name": "ConfigInitialized",
+      "name": "ConfigInitializedV2",
       "docs": [
-        "Emitted at the end of `initialize_config`. Marks a new `CofferPoolConfig`",
-        "account live, with `protocol_admin` pinned to the Treasury PDA.",
+        "`initialize_config` (actor: the Treasury PDA via",
+        "`protocol_admin::pool_initialize_config`; `payer` funded the rent).",
+        "Creation event: every field is the account's initial value.",
         "",
-        "`initialize_config` creates the account from scratch, so there are no",
-        "\"old\" values to carry — every field is reported as its initial value.",
-        "",
-        "# Fields",
-        "* `config`                    — the new config PDA pubkey",
-        "* `protocol_admin`            — Treasury PDA the config is pinned to",
-        "* `default_protocol_fee_rate` — the argument as stored; since v6.1 (T15)",
-        "informational only (new pools start at `DEFAULT_PROTOCOL_FEE_RATE`)",
-        "* `banned_extensions`         — deprecated (v6.1, T19), always `0`",
-        "* `payer`                     — account that paid rent / signed init",
-        "* `timestamp`                 — `Clock::unix_timestamp` at init"
+        "Re-cut of `ConfigInitialized` (dropped the always-zero T19",
+        "`banned_extensions`)."
       ],
       "type": {
         "kind": "struct",
@@ -4549,20 +4594,15 @@
             "type": "pubkey"
           },
           {
-            "name": "default_protocol_fee_rate",
-            "type": "u16"
-          },
-          {
-            "name": "banned_extensions",
-            "docs": [
-              "Deprecated in v6.1 (T19): the extension policy was removed. Kept on",
-              "the wire (append-only, backend parses by position) and always `0`."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "payer",
             "type": "pubkey"
+          },
+          {
+            "name": "default_protocol_fee_rate",
+            "docs": [
+              "Stored on the config; informational since v6.1 (T15)."
+            ],
+            "type": "u16"
           },
           {
             "name": "timestamp",
@@ -4574,8 +4614,8 @@
     {
       "name": "CreatorFeeBpsUpdated",
       "docs": [
-        "Emitted by `set_creator_fee_bps` (v6.1 T14): the pool admin changed the",
-        "management-fee share of the LP remainder. Never retroactive."
+        "`set_creator_fee_bps` / `execute_set_creator_fee_bps` (actor:",
+        "`pool_admin`, T14)."
       ],
       "type": {
         "kind": "struct",
@@ -4586,9 +4626,6 @@
           },
           {
             "name": "authority",
-            "docs": [
-              "Pool admin that changed the share."
-            ],
             "type": "pubkey"
           },
           {
@@ -4607,11 +4644,11 @@
       }
     },
     {
-      "name": "CreatorFeesClaimed",
+      "name": "CreatorFeesClaimedV2",
       "docs": [
-        "Emitted by `claim_creator_fees` (v6.1 T14) once per call: the pool",
-        "admin swept `creator_fees_owed` to the supplied recipients.",
-        "`token_amounts[i] = 0` for slots that had nothing owed (no transfer)."
+        "`claim_creator_fees` (actor: `pool_admin`, T14). Before:",
+        "`creator_fees_owed[i] = token_amounts[i]`; after: 0. `recipients[i]`",
+        "as in `ProtocolFeesCollectedV2`. Re-cut of `CreatorFeesClaimed`."
       ],
       "type": {
         "kind": "struct",
@@ -4622,15 +4659,18 @@
           },
           {
             "name": "authority",
-            "docs": [
-              "Pool admin that claimed."
-            ],
             "type": "pubkey"
           },
           {
             "name": "token_amounts",
             "type": {
               "vec": "u64"
+            }
+          },
+          {
+            "name": "recipients",
+            "type": {
+              "vec": "pubkey"
             }
           },
           {
@@ -4641,12 +4681,14 @@
       }
     },
     {
-      "name": "DebugLiquidityWithdrawn",
+      "name": "DebugLiquidityWithdrawnV2",
       "docs": [
-        "Emitted by `debug_withdraw_liquidity`. Listening for this event is the",
-        "canonical way for off-chain monitors to know that a pool has",
-        "transitioned to the \"bricked\" state — `actual_balances` and",
-        "`virtual_balances` no longer match vault holdings after this fires."
+        "`debug_withdraw_liquidity` (actor: `protocol_admin`). The pool's",
+        "bookkeeping is deliberately NOT updated (the pool is bricked); the vault",
+        "balances before / after make the gap visible on the wire. Slots with",
+        "`token_amounts[i] == 0` are not touched: their recipient is",
+        "`Pubkey::default()` and both vault balances are reported as 0 (the vault",
+        "account is not read). Re-cut of `DebugLiquidityWithdrawn`."
       ],
       "type": {
         "kind": "struct",
@@ -4661,6 +4703,24 @@
           },
           {
             "name": "token_amounts",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "recipients",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "vault_balances_before",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "vault_balances_after",
             "type": {
               "vec": "u64"
             }
@@ -4730,10 +4790,7 @@
     {
       "name": "HookDisabledSet",
       "docs": [
-        "Emitted by `set_hook_disabled` (protocol admin, instant). While",
-        "`new_disabled`, callbacks are skipped — or, with `pause_when_disabled`,",
-        "swaps / adds fail with `HookPaused` — and the hook slice leaves the",
-        "remaining-accounts tail."
+        "`set_hook_disabled` (actor: `protocol_admin`, T9)."
       ],
       "type": {
         "kind": "struct",
@@ -4774,19 +4831,15 @@
     {
       "name": "HookInvoked",
       "docs": [
-        "Emitted once per hook callback that was actually CPI'd (never for a",
-        "skipped one). Monitoring input: deny rate per pool, fee-override",
-        "distribution, CU spikes (a hook upgraded under the pool shows up here).",
+        "Secondary event: one per hook callback actually CPI'd (never for a",
+        "skipped one).",
         "",
-        "# Fields",
         "* `callback` — `coffer_hook_interface::Callback` as `u8` (0 on-register,",
         "1 before-swap, 2 after-swap, 3/4 add, 5/6 remove)",
-        "* `verdict`  — 0 Allow, 1 Deny (informational on the remove callbacks:",
-        "the operation went through)",
-        "* `has_fee_override` / `fee_override` — the override as RETURNED by the",
-        "hook (before clamping); `Swap.effective_fee_rate` has the applied rate",
-        "* `cu_used`  — compute units measured around the CPI (invoke base cost",
-        "included), the number `pool.hook_max_cu` bounds"
+        "* `verdict`  — 0 Allow, 1 Deny (informational on the remove callbacks)",
+        "* `has_fee_override` / `fee_override` — as RETURNED by the hook (before",
+        "clamping); `SwapV2.effective_fee_rate` is the applied rate",
+        "* `cu_used`  — compute units measured around the CPI"
       ],
       "type": {
         "kind": "struct",
@@ -4827,25 +4880,24 @@
       }
     },
     {
-      "name": "LiquidityAdded",
+      "name": "LiquidityAddedV2",
       "docs": [
-        "Emitted by `add_liquidity` and `seed_liquidity` after LP is minted.",
+        "`add_liquidity` and `seed_liquidity` (`is_seed`; actor: any user /",
+        "`pool_admin` for the seed). Carries the basket actually taken and the",
+        "before / after of every field the join mutates: `actual_balance`,",
+        "`virtual_balance`, `surge_fees_owed` (T12 buy-in) on every slot and the",
+        "LP supply. `protocol_fees_owed` / `creator_fees_owed` are untouched by a",
+        "join and therefore not repeated.",
         "",
-        "The seed reuses this event (rather than a new `LiquiditySeeded`) so the",
-        "backend reducer keeps working unchanged on the positional prefix; the",
-        "fields appended after `timestamp` tell the two apart. Final schema is",
-        "owned by T11 — append only, never reorder.",
+        "Re-cut of `LiquidityAdded` (+ before / after vectors; −",
+        "`initial_lp_supply` = `lp_amount` when `is_seed`).",
         "",
-        "# Fields",
-        "* `token_amounts` — what the user actually deposited / was charged",
-        "(raw units, gross of any Token-2022 transfer fee, in pool order)",
-        "* `lp_amount`    — LP minted to the user",
-        "* `is_seed`      — `true` for `seed_liquidity`, `false` for `add_liquidity`",
-        "* `credited_amounts` — what the vault received and the pool booked",
-        "(net of transfer fees); equals `token_amounts` for fee-less mints",
-        "* `lp_supply_before/after` — `lp_mint.supply` around the mint",
-        "* `initial_lp_supply` — the creator-chosen `lp_amount` of the seed",
-        "(`== lp_amount` when `is_seed`), `0` for ordinary deposits"
+        "Invariants: `credited_amounts[i] = token_amounts[i] − transfer fee`;",
+        "`actual_after[i] = actual_before[i] + credited_amounts[i] −",
+        "surge_buy_in[i]`; `surge_after[i] = surge_before[i] + surge_buy_in[i]`;",
+        "`lp_supply_after = lp_supply_before + lp_amount`; `lp_amount =",
+        "lp_gross − deposit_fee_lp` (T7; the seed is fee-exempt:",
+        "`deposit_fee_lp = 0`)."
       ],
       "type": {
         "kind": "struct",
@@ -4859,84 +4911,105 @@
             "type": "pubkey"
           },
           {
+            "name": "is_seed",
+            "type": "bool"
+          },
+          {
             "name": "token_amounts",
+            "docs": [
+              "Charged to the user (gross), per slot — may be below the ceiling the",
+              "caller passed."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "credited_amounts",
+            "docs": [
+              "Booked by the pool (net of transfer fees)."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "surge_buy_in",
+            "docs": [
+              "Part of each credit that bought into the LP surge bucket (T12)."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "lp_amount",
-            "type": "u64"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "is_seed",
             "docs": [
-              "Appended in v6.1 (T2). Wire append-only."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "credited_amounts",
-            "docs": [
-              "Appended in v6.1 (T2). Wire append-only."
-            ],
-            "type": {
-              "vec": "u64"
-            }
-          },
-          {
-            "name": "lp_supply_before",
-            "docs": [
-              "Appended in v6.1 (T2). Wire append-only."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "lp_supply_after",
-            "docs": [
-              "Appended in v6.1 (T2). Wire append-only."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "initial_lp_supply",
-            "docs": [
-              "Appended in v6.1 (T2). Wire append-only."
+              "LP minted to the user (net of the deposit fee)."
             ],
             "type": "u64"
           },
           {
             "name": "deposit_fee_lp",
             "docs": [
-              "Appended in v6.1 (T7). LP withheld by the deposit fee:",
-              "`lp_gross − lp_amount` (`lp_amount` above is the NET mint). 0 on the",
-              "seed. Wire append-only."
+              "LP withheld by the deposit fee (T7)."
             ],
             "type": "u64"
           },
           {
             "name": "deposit_fee_bps",
             "docs": [
-              "Appended in v6.1 (T7). `pool.deposit_fee_bps` in force for this",
-              "deposit (so an indexer can replay the haircut without the pool row)."
+              "`pool.deposit_fee_bps` in force."
             ],
             "type": "u16"
           },
           {
-            "name": "surge_buy_in",
-            "docs": [
-              "Appended in v6.1 (T12). The part of each `credited_amounts[i]` that",
-              "bought into the LP surge bucket (`surge_fees_owed[i] += surge_buy_in[i]`);",
-              "the rest (`credited_amounts[i] − surge_buy_in[i]`) went to",
-              "`actual_balance[i]`. All zero on the seed. Wire append-only."
-            ],
+            "name": "lp_supply_before",
+            "type": "u64"
+          },
+          {
+            "name": "lp_supply_after",
+            "type": "u64"
+          },
+          {
+            "name": "virtual_balances_before",
             "type": {
               "vec": "u64"
             }
+          },
+          {
+            "name": "virtual_balances_after",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "actual_balances_before",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "actual_balances_after",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "surge_fees_owed_before",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "surge_fees_owed_after",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -4944,8 +5017,9 @@
     {
       "name": "LiquidityFeesLocked",
       "docs": [
-        "v6.1 (T7): `lock_liquidity_fees` — the rates carried here are frozen",
-        "for ever."
+        "`lock_liquidity_fees` / `execute_lock_liquidity_fees` (actor:",
+        "`pool_admin`, T7): `liquidity_fee_lock` 0 → 1, the rates carried are",
+        "frozen for ever."
       ],
       "type": {
         "kind": "struct",
@@ -4976,8 +5050,8 @@
     {
       "name": "LiquidityFeesUpdated",
       "docs": [
-        "v6.1 (T7): `set_liquidity_fees` by the pool admin. Carries old and new",
-        "like `SwapFeeRateUpdated`."
+        "`set_liquidity_fees` / `execute_set_liquidity_fees` (actor:",
+        "`pool_admin`, T7)."
       ],
       "type": {
         "kind": "struct",
@@ -5014,12 +5088,21 @@
       }
     },
     {
-      "name": "LiquidityRemoved",
+      "name": "LiquidityRemovedV2",
       "docs": [
-        "Emitted by `remove_liquidity` after LP is burned. `lp_amount` is the",
-        "**effective** burn (capped to `total_supply - MIN_LP_SUPPLY`),",
-        "not the original request — clients reading this know exactly how much",
-        "supply changed."
+        "`remove_liquidity` / `remove_liquidity_bypass_hooks` (`hooks_bypassed`;",
+        "actor: any LP). Before / after of every field the burn mutates.",
+        "",
+        "Re-cut of `LiquidityRemoved` (+ `requested_lp`, `transfer_fees_out`,",
+        "`hooks_bypassed`, before / after vectors).",
+        "",
+        "Invariants: `lp_amount ≤ requested_lp` (capped at `supply −",
+        "MIN_LP_SUPPLY`); the user's transfer per slot is `token_amounts[i] +",
+        "surge_amounts[i]`, credited `− transfer_fees_out[i]`;",
+        "`withdraw_fee_amounts[i]` was withheld across both parts (T7);",
+        "`actual_after[i] = actual_before[i] − token_amounts[i]`;",
+        "`surge_after[i] = surge_before[i] − surge_amounts[i]`;",
+        "`lp_supply_after = lp_supply_before − lp_amount`."
       ],
       "type": {
         "kind": "struct",
@@ -5033,28 +5116,41 @@
             "type": "pubkey"
           },
           {
+            "name": "requested_lp",
+            "docs": [
+              "The caller's `lp_amount` parameter."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "lp_amount",
+            "docs": [
+              "Effective burn."
+            ],
             "type": "u64"
           },
           {
             "name": "token_amounts",
             "docs": [
-              "NET payouts (what left the vault per token, after the withdraw fee;",
-              "before any Token-2022 transfer fee)."
+              "Net reserve payout per slot."
             ],
             "type": {
               "vec": "u64"
             }
           },
           {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "surge_amounts",
+            "docs": [
+              "Net surge-bucket payout per slot (T12)."
+            ],
+            "type": {
+              "vec": "u64"
+            }
           },
           {
             "name": "withdraw_fee_amounts",
             "docs": [
-              "Appended in v6.1 (T7). Per-token withdraw fee retained in",
-              "`actual_balance` (`gross_i − token_amounts[i]`). Wire append-only."
+              "Withdraw fee withheld per slot (T7)."
             ],
             "type": {
               "vec": "u64"
@@ -5063,15 +5159,28 @@
           {
             "name": "withdraw_fee_bps",
             "docs": [
-              "Appended in v6.1 (T7). `pool.withdraw_fee_bps` in force."
+              "`pool.withdraw_fee_bps` in force."
             ],
             "type": "u16"
           },
           {
-            "name": "lp_supply_before",
+            "name": "transfer_fees_out",
             "docs": [
-              "Appended in v6.1 (T7). LP supply before / after the burn."
+              "Token-2022 transfer fee per slot on the user's credit."
             ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "hooks_bypassed",
+            "docs": [
+              "`true` for `remove_liquidity_bypass_hooks` (T9)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "lp_supply_before",
             "type": "u64"
           },
           {
@@ -5079,18 +5188,44 @@
             "type": "u64"
           },
           {
-            "name": "surge_amounts",
-            "docs": [
-              "Appended in v6.1 (T12). NET per-token payout taken from the LP surge",
-              "bucket (`surge_fees_owed[i] −= surge_amounts[i]`), paid in the SAME",
-              "transfer as `token_amounts[i]` (which stays the net RESERVE part, so",
-              "`actual_after = actual_before − token_amounts` still replays). The",
-              "user's transfer is `token_amounts[i] + surge_amounts[i]`;",
-              "`withdraw_fee_amounts[i]` covers both parts. Wire append-only."
-            ],
+            "name": "virtual_balances_before",
             "type": {
               "vec": "u64"
             }
+          },
+          {
+            "name": "virtual_balances_after",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "actual_balances_before",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "actual_balances_after",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "surge_fees_owed_before",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "surge_fees_owed_after",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -5133,13 +5268,13 @@
       }
     },
     {
-      "name": "MaxSelloffSet",
+      "name": "MaxSelloffSetV2",
       "docs": [
-        "Emitted by `set_max_selloff`. `max_selloff_pct` and",
-        "`max_selloff_period_length` are the post-update arrays of length",
-        "`token_count`. `max_selloff_pct[i]` is a percent of token i's virtual",
-        "balance in `PERCENT_SCALE` units (10_000 = 100%); `0` disables the",
-        "check for token i."
+        "`set_max_selloff` / `execute_set_max_selloff` (actor: `pool_admin`).",
+        "`old_params[i]` / `new_params[i]` are the per-slot policy",
+        "(`SelloffParams`: cap pct, period, threshold, slope low / high, slope",
+        "mid, kink) before / after; `new_params` is the parameter vector as",
+        "passed. Re-cut of `MaxSelloffSet` (which lacked the mid / kink points)."
       ],
       "type": {
         "kind": "struct",
@@ -5153,127 +5288,24 @@
             "type": "pubkey"
           },
           {
-            "name": "max_selloff_pct",
+            "name": "old_params",
             "type": {
-              "vec": "u16"
+              "vec": {
+                "defined": {
+                  "name": "SelloffParams"
+                }
+              }
             }
           },
           {
-            "name": "max_selloff_period_length",
+            "name": "new_params",
             "type": {
-              "vec": "u32"
+              "vec": {
+                "defined": {
+                  "name": "SelloffParams"
+                }
+              }
             }
-          },
-          {
-            "name": "fee_threshold_pct",
-            "docs": [
-              "Surge-fee curve, per token (PERCENT_SCALE units)."
-            ],
-            "type": {
-              "vec": "u16"
-            }
-          },
-          {
-            "name": "fee_slope_low_pct",
-            "type": {
-              "vec": "u16"
-            }
-          },
-          {
-            "name": "fee_slope_high_pct",
-            "type": {
-              "vec": "u16"
-            }
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "old_max_selloff_pct",
-            "docs": [
-              "Pre-update arrays (same length/order as the `*_pct` arrays above)",
-              "for each of the five mutated per-token fields. Appended (wire",
-              "append-only) so indexers get the full before/after of the policy."
-            ],
-            "type": {
-              "vec": "u16"
-            }
-          },
-          {
-            "name": "old_max_selloff_period_length",
-            "type": {
-              "vec": "u32"
-            }
-          },
-          {
-            "name": "old_fee_threshold_pct",
-            "type": {
-              "vec": "u16"
-            }
-          },
-          {
-            "name": "old_fee_slope_low_pct",
-            "type": {
-              "vec": "u16"
-            }
-          },
-          {
-            "name": "old_fee_slope_high_pct",
-            "type": {
-              "vec": "u16"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "MaxSelloffWindowAdvanced",
-      "docs": [
-        "Emitted from inside `swap` whenever the sliding-window check for",
-        "`token_in_index` runs — this is the per-swap max-selloff WINDOW-FILL log.",
-        "Window fill = `effective_selloff / max_selloff_cap` (0..1). Carries the",
-        "resolved absolute cap and the vb-snapshot it was resolved against, plus",
-        "the raw window components (previous/current selloff, window_start).",
-        "",
-        "The static config `max_selloff_pct` is intentionally NOT included here",
-        "(it does not change during a swap) — it is logged by `MaxSelloffSet`",
-        "when the policy changes, and `cap = pct * vb_snapshot / PERCENT_SCALE`."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "pool",
-            "type": "pubkey"
-          },
-          {
-            "name": "token_index",
-            "type": "u8"
-          },
-          {
-            "name": "effective_selloff",
-            "type": "u64"
-          },
-          {
-            "name": "max_selloff_cap",
-            "type": "u64"
-          },
-          {
-            "name": "vb_snapshot",
-            "type": "u64"
-          },
-          {
-            "name": "previous_selloff",
-            "type": "u64"
-          },
-          {
-            "name": "current_selloff",
-            "type": "u64"
-          },
-          {
-            "name": "window_start_timestamp",
-            "type": "i64"
           },
           {
             "name": "timestamp",
@@ -5609,9 +5641,8 @@
     {
       "name": "PoolActionCancelled",
       "docs": [
-        "Emitted by `cancel_pool_action` (pool admin). Admin changes void slots",
-        "silently (see `PoolAdminTransferred.new_epoch` /",
-        "`PoolAdminDisabled.new_epoch`)."
+        "`cancel_pool_action` (actor: `pool_admin`): slot `kind` cleared (kind 0",
+        "additionally emits `PoolAdminTransferCancelled`)."
       ],
       "type": {
         "kind": "struct",
@@ -5630,9 +5661,6 @@
           },
           {
             "name": "eta",
-            "docs": [
-              "`eta` the cancelled slot had."
-            ],
             "type": "i64"
           },
           {
@@ -5645,8 +5673,8 @@
     {
       "name": "PoolActionExecuted",
       "docs": [
-        "Emitted by every `execute_*` next to the typed event of the applied",
-        "change (`SwapFeeRateUpdated`, `LiquidityFeesLocked`, …)."
+        "Secondary event of every `execute_*` (next to the typed event of the",
+        "applied change): slot `kind` was cleared."
       ],
       "type": {
         "kind": "struct",
@@ -5684,12 +5712,9 @@
     {
       "name": "PoolActionProposed",
       "docs": [
-        "Emitted by `propose_pool_action`: slot `kind` now holds `payload`",
-        "(Borsh of the `PoolAction` variant's fields, the same bytes the account",
-        "stores inline — or the full `Vec<SelloffParams>` for `SetMaxSelloff`,",
-        "whose slot pins only its hash) and becomes executable at `eta`.",
-        "A re-proposal of the same kind overwrites the previous one (no separate",
-        "cancel event)."
+        "`propose_pool_action` (actor: `pool_admin`): slot `kind` now holds",
+        "`payload` (`borsh(PoolAction)`, variant tag first) and becomes executable",
+        "at `eta`. A re-proposal of the same kind overwrites the previous one."
       ],
       "type": {
         "kind": "struct",
@@ -5700,9 +5725,6 @@
           },
           {
             "name": "authority",
-            "docs": [
-              "The signing `pool.pool_admin`."
-            ],
             "type": "pubkey"
           },
           {
@@ -5737,9 +5759,9 @@
     {
       "name": "PoolAdminDelayChanged",
       "docs": [
-        "Emitted whenever `pool_admin_delay_secs` changes (direct",
-        "`set_pool_admin_delay` at delay 0, or `execute_set_delay`). Live slots",
-        "are pushed to `max(eta, now + new)` when the delay rises."
+        "`set_pool_admin_delay` / `execute_set_delay` (actor: `pool_admin`):",
+        "`pool_admin_delay_secs` old → new; live slots are pushed to",
+        "`max(eta, now + new)` when the delay rises."
       ],
       "type": {
         "kind": "struct",
@@ -5768,7 +5790,12 @@
       }
     },
     {
-      "name": "PoolAdminDisabled",
+      "name": "PoolAdminDisabledV2",
+      "docs": [
+        "`disable_pool_admin` (actor: `pool_admin`): `pool_admin` → default,",
+        "`pending_pool_admin` cleared, epoch bumped, `creator_fee_bps`",
+        "`old_creator_fee_bps` → 0 (T14). Re-cut of `PoolAdminDisabled`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -5781,22 +5808,34 @@
             "type": "pubkey"
           },
           {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "cancelled_pending",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_epoch",
+            "type": "u32"
           },
           {
             "name": "new_epoch",
-            "docs": [
-              "v6.1 (T3, appended): `pool_admin_epoch` after the renounce (every",
-              "pending proposal voided)."
-            ],
             "type": "u32"
+          },
+          {
+            "name": "old_creator_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
     },
     {
       "name": "PoolAdminTransferCancelled",
+      "docs": [
+        "`cancel_pool_admin_transfer` / `cancel_pool_action(kind 0)` (actor:",
+        "`pool_admin`). Unchanged since v6."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -5820,7 +5859,12 @@
       }
     },
     {
-      "name": "PoolAdminTransferInitiated",
+      "name": "PoolAdminTransferInitiatedV2",
+      "docs": [
+        "`initiate_pool_admin_transfer` (actor: `pool_admin`): `pending_pool_admin`",
+        "`previous_pending_admin` → `pending_admin`, `pending_pool_admin_eta` →",
+        "`eta` (T3). Re-cut of `PoolAdminTransferInitiated`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -5833,26 +5877,38 @@
             "type": "pubkey"
           },
           {
+            "name": "previous_pending_admin",
+            "docs": [
+              "Nominee overwritten by this call (`Pubkey::default()` if none)."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "pending_admin",
             "type": "pubkey"
           },
           {
-            "name": "timestamp",
+            "name": "eta",
+            "docs": [
+              "Earliest accept time (`now + pool_admin_delay_secs`)."
+            ],
             "type": "i64"
           },
           {
-            "name": "eta",
-            "docs": [
-              "v6.1 (T3, appended): earliest `accept_pool_admin_transfer` time",
-              "(`now + pool_admin_delay_secs`)."
-            ],
+            "name": "timestamp",
             "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "PoolAdminTransferred",
+      "name": "PoolAdminTransferredV2",
+      "docs": [
+        "`accept_pool_admin_transfer` (actor: the pending admin): `pool_admin`",
+        "`old_admin` → `new_admin`, `pending_pool_admin` cleared, admin epoch",
+        "bumped (every pending proposal voided, T3). Re-cut of",
+        "`PoolAdminTransferred`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -5869,16 +5925,16 @@
             "type": "pubkey"
           },
           {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "old_epoch",
+            "type": "u32"
           },
           {
             "name": "new_epoch",
-            "docs": [
-              "v6.1 (T3, appended): `pool_admin_epoch` after the change; every",
-              "proposal of the previous admin was voided."
-            ],
             "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -5886,47 +5942,30 @@
     {
       "name": "PoolAltInitialized",
       "docs": [
-        "Emitted by `initialize_pool_alt` once the ALT is created, extended",
-        "with all pool-scoped addresses, and frozen. Off-chain SDK / indexer",
-        "uses this as the signal that v0 transactions are usable for this pool."
+        "`initialize_pool_alt` (actor: `pool_admin`): `pool.lookup_table`",
+        "default → `lookup_table` (frozen ALT). Unchanged since v6."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "pool",
-            "docs": [
-              "Pool PDA."
-            ],
             "type": "pubkey"
           },
           {
             "name": "lookup_table",
-            "docs": [
-              "Address Lookup Table account created."
-            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
-            "docs": [
-              "Wallet that authored creation (matches `pool.pool_admin` at the",
-              "time of the call). After freeze the ALT has no authority."
-            ],
             "type": "pubkey"
           },
           {
             "name": "address_count",
-            "docs": [
-              "Number of addresses written into the ALT."
-            ],
             "type": "u8"
           },
           {
             "name": "timestamp",
-            "docs": [
-              "`Clock::unix_timestamp` at initialisation."
-            ],
             "type": "i64"
           }
         ]
@@ -5935,7 +5974,7 @@
     {
       "name": "PoolEnabledUpdated",
       "docs": [
-        "Emitted by `set_pool_enabled`."
+        "`set_pool_enabled` (actor: `protocol_admin`). Unchanged since v6."
       ],
       "type": {
         "kind": "struct",
@@ -5964,12 +6003,11 @@
       }
     },
     {
-      "name": "PoolInfo",
+      "name": "PoolInfoV2",
       "docs": [
-        "Read-only view event emitted by the simulation-only `get_pool_info`",
-        "instruction. Off-chain clients call `simulate({ commitment: ... })`",
-        "and parse this event from the returned logs. Strictly more verbose",
-        "than `PoolStateLog` (also includes derived addresses)."
+        "`get_pool_info` (simulation-only view, no actor): the full pool state",
+        "including derived addresses. Not a wire schema for the indexer — a",
+        "convenience for clients. Re-cut of `PoolInfo`."
       ],
       "type": {
         "kind": "struct",
@@ -5983,16 +6021,32 @@
             "type": "pubkey"
           },
           {
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "layout_version",
+            "type": "u8"
+          },
+          {
+            "name": "pool_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_pool_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_pool_admin_eta",
+            "type": "i64"
+          },
+          {
             "name": "lp_mint",
             "type": "pubkey"
           },
           {
             "name": "token_count",
             "type": "u8"
-          },
-          {
-            "name": "pool_id",
-            "type": "u64"
           },
           {
             "name": "tokens",
@@ -6005,6 +6059,16 @@
             "type": {
               "vec": "pubkey"
             }
+          },
+          {
+            "name": "token_programs",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "decimals",
+            "type": "bytes"
           },
           {
             "name": "normalized_weights",
@@ -6031,6 +6095,34 @@
             }
           },
           {
+            "name": "creator_fees_owed",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "surge_fees_owed",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "is_active",
+            "type": {
+              "vec": "bool"
+            }
+          },
+          {
+            "name": "selloff_policy",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "SelloffParams"
+                }
+              }
+            }
+          },
+          {
             "name": "swap_fee_rate",
             "type": "u32"
           },
@@ -6039,51 +6131,11 @@
             "type": "u16"
           },
           {
-            "name": "pool_enabled",
-            "type": "bool"
-          },
-          {
-            "name": "swaps_enabled",
-            "type": "bool"
-          },
-          {
-            "name": "token_programs",
-            "type": {
-              "vec": "pubkey"
-            }
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
             "name": "creator_fee_bps",
-            "docs": [
-              "v6.1 T14 (appended): `pool.creator_fee_bps`."
-            ],
             "type": "u16"
           },
           {
-            "name": "creator_fees_owed",
-            "docs": [
-              "v6.1 T14 (appended): `pool.creator_fees_owed[..token_count]`."
-            ],
-            "type": {
-              "vec": "u64"
-            }
-          },
-          {
-            "name": "range_manager_locked",
-            "docs": [
-              "v6.1 (T6): `pool.range_manager_locked`. Appended (wire append-only)."
-            ],
-            "type": "bool"
-          },
-          {
             "name": "deposit_fee_bps",
-            "docs": [
-              "Appended in v6.1 (T7). Wire append-only."
-            ],
             "type": "u16"
           },
           {
@@ -6095,22 +6147,55 @@
             "type": "u8"
           },
           {
-            "name": "surge_fees_owed",
-            "docs": [
-              "v6.1 (T12): `pool.surge_fees_owed[..token_count]`. Appended."
-            ],
-            "type": {
-              "vec": "u64"
-            }
+            "name": "pool_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "swaps_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "range_manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "range_manager_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "range_manager_locked",
+            "type": "bool"
+          },
+          {
+            "name": "range_manager_max_vb_change_pct",
+            "type": "u16"
+          },
+          {
+            "name": "range_manager_max_weight_change_pct",
+            "type": "u16"
+          },
+          {
+            "name": "range_manager_min_update_interval_secs",
+            "type": "u32"
+          },
+          {
+            "name": "range_manager_max_leverage_bps",
+            "type": "u32"
+          },
+          {
+            "name": "range_manager_min_leverage_bps",
+            "type": "u32"
+          },
+          {
+            "name": "range_manager_last_updated",
+            "type": "i64"
+          },
+          {
+            "name": "lookup_table",
+            "type": "pubkey"
           },
           {
             "name": "pool_admin_delay_secs",
-            "docs": [
-              "Appended in v6.1 (T3): cooldown in force, admin epoch, live-slot",
-              "bitmask and every slot's `eta` in kind order (0 = empty; 11 entries,",
-              "kind 0 = the admin transfer whose successor is `pending_pool_admin`).",
-              "Payloads are plain account fields (`pending_*`); read them there."
-            ],
             "type": "u32"
           },
           {
@@ -6129,9 +6214,6 @@
           },
           {
             "name": "hook_program",
-            "docs": [
-              "v6.1 (T9): the pool's hook configuration and emergency switch. Appended."
-            ],
             "type": "pubkey"
           },
           {
@@ -6157,25 +6239,23 @@
           {
             "name": "hook_accounts_len",
             "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "PoolInitialized",
+      "name": "PoolInitializedV2",
       "docs": [
-        "Emitted at the end of `initialize_pool`. Marks a new pool live.",
+        "`initialize_pool` (actor: `pool_admin` = the payer). Creation event: the",
+        "complete immutable + initial configuration, so an indexer can build the",
+        "pool row from the log alone (no instruction parse, no RPC fetch).",
         "",
-        "# Fields",
-        "* `pool`        — pool PDA pubkey",
-        "* `config`      — parent config pubkey",
-        "* `token_count` — active tokens (2..=10)",
-        "* `lp_mint`    — LP mint PDA pubkey",
-        "* `timestamp`   — `Clock::unix_timestamp` at init",
-        "* `banned_extensions` — deprecated (v6.1, T19), always `0`.",
-        "* `pool_id`     — PDA salt (appended)",
-        "* `lp_name` / `lp_symbol` / `lp_uri` / `lp_token_program` — v6.1 (T1)",
-        "appended: immutable LP token metadata + the LP mint's owner program."
+        "Re-cut of `PoolInitialized` (+ mints, programs, decimals, weights,",
+        "initial virtual balances, rates, admin; − always-zero `banned_extensions`)."
       ],
       "type": {
         "kind": "struct",
@@ -6189,39 +6269,92 @@
             "type": "pubkey"
           },
           {
-            "name": "token_count",
-            "type": "u8"
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "pool_admin",
+            "type": "pubkey"
           },
           {
             "name": "lp_mint",
             "type": "pubkey"
           },
           {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "lp_token_program",
+            "docs": [
+              "Owner program of `lp_mint` (Token-2022 for every v6.1 pool, T1)."
+            ],
+            "type": "pubkey"
           },
           {
-            "name": "banned_extensions",
-            "docs": [
-              "Deprecated in v6.1 (T19): the extension policy was removed. Kept on",
-              "the wire (append-only, backend parses by position) and always `0`."
-            ],
-            "type": "u64"
+            "name": "token_count",
+            "type": "u8"
           },
           {
-            "name": "pool_id",
+            "name": "mints",
             "docs": [
-              "Pool identifier used in the PDA seeds. Appended for existing decoders."
+              "Pool order — the index space of every other event."
             ],
-            "type": "u64"
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "token_programs",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "decimals",
+            "docs": [
+              "FIX-6 pinned decimals per slot."
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "normalized_weights",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "initial_virtual_balances",
+            "docs": [
+              "`actual_balance` starts at 0 on every slot (T10): the seed funds it."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "swap_fee_rate",
+            "type": "u32"
+          },
+          {
+            "name": "protocol_fee_rate",
+            "docs": [
+              "`DEFAULT_PROTOCOL_FEE_RATE` (T15)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "creator_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "deposit_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "withdraw_fee_bps",
+            "type": "u16"
           },
           {
             "name": "lp_name",
             "docs": [
-              "v6.1 (T1) appends: the immutable LP token metadata written into the",
-              "Token-2022 LP mint, and the program that owns that mint (always",
-              "Token-2022 for pools created since v6.1; legacy pools' SPL-Token LP",
-              "mints never emitted these fields)."
+              "Immutable LP token metadata (T1)."
             ],
             "type": "string"
           },
@@ -6234,33 +6367,10 @@
             "type": "string"
           },
           {
-            "name": "lp_token_program",
-            "type": "pubkey"
-          },
-          {
-            "name": "creator_fee_bps",
-            "docs": [
-              "`creator_fee_bps` the pool was born with (v6.1 T14, appended)."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "deposit_fee_bps",
-            "docs": [
-              "v6.1 (T7) appends: the liquidity fees the pool was born with",
-              "(`initialize_pool` arguments; the lock is always 0 at birth)."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "withdraw_fee_bps",
-            "type": "u16"
-          },
-          {
             "name": "hook_program",
             "docs": [
-              "v6.1 (T9) appends: the immutable hook configuration (all zero /",
-              "default when the pool has no hook)."
+              "Immutable native hook configuration (T9); all default when the pool",
+              "has no hook."
             ],
             "type": "pubkey"
           },
@@ -6283,6 +6393,10 @@
           {
             "name": "hook_accounts_len",
             "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -6290,11 +6404,8 @@
     {
       "name": "PoolLayoutMigrated",
       "docs": [
-        "Emitted by `migrate_pool_layout_v61` once a 1683-byte v4/v5 pool account",
-        "has been grown in place to `CofferPool::LEN` (2304). No semantic state",
-        "changes: the legacy prefix is byte-identical, the appended block holds",
-        "`layout_version = 1`, the FIX-6 decimals pins and a zeroed",
-        "`reserved_v61`. Permissionless; `payer` funded the rent delta."
+        "`migrate_pool_layout_v61` (permissionless; `payer` funded the rent",
+        "delta): account `old_len` → `new_len`, `layout_version` → 1 (L0)."
       ],
       "type": {
         "kind": "struct",
@@ -6309,23 +6420,14 @@
           },
           {
             "name": "old_len",
-            "docs": [
-              "Account size before (`CofferPool::LEN_V5` = 1683)."
-            ],
             "type": "u32"
           },
           {
             "name": "new_len",
-            "docs": [
-              "Account size after (`CofferPool::LEN` = 2304)."
-            ],
             "type": "u32"
           },
           {
             "name": "layout_version",
-            "docs": [
-              "`CofferPool::LAYOUT_VERSION_V61` (= 1)."
-            ],
             "type": "u8"
           },
           {
@@ -6336,16 +6438,13 @@
       }
     },
     {
-      "name": "PoolMigratedToV5",
+      "name": "PoolMigrationV5Applied",
       "docs": [
-        "Emitted by `migrate_to_v5`. Marks an in-place storage migration that",
-        "re-interprets the (same-size, 1683-byte) v4 account under a newer field",
-        "layout: the bytes that previously held `max_selloff: u64` /",
-        "`max_selloff_period_length: u32` / `reserved` now decode as",
-        "`max_selloff_pct` + the surge-fee curve + `is_active`. The only field",
-        "that needs a value rewrite is `is_active` — pre-migration it decodes as",
-        "`false` (old `reserved[0] == 0`), so the migration flips every active",
-        "token's `is_active` back to `true` (the intended default)."
+        "`migrate_to_v5` (actor: `pool_admin` OR `protocol_admin` —",
+        "`actor_kind`): the one-shot v4 → v5 activation pass. `reactivated` slots",
+        "went `is_active` false → true and the migration marker was written;",
+        "`reactivated = 0` ⇒ idempotent no-op (still logged). Re-cut of",
+        "`PoolMigratedToV5` (+ the `reactivate_tokens` parameter, `actor_kind`)."
       ],
       "type": {
         "kind": "struct",
@@ -6359,15 +6458,19 @@
             "type": "pubkey"
           },
           {
+            "name": "actor_kind",
+            "type": "u8"
+          },
+          {
+            "name": "reactivate_tokens",
+            "type": "bool"
+          },
+          {
             "name": "token_count",
             "type": "u8"
           },
           {
             "name": "reactivated",
-            "docs": [
-              "How many token slots were flipped from inactive→active (0 ⇒ pool was",
-              "already migrated / created post-upgrade — idempotent no-op)."
-            ],
             "type": "u8"
           },
           {
@@ -6378,10 +6481,11 @@
       }
     },
     {
-      "name": "PoolSolWithdrawn",
+      "name": "PoolSolWithdrawnV2",
       "docs": [
-        "Emitted by `withdraw_sol` when SOL is recovered from a coffer-pool-owned",
-        "account."
+        "`withdraw_sol` (actor: `protocol_admin`): lamports moved out of a",
+        "coffer-pool-owned account. Re-cut of `PoolSolWithdrawn` (+ source",
+        "lamports before / after)."
       ],
       "type": {
         "kind": "struct",
@@ -6403,111 +6507,25 @@
             "type": "u64"
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PoolStateLog",
-      "docs": [
-        "Mutating-instruction state snapshot consumed by the backend indexer to",
-        "keep its denormalised pool table in sync without an additional account",
-        "fetch. Emitted by `swap`, `add_liquidity`, and `remove_liquidity`.",
-        "",
-        "NOTE: LP total supply is intentionally NOT included — it is redundant",
-        "with the LP mint account (which indexers already stream) and was a",
-        "misleading hardcoded `0` on `swap`. Read supply from the mint at the",
-        "tx slot instead."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "pool",
-            "type": "pubkey"
+            "name": "source_lamports_before",
+            "type": "u64"
           },
           {
-            "name": "virtual_balances",
-            "type": {
-              "vec": "u64"
-            }
-          },
-          {
-            "name": "actual_balances",
-            "type": {
-              "vec": "u64"
-            }
-          },
-          {
-            "name": "protocol_fees_owed",
-            "type": {
-              "vec": "u64"
-            }
+            "name": "source_lamports_after",
+            "type": "u64"
           },
           {
             "name": "timestamp",
             "type": "i64"
-          },
-          {
-            "name": "creator_fees_owed",
-            "docs": [
-              "v6.1 T14 (appended): the pool admin's fee bucket per active slot.",
-              "`vault_i == actual_i + protocol_i + creator_i + surge_i` (T12)."
-            ],
-            "type": {
-              "vec": "u64"
-            }
-          },
-          {
-            "name": "deposit_fee_bps",
-            "docs": [
-              "Appended in v6.1 (T7). Liquidity fee configuration in force when the",
-              "snapshot was taken. Wire append-only."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "withdraw_fee_bps",
-            "type": "u16"
-          },
-          {
-            "name": "liquidity_fee_lock",
-            "type": "u8"
-          },
-          {
-            "name": "surge_fees_owed",
-            "docs": [
-              "Appended in v6.1 (T12): the LP surge bucket per active slot.",
-              "`vault_i == actual_i + protocol_i + creator_i + surge_i`."
-            ],
-            "type": {
-              "vec": "u64"
-            }
-          },
-          {
-            "name": "pool_admin_delay_secs",
-            "docs": [
-              "Appended in v6.1 (T3): the pool-admin cooldown in force, the admin",
-              "epoch and the live-slot bitmask (bit `kind` set ⇔ a proposal of that",
-              "kind is pending; kind 0 = admin transfer). Wire append-only."
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "pool_admin_epoch",
-            "type": "u32"
-          },
-          {
-            "name": "pending_actions_mask",
-            "type": "u16"
           }
         ]
       }
     },
     {
       "name": "ProtocolAdminTransferCancelled",
+      "docs": [
+        "`cancel_protocol_admin_transfer` (actor: `protocol_admin`). Unchanged."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -6532,6 +6550,9 @@
     },
     {
       "name": "ProtocolAdminTransferInitiated",
+      "docs": [
+        "`initiate_protocol_admin_transfer` (actor: `protocol_admin`). Unchanged."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -6556,6 +6577,9 @@
     },
     {
       "name": "ProtocolAdminTransferred",
+      "docs": [
+        "`accept_protocol_admin_transfer` (actor: the pending admin). Unchanged."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -6581,7 +6605,7 @@
     {
       "name": "ProtocolFeeRateUpdated",
       "docs": [
-        "Emitted by `set_protocol_fee_rate`."
+        "`set_protocol_fee_rate` (actor: `protocol_admin`). Unchanged since v6."
       ],
       "type": {
         "kind": "struct",
@@ -6604,19 +6628,19 @@
           },
           {
             "name": "authority",
-            "docs": [
-              "Protocol admin (Treasury PDA) that changed the rate. Appended."
-            ],
             "type": "pubkey"
           }
         ]
       }
     },
     {
-      "name": "ProtocolFeesCollected",
+      "name": "ProtocolFeesCollectedV2",
       "docs": [
-        "Emitted by `collect_protocol_fees` once per call (one event covers all",
-        "tokens, with zero-amounts kept in `token_amounts` to preserve order)."
+        "`collect_protocol_fees` (actor: `protocol_admin` = Treasury PDA). Before:",
+        "`protocol_fees_owed[i] = token_amounts[i]`; after: 0 on every slot.",
+        "`recipients[i]` is where slot `i` went, `Pubkey::default()` for a slot",
+        "with nothing owed (no account read, no transfer). Re-cut of",
+        "`ProtocolFeesCollected`."
       ],
       "type": {
         "kind": "struct",
@@ -6636,21 +6660,14 @@
             }
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
             "name": "recipients",
-            "docs": [
-              "v6.1 (T5): where each slot's fees went, index-aligned with",
-              "`token_amounts`. `Pubkey::default()` for a skipped (zero-owed) slot —",
-              "its account was never read, so the caller's placeholder is not",
-              "reported. Appended (wire append-only; pre-upgrade logs stop after",
-              "`timestamp`, decoders must treat the tail as optional)."
-            ],
             "type": {
               "vec": "pubkey"
             }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -6658,8 +6675,8 @@
     {
       "name": "RangeManagerConfigSet",
       "docs": [
-        "Emitted by `set_range_manager_config`. Carries the full effective",
-        "envelope so off-chain indexers don't need to re-fetch the pool."
+        "`set_range_manager_config` / `execute_set_range_manager_config` (actor:",
+        "`pool_admin`). Unchanged since v6 (new values first, then the old ones)."
       ],
       "type": {
         "kind": "struct",
@@ -6674,10 +6691,6 @@
           },
           {
             "name": "max_vb_change_pct",
-            "docs": [
-              "New percent-of-current-value change caps, in `PERCENT_SCALE` units",
-              "(10_000 = 100%)."
-            ],
             "type": "u16"
           },
           {
@@ -6694,10 +6707,6 @@
           },
           {
             "name": "old_max_vb_change_pct",
-            "docs": [
-              "Pre-update values of the three fields above. Appended (wire",
-              "append-only) so indexers get the full before/after."
-            ],
             "type": "u16"
           },
           {
@@ -6710,10 +6719,6 @@
           },
           {
             "name": "old_max_leverage_bps",
-            "docs": [
-              "Absolute `virtual/actual` band the manager must stay inside, in bps",
-              "(`0` = disabled). Appended (wire append-only)."
-            ],
             "type": "u32"
           },
           {
@@ -6722,9 +6727,6 @@
           },
           {
             "name": "old_min_leverage_bps",
-            "docs": [
-              "Lower virtual/actual bound, in bps. Appended (wire append-only)."
-            ],
             "type": "u32"
           },
           {
@@ -6737,10 +6739,9 @@
     {
       "name": "RangeManagerLocked",
       "docs": [
-        "Emitted by `lock_range_manager`: the pool admin set",
-        "`pool.range_manager_locked = true` (one-way, no instruction clears it).",
-        "Precondition at emit time: `range_manager == Pubkey::default()` and",
-        "`range_manager_enabled == false`, which the lock now freezes forever."
+        "`lock_range_manager` / `execute_lock_range_manager` (actor:",
+        "`pool_admin`, T6): `range_manager_locked` false → true (one-way); the",
+        "manager was unset and disabled (precondition)."
       ],
       "type": {
         "kind": "struct",
@@ -6751,9 +6752,6 @@
           },
           {
             "name": "authority",
-            "docs": [
-              "The signing `pool.pool_admin`."
-            ],
             "type": "pubkey"
           },
           {
@@ -6764,11 +6762,11 @@
       }
     },
     {
-      "name": "RangeManagerSet",
+      "name": "RangeManagerSetV2",
       "docs": [
-        "Emitted by `set_range_manager`. Both the pubkey and the enabled flag",
-        "are bundled into a single event. `new_manager == Pubkey::default()`",
-        "AND `enabled = false` is the \"fully disabled\" state."
+        "`set_range_manager` / `execute_set_range_manager` (actor: `pool_admin`,",
+        "or `protocol_admin` on the disable-only path — `actor_kind`). Re-cut of",
+        "`RangeManagerSet` (− the duplicate `enabled`, + `actor_kind`)."
       ],
       "type": {
         "kind": "struct",
@@ -6780,6 +6778,10 @@
           {
             "name": "authority",
             "type": "pubkey"
+          },
+          {
+            "name": "actor_kind",
+            "type": "u8"
           },
           {
             "name": "old_manager",
@@ -6790,37 +6792,28 @@
             "type": "pubkey"
           },
           {
-            "name": "enabled",
-            "docs": [
-              "New value of `range_manager_enabled` (kept for back-compat; the",
-              "`old_enabled`/`new_enabled` pair below carries the full before/after)."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
             "name": "old_enabled",
-            "docs": [
-              "Before/after of `range_manager_enabled`. Appended (wire append-only)."
-            ],
             "type": "bool"
           },
           {
             "name": "new_enabled",
             "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "RangeManagerUpdated",
+      "name": "RangeManagerUpdatedV2",
       "docs": [
-        "Emitted by `range_manager_update` after every check passes and state",
-        "is committed. `vb_indices` / `vb_new_values` and `weight_indices` /",
-        "`weight_new_values` are aligned slices (may be empty)."
+        "`range_manager_update` (actor: `range_manager`). Sparse: `vb_indices[k]`",
+        "went `vb_old_values[k]` → `vb_new_values[k]` (the old value is the CAS",
+        "`expected_current` the manager passed, verified against the account);",
+        "weights likewise. `range_manager_last_updated` → `timestamp`. Re-cut of",
+        "`RangeManagerUpdated` (+ old values)."
       ],
       "type": {
         "kind": "struct",
@@ -6838,6 +6831,12 @@
             "type": "bytes"
           },
           {
+            "name": "vb_old_values",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
             "name": "vb_new_values",
             "type": {
               "vec": "u64"
@@ -6846,6 +6845,12 @@
           {
             "name": "weight_indices",
             "type": "bytes"
+          },
+          {
+            "name": "weight_old_values",
+            "type": {
+              "vec": "u64"
+            }
           },
           {
             "name": "weight_new_values",
@@ -6941,21 +6946,63 @@
       }
     },
     {
+      "name": "SelloffWindow",
+      "docs": [
+        "The sliding sell-off window of `SwapV2.token_in_index` as it was advanced",
+        "by the swap (`math::max_selloff::check_and_advance`). Present only when",
+        "the input token has a cap (`max_selloff_pct > 0`). Window fill =",
+        "`effective_selloff / max_selloff_cap`; `cap = pct · vb_snapshot /",
+        "PERCENT_SCALE` (the policy itself is logged by `MaxSelloffSetV2`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "effective_selloff_before",
+            "docs": [
+              "Window fill BEFORE this swap's net input was added (the surge fee",
+              "integrates from here to `effective_selloff`)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "effective_selloff",
+            "docs": [
+              "Window fill AFTER (`before + amount_in_net`), the value compared to",
+              "the cap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_selloff_cap",
+            "type": "u64"
+          },
+          {
+            "name": "vb_snapshot",
+            "type": "u64"
+          },
+          {
+            "name": "previous_selloff",
+            "type": "u64"
+          },
+          {
+            "name": "current_selloff",
+            "type": "u64"
+          },
+          {
+            "name": "window_start_timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "SidelinedTokenFunded",
       "docs": [
-        "Emitted by `fund_sidelined_token`: the pool admin gave a sidelined slot",
-        "(`actual_balance == 0`) its first real reserves at the pool's current",
-        "virtual price. No LP is minted; the virtual balance is unchanged.",
-        "",
-        "# Fields",
-        "* `token_index`     — slot funded",
-        "* `amount_charged`  — gross amount debited from the admin (raw units)",
-        "* `amount_credited` — net amount the vault received and the pool booked",
-        "(`== amount_charged` for mints without a transfer fee)",
-        "* `actual_after`    — `actual_balance` after the call (`== amount_credited`,",
-        "since the slot was at zero)",
-        "* `virtual_balance` — the slot's virtual balance, unchanged by the call",
-        "* `lp_supply`       — `lp_mint.supply` at the time (unchanged by the call)"
+        "`fund_sidelined_token` (actor: `pool_admin`, T10): a sidelined slot",
+        "(`actual_balance == 0`) received its first reserves at the current",
+        "virtual price. Before-state of the slot: `actual_balance = 0` (the",
+        "precondition); `virtual_balance` and the LP supply are unchanged."
       ],
       "type": {
         "kind": "struct",
@@ -6974,22 +7021,37 @@
           },
           {
             "name": "amount_charged",
+            "docs": [
+              "Gross amount debited from the admin (parameter)."
+            ],
             "type": "u64"
           },
           {
             "name": "amount_credited",
+            "docs": [
+              "Net amount the vault received and the pool booked."
+            ],
             "type": "u64"
           },
           {
             "name": "actual_after",
+            "docs": [
+              "`actual_balance` after (`== amount_credited`)."
+            ],
             "type": "u64"
           },
           {
             "name": "virtual_balance",
+            "docs": [
+              "The slot's virtual balance, unchanged by the call."
+            ],
             "type": "u64"
           },
           {
             "name": "lp_supply",
+            "docs": [
+              "`lp_mint.supply`, unchanged by the call."
+            ],
             "type": "u64"
           },
           {
@@ -7000,168 +7062,34 @@
       }
     },
     {
-      "name": "Swap",
+      "name": "SlotState",
       "docs": [
-        "Emitted by `swap` after the trade executes.",
-        "",
-        "# Fields",
-        "* `pool`               — pool PDA",
-        "* `user`               — signer that initiated the swap",
-        "* `token_in/out`       — mint pubkeys of the two legs",
-        "* `amount_in/out`      — raw token units (pre-fee on input side)",
-        "* `fee_amount`         — total swap fee (raw units, in token_in)",
-        "* `protocol_fee_amount`— share of `fee_amount` that went to the",
-        "protocol-fees-owed bucket (raw units, in token_in)",
-        "* `timestamp`          — `Clock::unix_timestamp`"
+        "Per-slot bookkeeping snapshot (`CofferPool::tokens[i].dynamics` + the",
+        "two v6.1 buckets). `vault_i == actual_balance + protocol_fees_owed +",
+        "creator_fees_owed + surge_fees_owed` on a consistent pool."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "pool",
-            "type": "pubkey"
-          },
-          {
-            "name": "user",
-            "type": "pubkey"
-          },
-          {
-            "name": "token_in",
-            "type": "pubkey"
-          },
-          {
-            "name": "token_out",
-            "type": "pubkey"
-          },
-          {
-            "name": "amount_in",
+            "name": "virtual_balance",
             "type": "u64"
           },
           {
-            "name": "amount_out",
-            "docs": [
-              "Amount the user RECEIVES — net of the variable sell-off surge fee."
-            ],
+            "name": "actual_balance",
             "type": "u64"
           },
           {
-            "name": "fee_amount",
-            "docs": [
-              "Total base swap fee (raw units, in token_in)."
-            ],
+            "name": "protocol_fees_owed",
             "type": "u64"
           },
           {
-            "name": "protocol_fee_amount",
-            "docs": [
-              "Protocol share of the base swap fee (raw units, in token_in)."
-            ],
+            "name": "creator_fees_owed",
             "type": "u64"
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "surge_fee_amount",
-            "docs": [
-              "Variable sell-off surge fee taken from the OUTPUT token (total",
-              "charged to the user). `0` in the common case. Since v6.1 (T15) it is",
-              "split like the base fee: `surge_protocol_fee_amount` goes to the",
-              "protocol bucket of token_out, the remainder stays with the LPs.",
-              "",
-              "Borsh encodes positionally, so every field added after the original",
-              "`timestamp` tail must stay AFTER it — otherwise an indexer decoding a",
-              "pre-upgrade event with the new IDL misreads every following field."
-            ],
+            "name": "surge_fees_owed",
             "type": "u64"
-          },
-          {
-            "name": "transfer_fee_in",
-            "docs": [
-              "Token-2022 transfer fee withheld on the INPUT leg (vault received",
-              "`amount_in − transfer_fee_in`). Appended (wire append-only)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "transfer_fee_out",
-            "docs": [
-              "Token-2022 transfer fee withheld on the OUTPUT leg (user received",
-              "`amount_out − transfer_fee_out`). Appended (wire append-only)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "swap_fee_rate",
-            "docs": [
-              "`pool.swap_fee_rate` in force for this swap (hundredths of bps).",
-              "Appended in v6.1 (T15) so the indexer never needs the pool row."
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "protocol_fee_rate",
-            "docs": [
-              "`pool.protocol_fee_rate` in force for this swap (basis points).",
-              "Appended in v6.1 (T15); a rate change in the same slot is no longer",
-              "ambiguous for the indexer."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "surge_protocol_fee_amount",
-            "docs": [
-              "Protocol's share of `surge_fee_amount` (ceil at `protocol_fee_rate`),",
-              "booked to `protocol_fees_owed[token_out]`. Appended in v6.1 (T15)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "creator_fee_amount",
-            "docs": [
-              "Pool admin's share of the base swap fee (floor of the LP remainder at",
-              "`creator_fee_bps`), booked to `creator_fees_owed[token_in]`. Appended",
-              "in v6.1 (T14). The LPs keep `fee_amount − protocol_fee_amount −",
-              "creator_fee_amount`."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "surge_creator_fee_amount",
-            "docs": [
-              "Pool admin's share of `surge_fee_amount`, booked to",
-              "`creator_fees_owed[token_out]`. Appended in v6.1 (T14)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "creator_fee_bps",
-            "docs": [
-              "`pool.creator_fee_bps` in force for this swap. Appended in v6.1 (T14)."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "surge_fee_lp_amount",
-            "docs": [
-              "LP holders' share of `surge_fee_amount` (the cascade remainder:",
-              "`surge_fee_amount − surge_protocol_fee_amount −",
-              "surge_creator_fee_amount`), booked to `surge_fees_owed[token_out]`",
-              "(v6.1 T12). Appended; wire append-only. Before T12 this remainder",
-              "re-entered the token_out reserves."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "effective_fee_rate",
-            "docs": [
-              "v6.1 (T9): the fee rate the cascade actually ran on — `swap_fee_rate`",
-              "unless a `DYNAMIC_FEE` hook overrode it (clamped into the pool's",
-              "`[hook_fee_min, hook_fee_max]`). `fee_amount = ceil(amount_in_net ·",
-              "effective_fee_rate / 1e6)`. Appended; wire append-only."
-            ],
-            "type": "u32"
           }
         ]
       }
@@ -7169,8 +7097,8 @@
     {
       "name": "SwapFeeRateUpdated",
       "docs": [
-        "Emitted by `set_swap_fee_rate`. Carries both old and new for cheap",
-        "audit reconstruction without re-reading prior state."
+        "`set_swap_fee_rate` / `execute_set_swap_fee_rate` (actor: `pool_admin`).",
+        "Unchanged since v6."
       ],
       "type": {
         "kind": "struct",
@@ -7193,18 +7121,216 @@
           },
           {
             "name": "authority",
-            "docs": [
-              "Pool admin that changed the rate. Appended (wire-format append-only)."
-            ],
             "type": "pubkey"
           }
         ]
       }
     },
     {
-      "name": "SwapsEnabledUpdated",
+      "name": "SwapV2",
       "docs": [
-        "Emitted by `set_swaps_enabled`."
+        "`swap` (actor: any user). Self-contained: parameters, the full fee",
+        "cascade, and the before / after of BOTH touched slots (no separate state",
+        "log). The indexer applies `in_after` / `out_after` to its pool row and",
+        "can verify `after == f(before, params)` per leg; `before` of a leg equals",
+        "`after` of the previous instruction on the same pool in log order.",
+        "",
+        "Re-cut of `Swap` (+ indices, net / gross amounts, slot before / after,",
+        "window; − mints, `surge_fee_lp_amount` = `surge_fee_amount −",
+        "surge_protocol_fee_amount − surge_creator_fee_amount`).",
+        "",
+        "Invariants (raw units):",
+        "* `amount_in_net = amount_in − transfer_fee_in`",
+        "* `fee_amount = ceil(amount_in_net · effective_fee_rate / 1e6)`;",
+        "`protocol_fee_amount` (ceil at `protocol_fee_rate`) and",
+        "`creator_fee_amount` (floor of the rest at `creator_fee_bps`) are its",
+        "split, the LPs keep the remainder in the reserves",
+        "* `in_after.virtual = in_before.virtual + amount_in_net −",
+        "protocol_fee_amount − creator_fee_amount` (same delta on `actual`)",
+        "* `amount_out_gross` = curve output; `out_after.virtual =",
+        "out_before.virtual − amount_out_gross` (same delta on `actual`)",
+        "* `amount_out = amount_out_gross − surge_fee_amount` left the vault to",
+        "the user, who was credited `amount_out − transfer_fee_out`",
+        "* `out_after.protocol_fees_owed − out_before.protocol_fees_owed =",
+        "surge_protocol_fee_amount`, creator likewise, and the LP remainder of",
+        "the surge went to `out_after.surge_fees_owed` (T12)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_in_index",
+            "type": "u8"
+          },
+          {
+            "name": "token_out_index",
+            "type": "u8"
+          },
+          {
+            "name": "amount_in",
+            "docs": [
+              "Gross user debit (parameter)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "transfer_fee_in",
+            "docs": [
+              "Token-2022 transfer fee withheld on the input leg."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "amount_in_net",
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_rate",
+            "docs": [
+              "`pool.swap_fee_rate` in force (hundredths of bps)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "effective_fee_rate",
+            "docs": [
+              "Rate the cascade ran on: `swap_fee_rate` unless a `DYNAMIC_FEE` hook",
+              "overrode it (T9, clamped into `[hook_fee_min, hook_fee_max]`)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "protocol_fee_rate",
+            "docs": [
+              "`pool.protocol_fee_rate` in force (bps)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "creator_fee_bps",
+            "docs": [
+              "`pool.creator_fee_bps` in force (bps)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "fee_amount",
+            "docs": [
+              "Total base swap fee (token_in)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "creator_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "amount_out_gross",
+            "docs": [
+              "Curve output (token_out) — what left the trading reserves."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "surge_fee_amount",
+            "docs": [
+              "Variable sell-off surge fee, total (token_out); 0 without a cap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "surge_protocol_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "surge_creator_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "amount_out",
+            "docs": [
+              "Vault debit to the user: `amount_out_gross − surge_fee_amount`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "transfer_fee_out",
+            "docs": [
+              "Token-2022 transfer fee withheld on the output leg."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "in_before",
+            "type": {
+              "defined": {
+                "name": "SlotState"
+              }
+            }
+          },
+          {
+            "name": "in_after",
+            "type": {
+              "defined": {
+                "name": "SlotState"
+              }
+            }
+          },
+          {
+            "name": "out_before",
+            "type": {
+              "defined": {
+                "name": "SlotState"
+              }
+            }
+          },
+          {
+            "name": "out_after",
+            "type": {
+              "defined": {
+                "name": "SlotState"
+              }
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "selloff_window",
+            "docs": [
+              "The input token's sell-off window as advanced by this swap; `None`",
+              "when the token has no cap. Last on purpose: every field before it has",
+              "a fixed Borsh offset (1 tag byte + 56 B when `Some`)."
+            ],
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "SelloffWindow"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapsEnabledUpdatedV2",
+      "docs": [
+        "`set_swaps_enabled` (actor: `pool_admin` OR `protocol_admin` —",
+        "`actor_kind`). Re-cut of `SwapsEnabledUpdated` (+ `actor_kind`)."
       ],
       "type": {
         "kind": "struct",
@@ -7216,6 +7342,13 @@
           {
             "name": "authority",
             "type": "pubkey"
+          },
+          {
+            "name": "actor_kind",
+            "docs": [
+              "`actor_kind::POOL_ADMIN` or `actor_kind::PROTOCOL_ADMIN`."
+            ],
+            "type": "u8"
           },
           {
             "name": "old_value",
@@ -7233,10 +7366,10 @@
       }
     },
     {
-      "name": "TokenActiveSet",
+      "name": "TokenActiveSetV2",
       "docs": [
-        "Emitted by `set_token_active`. Carries the token index, the old/new",
-        "`is_active` flag, and the authority that flipped it."
+        "`set_token_active` / `execute_set_token_active` (actor: `pool_admin` OR",
+        "`protocol_admin` — `actor_kind`). Re-cut of `TokenActiveSet`."
       ],
       "type": {
         "kind": "struct",
@@ -7248,6 +7381,10 @@
           {
             "name": "authority",
             "type": "pubkey"
+          },
+          {
+            "name": "actor_kind",
+            "type": "u8"
           },
           {
             "name": "token_index",
@@ -7321,6 +7458,47 @@
                 "name": "AssetDynamics"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VirtualBalancesRescaled",
+      "docs": [
+        "`rescale_virtual_balances` (actor: `protocol_admin`, T22): every slot's",
+        "virtual balance × `multiplier` (sell-off windows rescaled alike);",
+        "`actual_balance` and the buckets are untouched."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "multiplier",
+            "type": "u64"
+          },
+          {
+            "name": "old_virtual_balances",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "new_virtual_balances",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }

@@ -222,11 +222,12 @@ describe("the rename moved no pinned byte", () => {
     expect(parsed.kind).toBe("Unknown");
   });
 
-  test("LiquidityAdded parses with no bptAmount key", () => {
-    const disc = Buffer.from((COFFER_POOL_IDL as any).events.find((e: any) => e.name === "LiquidityAdded").discriminator);
-    const payload = Buffer.concat([pk().toBuffer(), pk().toBuffer(), Buffer.concat([Buffer.from([1, 0, 0, 0]), u64(1)]), u64(5), u64(1)]);
+  test("LiquidityAddedV2 parses with no bptAmount key", () => {
+    const disc = Buffer.from((COFFER_POOL_IDL as any).events.find((e: any) => e.name === "LiquidityAddedV2").discriminator);
+    const v1 = Buffer.concat([Buffer.from([1, 0, 0, 0]), u64(1)]);
+    const payload = Buffer.concat([pk().toBuffer(), pk().toBuffer(), Buffer.from([0]), v1, v1, v1, u64(5), u64(0), Buffer.from([0, 0]), u64(1), u64(6), v1, v1, v1, v1, v1, v1, u64(1)]);
     const [parsed] = parseCofferPoolEvents([`Program data: ${Buffer.concat([disc, payload]).toString("base64")}`]) as any[];
-    expect(parsed.kind).toBe("LiquidityAdded");
+    expect(parsed.kind).toBe("LiquidityAddedV2");
     expect("bptAmount" in parsed).toBe(false);
     expect(Object.keys(parsed).filter((k) => OLD.test(k))).toEqual([]);
   });

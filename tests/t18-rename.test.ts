@@ -216,15 +216,19 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     }
   });
 
-  test("every event discriminator is sha256(event:<Name>) and no event was renamed", () => {
+  test("every event discriminator is sha256(event:<Name>); T18 renamed none, T11 re-cut the changed payloads", () => {
     for (const idl of Object.values(IDLS)) {
       for (const candidate of (idl as any).events) {
         expect(hex(candidate.discriminator)).toBe(hex(sha8(`event:${candidate.name}`)));
       }
     }
-    expect(hex(ev("PoolInitialized").discriminator)).toBe("6476ad570cc6fee5");
-    expect(hex(ev("LiquidityAdded").discriminator)).toBe("9a1add6cee40d9a1");
-    expect(hex(ev("LiquidityRemoved").discriminator)).toBe("e169d8277c74a9bd");
+    // T18 kept these; T11 re-cut them (the legacy hashes are pinned in parsers/eventPins.ts).
+    expect(hex(sha8("event:PoolInitialized"))).toBe("6476ad570cc6fee5");
+    expect(hex(sha8("event:LiquidityAdded"))).toBe("9a1add6cee40d9a1");
+    expect(hex(sha8("event:LiquidityRemoved"))).toBe("e169d8277c74a9bd");
+    expect(hex(ev("PoolInitializedV2").discriminator)).toBe("a5d9f342e388a1f3");
+    expect(hex(ev("LiquidityAddedV2").discriminator)).toBe("32430f2490367820");
+    expect(hex(ev("LiquidityRemovedV2").discriminator)).toBe("e67f3f261c2e9d07");
   });
 
   test("IDL field / account / arg names use lp_* and coffer_*", () => {
@@ -233,9 +237,9 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(ix("remove_liquidity").args.map((a: any) => a.name)).toEqual(["lp_amount", "minimum_token_amounts"]);
     expect(ix("deposit_single_token_planned", SINGLE_TOKEN_LIQUIDITY_IDL).accounts.map((a: any) => a.name)).toContain("coffer_pool_program");
     expect(ix("pool_set_pool_enabled", PROTOCOL_ADMIN_IDL).accounts.map((a: any) => a.name)).toContain("coffer_pool_program");
-    const poolInit = (COFFER_POOL_IDL as any).types.find((t: any) => t.name === "PoolInitialized").type.fields.map((f: any) => f.name);
-    expect(poolInit.slice(0, 7)).toEqual(["pool", "config", "token_count", "lp_mint", "timestamp", "banned_extensions", "pool_id"]);
-    expect(poolInit.slice(7, 11)).toEqual(["lp_name", "lp_symbol", "lp_uri", "lp_token_program"]); // v6.1 T1 tail
+    const poolInit = (COFFER_POOL_IDL as any).types.find((t: any) => t.name === "PoolInitializedV2").type.fields.map((f: any) => f.name);
+    expect(poolInit.slice(0, 6)).toEqual(["pool", "config", "pool_id", "pool_admin", "lp_mint", "lp_token_program"]);
+    expect(poolInit).toEqual(expect.arrayContaining(["lp_name", "lp_symbol", "lp_uri"])); // v6.1 T1 metadata (no banned_extensions since T19)
   });
 
   test("error names are renamed while their numeric codes stay", () => {
@@ -250,9 +254,9 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(describeProgramError(6025)?.name).toBe("BannedExtension");
   });
 
-  test("ABI size after v6.1: 104 instructions and 79 events across the three programs (59 / 59 after T19)", () => {
+  test("ABI size after v6.1: 107 instructions and 79 events across the three programs (59 / 59 after T19)", () => {
     const programs = Object.values(IDLS) as any[];
-    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(104);
+    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(107);
     expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(79);
   });
 });
@@ -349,57 +353,76 @@ describe("T19 deploy builder encodes no Option<u64> policy argument", () => {
 
 describe("T18 event parsers expose lp_* / lp* fields", () => {
   const pool = pk(), user = pk();
+  const vec2 = (a: number, b: number) => vecU64([new BN(a), new BN(b)]);
 
-  test("LiquidityAdded → lpAmount (camelCase API) and lp_amount (IDL API)", () => {
-    // v6.1 tails (T2 / T7 / T12) appended so the strict IDL decoder accepts the log.
-    const tail = Buffer.concat([Buffer.from([0]), vecU64([new BN(10), new BN(20)]), u64(0), u64(5), u64(0), u64(0), Buffer.from([0, 0]), vecU64([new BN(0), new BN(0)])]);
-    const payload = Buffer.concat([pool.toBuffer(), user.toBuffer(), vecU64([new BN(10), new BN(20)]), u64(5), u64(1_700_000_000), tail]);
-    const line = log(ev("LiquidityAdded").discriminator, payload);
+  test("LiquidityAddedV2 → lpAmount (camelCase API) and lp_amount (IDL API)", () => {
+    const payload = Buffer.concat([
+      pool.toBuffer(), user.toBuffer(), Buffer.from([0]), vec2(10, 20), vec2(10, 20), vec2(0, 0), u64(5), u64(0), Buffer.from([0, 0]), u64(1_000), u64(1_005),
+      vec2(100, 200), vec2(101, 202), vec2(50, 100), vec2(60, 120), vec2(0, 0), vec2(0, 0), u64(1_700_000_000),
+    ]);
+    const line = log(ev("LiquidityAddedV2").discriminator, payload);
     const [camel] = parseCofferPoolEvents([line]) as any[];
-    expect(camel.kind).toBe("LiquidityAdded");
+    expect(camel.kind).toBe("LiquidityAddedV2");
     expect(camel.lpAmount.toNumber()).toBe(5);
+    expect(camel.lpSupplyAfter.toNumber()).toBe(1_005);
     const [exact] = parseContractEvents([line], "cofferPool") as any[];
     expect(exact.data.lp_amount.toNumber()).toBe(5);
+    expect(exact.data.lp_supply_after.toNumber()).toBe(1_005);
   });
 
-  test("LiquidityRemoved → lpAmount before token_amounts (field order unchanged)", () => {
-    const payload = Buffer.concat([pool.toBuffer(), user.toBuffer(), u64(7), vecU64([new BN(1)]), u64(1)]);
-    const [camel] = parseCofferPoolEvents([log(ev("LiquidityRemoved").discriminator, payload)]) as any[];
-    expect(camel.kind).toBe("LiquidityRemoved");
+  test("LiquidityRemovedV2 → requestedLp, lpAmount before token_amounts (field order pinned)", () => {
+    const fields = (COFFER_POOL_IDL as any).types.find((t: any) => t.name === "LiquidityRemovedV2").type.fields.map((f: any) => f.name);
+    expect(fields.slice(0, 5)).toEqual(["pool", "user", "requested_lp", "lp_amount", "token_amounts"]);
+    const payload = Buffer.concat([
+      pool.toBuffer(), user.toBuffer(), u64(9), u64(7), vec2(1, 2), vec2(0, 0), vec2(0, 0), Buffer.from([0, 0]), vec2(0, 0), Buffer.from([0]), u64(100), u64(93),
+      vec2(10, 20), vec2(9, 18), vec2(5, 10), vec2(4, 8), vec2(0, 0), vec2(0, 0), u64(1),
+    ]);
+    const [camel] = parseCofferPoolEvents([log(ev("LiquidityRemovedV2").discriminator, payload)]) as any[];
+    expect(camel.kind).toBe("LiquidityRemovedV2");
+    expect(camel.requestedLp.toNumber()).toBe(9);
     expect(camel.lpAmount.toNumber()).toBe(7);
-    expect(camel.tokenAmounts.map((x: BN) => x.toNumber())).toEqual([1]);
+    expect(camel.tokenAmounts.map((x: BN) => x.toNumber())).toEqual([1, 2]);
   });
 
-  test("PoolInitialized → lpMint, deprecatedBannedExtensions (0 from a v6.1 program), poolId", () => {
-    const config = pk(), lpMint = pk();
+  test("PoolInitializedV2 → lpMint, lpTokenProgram, poolId; no banned_extensions slot any more (T19)", () => {
+    const config = pk(), lpMint = pk(), lpProgram = pk();
     const str = (x: string) => { const b = Buffer.from(x); const l = Buffer.alloc(4); l.writeUInt32LE(b.length); return Buffer.concat([l, b]); };
-    // v6.1 tails (T1 strings + lp_token_program, T14, T7, T9 zero hook block) so the strict IDL decoder accepts the log.
-    const tail = Buffer.concat([str("LP"), str("cLP"), str("https://x"), pk().toBuffer(), Buffer.alloc(6), Buffer.alloc(32), Buffer.alloc(2 + 4 + 4 + 4 + 1)]);
-    const payload = Buffer.concat([pool.toBuffer(), config.toBuffer(), u8(2), lpMint.toBuffer(), u64(1), u64(0), u64(77), tail]);
-    const line = log(ev("PoolInitialized").discriminator, payload);
+    const mints = [pk(), pk()];
+    const payload = Buffer.concat([
+      pool.toBuffer(), config.toBuffer(), u64(77), user.toBuffer(), lpMint.toBuffer(), lpProgram.toBuffer(), u8(2),
+      Buffer.concat([Buffer.from([2, 0, 0, 0]), mints[0].toBuffer(), mints[1].toBuffer()]), Buffer.concat([Buffer.from([2, 0, 0, 0]), TOKEN_PROGRAM_ID.toBuffer(), TOKEN_PROGRAM_ID.toBuffer()]),
+      Buffer.from([2, 0, 0, 0, 6, 9]), vec2(5_000, 5_000), vec2(1_000_000, 1_000_000_000), Buffer.from([0xb8, 0x0b, 0, 0]), Buffer.from([0xe8, 0x03]), Buffer.alloc(6),
+      str("LP"), str("cLP"), str("https://x"), Buffer.alloc(32), Buffer.alloc(2 + 4 + 4 + 4 + 1), u64(1),
+    ]);
+    const line = log(ev("PoolInitializedV2").discriminator, payload);
     const [camel] = parseCofferPoolEvents([line]) as any[];
+    expect(camel.kind).toBe("PoolInitializedV2");
     expect(camel.lpMint.equals(lpMint)).toBe(true);
-    expect(camel.deprecatedBannedExtensions.toNumber()).toBe(0);
+    expect(camel.lpTokenProgram.equals(lpProgram)).toBe(true);
     expect(camel.poolId.toNumber()).toBe(77);
+    expect(camel.decimals).toEqual([6, 9]);
+    expect("deprecatedBannedExtensions" in camel).toBe(false);
     const exact = decodeContractEvent(line.slice("Program data: ".length), "cofferPool") as any;
     expect(exact.data.lp_mint.equals(lpMint)).toBe(true);
   });
 
-  test("a pre-T19 PoolInitialized log (non-zero bitmap) still decodes positionally", () => {
+  test("a pre-T11 PoolInitialized log (legacy discriminator) is Unknown, not decoded positionally", () => {
     const payload = Buffer.concat([pool.toBuffer(), pk().toBuffer(), u8(3), pk().toBuffer(), u64(1), u64(0x6410e0a), u64(1)]);
-    const [camel] = parseCofferPoolEvents([log(ev("PoolInitialized").discriminator, payload)]) as any[];
-    expect(camel.kind).toBe("PoolInitialized");
-    expect(camel.deprecatedBannedExtensions.toNumber()).toBe(0x6410e0a);
+    const [camel] = parseCofferPoolEvents([log(Buffer.from("6476ad570cc6fee5", "hex"), payload)]) as any[];
+    expect(camel.kind).toBe("Unknown");
+    expect(camel.name).toBe("PoolInitialized");
+    expect(camel.data.replacedBy).toBe("PoolInitializedV2");
   });
 
-  test("SingleTokenDepositDirect → lpReceived", () => {
+  test("SingleTokenDepositDirectV2 → lpReceived, lpSupplyBefore / After", () => {
     const payload = Buffer.concat([
-      pool.toBuffer(), user.toBuffer(), u8(0), u64(100), vecU64([new BN(50), new BN(50)]), vecU64([new BN(49), new BN(48)]),
-      u64(12), vecU64([new BN(1), new BN(2)]), u64(1),
+      pool.toBuffer(), user.toBuffer(), u8(0), u64(100), u64(1), vec2(50, 50), Buffer.alloc(32), u64(1), u64(2), u8(1), vec2(49, 48),
+      u64(12), vec2(1, 2), u64(100), u64(112), u64(1),
     ]);
-    const [camel] = parseCofferPoolEvents([log(ev("SingleTokenDepositDirect", SINGLE_TOKEN_LIQUIDITY_IDL).discriminator, payload)]) as any[];
-    expect(camel.kind).toBe("SingleTokenDepositDirect");
+    const [camel] = parseCofferPoolEvents([log(ev("SingleTokenDepositDirectV2", SINGLE_TOKEN_LIQUIDITY_IDL).discriminator, payload)]) as any[];
+    expect(camel.kind).toBe("SingleTokenDepositDirectV2");
     expect(camel.lpReceived.toNumber()).toBe(12);
+    expect(camel.lpSupplyAfter.toNumber()).toBe(112);
   });
 });
 
