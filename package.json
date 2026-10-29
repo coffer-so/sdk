@@ -1,6 +1,6 @@
 {
   "name": "@coffer_so/sdk-v6",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publishConfig": {
     "access": "public"
   },
@@ -24,6 +24,8 @@
     "types:generate": "node scripts/generate-contract-types.cjs",
     "types:check": "node scripts/generate-contract-types.cjs --check",
     "abi:check": "node scripts/check-contract-abi.cjs --contracts-dir ../contracts-v6.1 --idl-dir idl --ignore-address",
+    "fixtures:events": "node scripts/generate-event-fixtures.cjs",
+    "fixtures:events:check": "node scripts/generate-event-fixtures.cjs --check",
     "fixtures:rust": "python3 tests/math/generate-rust-reference.py ../contracts"
   },
   "repository": {

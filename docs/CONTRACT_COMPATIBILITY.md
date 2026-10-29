@@ -1,12 +1,15 @@
 # Contract compatibility: v6.1
 
-Target: `contracts` **v6.1** — branch `v6.1` at `9094945` (T3 admin-cooldown
-merge) plus the T9 native-hooks merge (IDLs carry `hook_config`). SDK 0.2.0
-drives every v6.1 feature: the 2304-byte pool layout (L0), LP metadata (T1),
-seed deposit (T2), admin cooldowns (T3), vault-PDA fee claims (T5), range
-manager lock (T6), deposit / withdraw fees (T7), atomic deploy (T8), hooks
-(T9), sidelined tokens (T10), surge buckets (T12), creator fees (T14), the
-per-pool protocol fee rate (T15) and the T18 / T19 rename / policy removal.
+Target: `contracts` **v6.1** — branch `v6.1-t11` at **`409067d`** (T9 hooks,
+T22 leverage invariant / rescale, T11 events overhaul; the ABI is final — the
+pending merge into `v6.1` and the T21-B2 cleanup change no ABI; update this
+pin to the v6.1 merge commit sha at release). SDK 0.3.0 drives every v6.1
+feature: the 2304-byte pool layout (L0), LP metadata (T1), seed deposit (T2),
+admin cooldowns (T3), vault-PDA fee claims (T5), range manager lock (T6),
+deposit / withdraw fees (T7), atomic deploy (T8), hooks (T9), sidelined tokens
+(T10), the re-cut events (T11), surge buckets (T12), creator fees (T14), the
+per-pool protocol fee rate (T15), the T18 / T19 rename / policy removal and
+the strict leverage invariant with `rescale_virtual_balances` (T22).
 
 v6.1 ships as NEW program ids next to v6 and v5 (the v6 mainnet factory keeps
 running on the 1683-byte layout until `migrate_pool_layout_v61` runs per
@@ -17,13 +20,14 @@ the v6 ones, and `CofferConfigOverrides.programs` switches between them.
 
 | Program | Instructions | Events | v6 mainnet | v6.1 mainnet factory | devnet (2026-10-10) |
 | --- | ---: | ---: | --- | --- | --- |
-| coffer_pool | 50 | 42 | `6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9` | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` | `Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1` |
-| protocol_admin | 50 | 34 | `6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck` | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` | `FPwMrsxYpgJsZRCTKJadP97AsNX1WwFBZwBbzTDcYmjU` |
-| single_token_liquidity | 4 | 3 | reserved `Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy` | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` | `4Rk88MtVT6CjB5e2EPbzQ4Qs6zKtSFgVZYE79SVenVko` |
+| coffer_pool | 51 | 41 | `6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9` | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` | `Anqy91qJz4Z9faHD6b5bDGYoe1cqYLytPLh4w2Z4UkD1` |
+| protocol_admin | 52 | 36 | `6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck` | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` | `FPwMrsxYpgJsZRCTKJadP97AsNX1WwFBZwBbzTDcYmjU` |
+| single_token_liquidity | 4 | 2 | reserved `Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy` | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` | `4Rk88MtVT6CjB5e2EPbzQ4Qs6zKtSFgVZYE79SVenVko` |
 
-104 instructions / 79 events in total; `npm run abi:check -- --idl-dir
+107 instructions / 79 events in total; `npm run abi:check -- --idl-dir
 ../contracts-v6.1/idl --ignore-address` diffs the vendored IDLs against a
 contracts checkout (the `address` fields are the SDK's and differ on purpose).
+Vendored IDLs are byte-identical to `idl/*.json` at `409067d` modulo `address`.
 
 Protocol accounts (v6): mainnet treasury `BaUyw2zVZx8TGCMDZtQKQxq2S9LCCzNubg8tNKWqh9yv`,
 config `HkYKaa4ARjeqPZsVb7bHKuNLJHhM7Dntzh9oLWg8xvhb`; devnet treasury
@@ -33,7 +37,7 @@ own Treasury / config (hard-coded ids); fill them in when it is initialised.
 
 ## What changed on-chain (v6.1) and how the SDK follows
 
-| v6.1 | SDK 0.2.0 |
+| v6.1 | SDK 0.3.0 |
 | --- | --- |
 | L0: `CofferPool` grows 1683 → 2304 bytes (`layout_version`, pinned decimals, creator / surge buckets, liquidity fees, locks, cooldown block, hook block, 202 reserved). `migrate_pool_layout_v61` is permissionless; until it runs every instruction fails with `LayoutVersionMismatch` (6070) | `decodePoolAccount` reads both lengths (1683 = `layoutVersion 0`, read-only); `PoolInfo.needsLayoutMigration`; `build*Tx` prepend `migrate_pool_layout_v61` (`autoMigrate`, default on) or throw `PoolLayoutOutdatedError`; `parsers/layout.ts` pins every offset |
 | T1: LP mint is Token-2022 with in-mint `TokenMetadata` (`name`, `symbol`, `uri`, `("pool", <pool>)`, authority revoked); `initialize_pool` takes `LpMetadataArgs` | `validateLpMetadata` (program rules + shared fixture table), `encodeLpMetadataArgs`, `fetchLpMetadata` / `decodeLpMintAccount` (token program from the mint OWNER; legacy SPL LP mints → `null`), `PoolInfo.lpMetadata` |
@@ -48,8 +52,9 @@ own Treasury / config (hard-coded ids); fill them in when it is initialised.
 | T12: the LP share of surge fees accrues in `surge_fees_owed[out]`; NAV = actual + surge; joins buy into the bucket, exits pay their share | `nav` / `splitDepositCredit` / `splitExitPayout`; quotes on NAV (`navBalances`, `surgeBuyIn`, `surgeOuts`); `quoteLpPriceUsd` |
 | T14: `creator_fee_bps` share of the LP remainder → `creator_fees_owed`, `claim_creator_fees` | `splitFee` cascade (protocol ceil → creator floor → LP), `buildClaimCreatorFeesIx`, `creatorFeeAmount` in quotes |
 | T15: `pool_set_protocol_fee_rate` per pool (0..=10_000 bps) | `AdminClient.poolSetProtocolFeeRateIx` / cooldown payload |
-| Events: v6.1 fields appended to `Swap`, `LiquidityAdded`, `LiquidityRemoved`, `PoolInitialized`, …; new `PoolInfo`, cooldown, hook, creator-fee events | tolerant tails (`v61Tail` flags), typed decoders for every event |
-| Errors 6070–6103 (coffer_pool) and 6010–6018 (protocol_admin) | `describeProgramError`, `CLAIM_ERROR_NAMES`, SDK codes `pool_layout_outdated`, `no_liquidity`, `cooldown`, `hook_rejected` |
+| T11: one primary event per instruction with actor / params / before-after; every changed payload re-cut (`SwapV2` with `SlotState` pairs + `Option<SelloffWindow>`, `LiquidityAddedV2` / `LiquidityRemovedV2` with `lp_supply_before/after` and the six vectors, `PoolInitializedV2`, `PoolInfoV2`, `SingleTokenDepositDirectV2`, 24 protocol-admin `…V2`); `PoolStateLog`, `MaxSelloffWindowAdvanced`, `SingleTokenDeposit` retired | strict typed decoders + IDL-coder path with re-encode check, `parseTransactionEvents` (invoke-stack attribution), legacy / retired discriminators → `Unknown { legacy }`, IDL-generated fixtures; see [EVENTS.md](EVENTS.md) |
+| T22: strict `virtual_balance > actual_balance` on every slot after every balance write; per-slot floor `max(10^decimals, 1000)` where `V` is chosen; `rescale_virtual_balances` (protocol admin, D-class cooldown kind 13) | `math/leverage.ts` (`checkLeverage`, `minVirtualBalance`, seed / fund gates, `applyRescale`, T22 exit normalisation in `virtualBalanceAfterWithdrawal`), create-pool / seed / fund builders and quotes mirror the gates, `PoolInfo.leverageViolations`, `buildRescaleVirtualBalancesIx`, `AdminClient.poolRescaleVirtualBalancesIx` / `executePoolRescaleVirtualBalancesIx`, `ProtocolActions.poolRescaleVirtualBalances` |
+| Errors 6070–6106 (coffer_pool) and 6010–6018 (protocol_admin) | `describeProgramError`, `CLAIM_ERROR_NAMES`, SDK codes `pool_layout_outdated`, `no_liquidity`, `cooldown`, `hook_rejected`, `leverage_invariant` (6104–6106 carry user-facing messages) |
 
 Legacy rows (v6) still hold: `transfer_checked` everywhere with transfer-fee
 netting and hook / memo tails, 100 % fee ceilings, v6 join / exit rounding,
@@ -83,8 +88,11 @@ the distinction between operational `PoolInfo` and the full raw ABI.
 `decodeContractAccount` decodes CofferPool, CofferPoolConfig and Treasury with exact
 IDL field names. Verify the RPC account owner before decoding.
 `parseContractEvents` returns `{ program, kind, data }` for every declared event,
-preserving BN values and exact field names. Verify transaction success and the
-emitting program before indexing logs. The existing camelCase event API remains.
+preserving BN values and exact field names (strict: the decoded value must
+re-encode to the payload). Verify transaction success and the emitting program
+before indexing logs — `parseTransactionEvents` attributes each line to the
+program on top of the invoke stack. The camelCase `parseCofferPoolEvents` API
+returns the typed `…V2` shapes ([EVENTS.md](EVENTS.md)).
 
 ## Quotes and token support
 
@@ -138,13 +146,16 @@ npm run lint
 npm run build
 SKIP_MAINNET_TESTS=1 npm test -- --runInBand
 npm run types:check
-npm run abi:check                       # against ../contracts checked out at v6
+npm run abi:check                       # against ../contracts-v6.1 (committed idl/); the 0.3.0 pin: --idl-dir ../contracts-v6.1-t11/idl
+npm run fixtures:events:check           # tests/fixtures/events/*.json still match src/idl
 npm run fixtures:rust                   # regenerates tests/math/fixtures/deployed-v6-math.json (needs rustc)
 ZAP_PLAN_BINARY=../contracts/target/debug/examples/zap_plan SKIP_MAINNET_TESTS=1 npx jest tests/zap-plan-fixtures
 ```
 
 `tests/contract-abi.test.ts` independently encodes every instruction/event and
-checks all declared account layouts against the shipped IDLs.
+checks all declared account layouts against the shipped IDLs;
+`tests/v61-events.test.ts` round-trips the IDL-generated event fixtures
+(`node scripts/generate-event-fixtures.cjs --check`).
 `tests/math/rust-parity.test.ts` runs 748 vectors produced by compiling the v6
 Rust math bodies (`generate-rust-reference.py`); the fixture header records the
 contract commit and source hashes. `tests/zap-plan-fixtures.test.ts` compares

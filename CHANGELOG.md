@@ -3,6 +3,86 @@
 Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 `cubic_pool`); they were not rewritten.
 
+## 0.3.0 — v6.1 final ABI: T11 re-cut events, T22 leverage invariant, T9 sync
+
+Targets `contracts` `v6.1-t11` at `409067d` (T9 hooks, T22 leverage
+invariant / rescale, T11 events overhaul). The ABI is final; the pending merge
+into `v6.1` and the T21-B2 cleanup change no ABI (update the pin in
+`docs/CONTRACT_COMPATIBILITY.md` to the merge sha at release). IDLs: 51 / 52 /
+4 instructions, 41 / 36 / 2 events (107 / 79).
+
+### Breaking
+
+- **Events re-cut (T11)**: every payload that changed since the v6 wire has a
+  new name and discriminator. `parseCofferPoolEvents` returns `SwapV2`
+  (`tokenInIndex/OutIndex`, the whole cascade, `inBefore/inAfter/outBefore/outAfter: SlotState`,
+  `selloffWindow: SelloffWindowState | null`), `LiquidityAddedV2` /
+  `LiquidityRemovedV2` (`lpSupplyBefore/After`, six before / after vectors,
+  `requestedLp`, `transferFeesOut`, `hooksBypassed`), `PoolInitializedV2`,
+  `PoolInfoV2`, `SingleTokenDepositDirectV2` (plan hash / validity,
+  `innerSwapCount`, `lpSupplyBefore/After`), `ProtocolFeesCollectedV2`,
+  `CreatorFeesClaimedV2`, `…V2` admin events with `actorKind`, and 24
+  protocol-admin `…V2` wrappers. The v6 types (`SwapEvent`,
+  `LiquidityAddedEvent`, `PoolInitializedEvent`, `PoolInfoEvent`,
+  `PoolStateLogEvent`, `MaxSelloffWindowAdvancedEvent`,
+  `SingleTokenDepositEvent`, …) are gone; the tolerant `v61Tail` decoders are
+  gone (nothing is appended under an old discriminator any more).
+- Legacy (pre-T11) and retired (`PoolStateLog`, `MaxSelloffWindowAdvanced`,
+  STLD `SingleTokenDeposit`) discriminators decode as
+  `Unknown { name: <legacy>, data: { legacy, retired, replacedBy } }` — v6
+  history needs the v6 SDK.
+- `decodeContractEvent` / `parseContractEvents` are strict: a payload that
+  does not re-encode to its bytes (a truncated log) is refused instead of
+  zero-filled.
+- Quotes refuse a pool whose slot sits at `virtual ≤ actual`
+  (`leverage_invariant`; the program reverts with 6104) — swap, add, planned
+  zap; `quoteSeedDeposit` / `buildSeedLiquidityIx` / `buildFundSidelinedTokenIx`
+  require `net < virtual`; `buildInitializePoolIx` / `buildAtomicDeploy`
+  require `virtual ≥ max(10^decimals, 1000)` when the decimals are known and
+  `seedAmounts[i] < virtualBalances[i]`.
+- `virtualBalanceAfterWithdrawal` applies the T22 live-leg normalisation
+  `max(floor(V·(A−p)/A), (A−p)+1)`; the planner (`validateQuotePool`,
+  `swapInPool`, `replay`) carries the program's leverage post-guards.
+- `PROTOCOL_ACTION_KINDS` has 14 entries (kind 13 `PoolRescaleVirtualBalances`);
+  `TREASURY_LAYOUT.PENDING_POOL_RESCALE_VIRTUAL_BALANCES` @1499 (48 B),
+  `RESERVED_V61` @1547 (77 B); `decodeTreasuryAccount` returns 14 slots.
+
+### Added
+
+- `parseTransactionEvents(logs, programIds?)` (invoke-stack attribution:
+  program id, depth, line), `decodeEventLine`, `logTruncated`, `EVENT_TABLES`,
+  `eventProgramOf`, `TYPED_EVENT_NAMES`; pins `RECUT_EVENTS`,
+  `RETIRED_EVENTS`, `LEGACY_EVENT_DISCRIMINATORS`; `ACTOR_KIND(S)`,
+  `actorKindName`; reducer helpers `swapSurgeLpAmount`, `swapSlotDeltas`,
+  `applySwapToVectors`; `BorshReader.option / vecBool / vec / u8Array`.
+- `scripts/generate-event-fixtures.cjs` → `tests/fixtures/events/*.json` (80
+  IDL-generated Borsh fixtures, `some` / `none` variants); `docs/EVENTS.md`
+  (decoders, typed shapes, backend column mapping per the contracts'
+  `docs/EVENTS-V61.md` §6, log budget).
+- `math/leverage.ts`: `checkLeverage`, `leverageHolds`, `leverageViolations`,
+  `assertLeverageInvariant`, `minVirtualBalance`, `virtualFloorViolations`,
+  `assertVirtualFloor`, `checkSeedLeverage`, `checkFundLeverage`,
+  `applyRescale`, `minRescaleMultiplier`; constants `MIN_VIRTUAL_BALANCE_ABS`,
+  `MIN_VIRTUAL_RESCALE_MULTIPLIER`, `MAX_TOKEN_DECIMALS`; fixtures
+  `tests/fixtures/leverage/t22-vectors.json` (cite `v61_leverage_invariant.rs`).
+- `PoolInfo.leverageViolations`; `CofferPoolClient.quoteFundSidelinedToken`,
+  `quoteRescaleVirtualBalances`; `buildRescaleVirtualBalancesIx`,
+  `buildSetHookDisabledIx` (raw coffer_pool); `AdminClient.poolRescaleVirtualBalancesIx`
+  / `executePoolRescaleVirtualBalancesIx`, `rescaleMultiplierArg`;
+  `ProtocolActions.poolRescaleVirtualBalances`; `DeployPoolParamsV61.tokenDecimals`
+  / `AtomicDeployParams.tokenDecimals` (`buildAtomicDeploy` reads them from
+  the mint accounts).
+- Error map 6104–6106 (`VirtualBalanceNotAboveActual` / `VirtualBalanceBelowFloor`
+  → `leverage_invariant`, `InvalidVirtualRescale` → `invalid_input`) with
+  user-facing messages; `SdkErrorCode` `leverage_invariant`.
+
+### Changed
+
+- Test fixtures are levered 2× (`virtual = 2 · actual`); the zap-plan
+  fixtures were regenerated with the `409067d` `zap_plan` binary; the v6
+  rust-parity exit vectors are lifted to the T22 rule.
+- `npm run fixtures:events` / `fixtures:events:check`.
+
 ## 0.2.0 — v6.1: layout, builders, quotes, events
 
 Targets `contracts` branch `v6.1` at `9094945` (T3) with the T9 hooks merge.
