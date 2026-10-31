@@ -666,6 +666,58 @@ export interface PortfolioChartResponse {
     profit: Array<[number, number]>;
     il: Array<[number, number]>;
   };
+  /**
+   * `pnl` / `il` ONLY (whole wallet and `options.pool`): the user's actions
+   * on the charted position(s) — liquidity added, zapped in, removed, LP
+   * tokens sent / received — to draw as markers. At most one marker per
+   * grid step (`granularitySec`): actions closer than that share a marker
+   * and its `events` list them. Every `marker.t` IS a point of `series` /
+   * `lines`: the grid gets an extra point at each marker, so the line
+   * bends exactly where the action happened and the marker's Y is the
+   * line's value at that `t` (exact lookup, no interpolation; the points
+   * are therefore no longer strictly evenly spaced — pick axis ticks from
+   * the regular points). Actions worth less than $1 are left out. Empty
+   * when there were no actions in the range; absent for `networth` / `xp`.
+   */
+  markers?: PortfolioChartMarker[];
+}
+
+export type PortfolioChartEventType =
+  | "added"
+  | "zap"
+  | "removed"
+  | "sent"
+  | "received";
+
+/** One user action behind a chart marker. */
+export interface PortfolioChartEvent {
+  /** Unix seconds — the exact moment of the transaction. */
+  t: number;
+  type: PortfolioChartEventType;
+  pool: { address: string; name: string };
+  /**
+   * Signed like the activity feed: + for added / zap / received, − for
+   * removed / sent. Deposits and withdrawals carry the indexed transaction's
+   * USD (all its LP instructions summed); transfers the LP tokens moved ×
+   * the LP price at that moment. `null` when a transfer could not be priced.
+   */
+  usd: number | null;
+  /** LP tokens (BPT) moved, human units, same sign as `usd`. */
+  bptDelta: number;
+  /**
+   * Transaction signature — pass it as `highlight` to `getPortfolioActivity`
+   * to land on that row. `null` when unknown (a transfer older than the
+   * wallet-history page cap): render the marker without a link.
+   */
+  signature: string | null;
+}
+
+/** A cluster of actions drawn as one marker on a `pnl` / `il` chart. */
+export interface PortfolioChartMarker {
+  /** Unix seconds — always a point of `series` / `lines`. */
+  t: number;
+  /** The cluster's events, ascending by time; `t` is the first one's. */
+  events: PortfolioChartEvent[];
 }
 
 export type PortfolioActivityType =
@@ -718,9 +770,18 @@ export interface PortfolioActivityItem {
 
 export interface PortfolioActivityResponse {
   total: number;
+  /** The page served — with `highlight`, the page that contains that transaction. */
   page: number;
   limit: number;
   data: PortfolioActivityItem[];
+  /**
+   * The row `options.highlight` asked for: its index in `data` (a
+   * transaction with several LP instructions has several rows with the
+   * same signature — highlight all of them). `null` when no row of the
+   * feed under the given `type` filter has that signature, or when
+   * `highlight` was not passed.
+   */
+  highlight: { signature: string; index: number } | null;
 }
 
 export type SortOrder = "desc" | "asc";
@@ -1451,6 +1512,12 @@ export class CofferBackendClient {
    * expanded row of the positions table); `all` then starts at the first
    * activity in that pool, without the one-year floor. The backend rejects
    * it for `networth` / `xp`.
+   *
+   * `pnl` / `il` also carry `markers`: the user's actions on the charted
+   * position(s) (added / zap / removed / sent / received), one marker per
+   * grid step at most, each `marker.t` being a point of the line — see
+   * `PortfolioChartMarker`. A marker's `events[].signature` goes to
+   * `getPortfolioActivity({ highlight })` to open that row.
    */
   getPortfolioChart(
     metric: PortfolioChartMetric,
@@ -1470,6 +1537,12 @@ export class CofferBackendClient {
    * with counterparties) and pools deployed by the user. Newest first,
    * page/limit pagination. The Recent Activity widget is `{ limit: 4 }`;
    * filters: `liquidity` = added + removed, `transfer` = sent + received.
+   *
+   * `options.highlight` (a chart marker click — `PortfolioChartEvent.signature`)
+   * makes the backend answer with the page that CONTAINS that transaction
+   * under the given `type` / `sort` / `order` (`page` is then ignored):
+   * read the served page from the response's `page` and the row from
+   * `highlight.index`.
    */
   getPortfolioActivity(options?: {
     page?: number;
@@ -1478,6 +1551,8 @@ export class CofferBackendClient {
     /** Sort column; unpriced rows (deployed) always go last on "value". */
     sort?: PortfolioActivitySortField;
     order?: SortOrder;
+    /** Transaction signature to land on; overrides `page` (see above). */
+    highlight?: string;
   }): Promise<SdkResult<PortfolioActivityResponse>> {
     const qs = new URLSearchParams({
       page: String(options?.page ?? 1),
@@ -1486,6 +1561,7 @@ export class CofferBackendClient {
       sort: options?.sort ?? "time",
       order: options?.order ?? "desc",
     });
+    if (options?.highlight) qs.set("highlight", options.highlight);
     return this.get<PortfolioActivityResponse>(
       `/api/portfolio/v2/activity?${qs.toString()}`,
     );

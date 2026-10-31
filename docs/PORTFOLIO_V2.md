@@ -51,6 +51,45 @@ if (lines) {
 }
 ```
 
+**Action markers (`pnl` / `il` only).** `markers` lists the user's actions
+on the charted position(s) — liquidity added, zapped in, removed, LP tokens
+sent / received — to draw on the chart (on the line, under it, in a lane:
+your call). Guarantees: every `marker.t` **is a point** of `series` /
+`lines` (the grid gets a point per marker, so the line bends exactly where
+the action happened — look the Y value up by `t`, no interpolation);
+actions closer than one grid step share a marker (`events` lists them, the
+tooltip shows all); actions under $1 are left out; the points are no longer
+strictly evenly spaced, so pick axis ticks from the regular points, not by
+index. `networth` / `xp` have no `markers`.
+
+```ts
+const il = await client.getPortfolioChart("il", "1y");
+if (il.ok) {
+  for (const marker of il.data.markers ?? []) {
+    const y = il.data.lines!.il.find(([t]) => t === marker.t)![1]; // always found
+    const label =
+      marker.events.length === 1
+        ? describe(marker.events[0]) // "Removed $500 from 3crypto"
+        : `${marker.events.length} actions`;
+    drawMarker(marker.t, y, label, () => {
+      const sig = marker.events[0].signature;
+      if (sig) openActivity(sig); // → getPortfolioActivity({ highlight: sig })
+    });
+  }
+}
+
+function describe(e: PortfolioChartEvent): string {
+  const usd = e.usd === null ? "" : ` $${Math.abs(e.usd)}`;
+  switch (e.type) {
+    case "added":    return `Added${usd} to ${e.pool.name}`;
+    case "zap":      return `Zapped${usd} into ${e.pool.name}`;
+    case "removed":  return `Removed${usd} from ${e.pool.name}`;
+    case "sent":     return `Sent LP${usd && " worth" + usd} from ${e.pool.name}`;
+    case "received": return `Received LP${usd && " worth" + usd} in ${e.pool.name}`;
+  }
+}
+```
+
 **Metrics:**
 
 | Metric | Shape | Meaning | Value at point t |
@@ -153,6 +192,23 @@ if (res.ok) {
 `order: "desc" | "asc"` (default `"desc"`) — for the column sort arrows.
 On `"value"` sort, rows without a USD value (`deployed`) always go last,
 whatever the order.
+
+**Landing on a transaction (`highlight`):** a chart marker click carries a
+signature; pass it as `highlight` and the backend answers with the page
+that contains that transaction under the current filter / sort (`page` is
+ignored) — read the served page from `page`, the row from
+`highlight.index`, and flash every row whose `signature` matches (one
+transaction with several LP instructions has several rows). Unknown
+signature (e.g. filtered out by `type`) → the requested page and
+`highlight: null`.
+
+```ts
+const res = await client.getPortfolioActivity({ highlight: sig, limit: 20 });
+if (res.ok) {
+  setPage(res.data.page);
+  if (res.data.highlight) scrollTo(res.data.highlight.index);
+}
+```
 
 **Rendering by `item.type`:**
 
@@ -280,12 +336,16 @@ narrows `pnl` / `il` to a single position — the expanded row of the
 positions table; `all` then starts at the first activity in that pool
 instead of spanning at least a year. Rejected for `networth` / `xp`. The
 response echoes the filter as `pool`; a pool the wallet never touched
-returns a flat zero series (no error).
+returns a flat zero series (no error). `pnl` / `il` responses carry
+`markers` (`PortfolioChartMarker[]`): the user's actions, each `marker.t`
+a point of the line.
 **Returns:** `SdkResult<PortfolioChartResponse>`
 
 ### `client.getPortfolioActivity(options?)`
 Activity feed; `options = { page? = 1, limit? = 20, type? = "all",
-sort? = "time", order? = "desc" }`. Requires auth.
+sort? = "time", order? = "desc", highlight? }`. `highlight` (a transaction
+signature) serves the page containing it and sets `highlight.index` in the
+response. Requires auth.
 **Returns:** `SdkResult<PortfolioActivityResponse>`
 
 ### `client.getPortfolioHoldings(options?)`
