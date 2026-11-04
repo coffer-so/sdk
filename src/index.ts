@@ -93,7 +93,7 @@ export { RpcClient } from "./clients/RpcClient";
 export { CofferBackendClient } from "./clients/CofferBackendClient";
 export { CofferPoolClient } from "./clients/CofferPoolClient";
 export { PlannedZapClient } from "./clients/plannedZap/PlannedZapClient";
-export type { PlannedZapClientParams, PlannedZapQuote } from "./clients/plannedZap/PlannedZapClient";
+export type { PlannedZapClientParams, PlannedZapQuote, PlannedZapExtraAccounts } from "./clients/plannedZap/PlannedZapClient";
 export { buildPlannedZapIx, plannedZapAccounts, encodeAllocationPlan, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS, PLANNED_ZAP_DISCRIMINATOR_HEX } from "./clients/plannedZap/instruction";
 export type { AllocationPlan, PlannedZapAccounts, PlannedZapArgs } from "./clients/plannedZap/instruction";
 export { stateCommitment, PLAN_DOMAIN, MAX_PLAN_AGE_SECONDS, MAX_VALID_FOR_SLOTS, V6_PLAN_HASH_VECTOR } from "./clients/plannedZap/stateCommitment";
@@ -128,7 +128,7 @@ export type { AccountReader, TransferLeg, MintSnapshot, ResolveTransferExtraAcco
 export type { InitializePoolAltParams } from "./clients/tx-builders";
 export { decodePoolAccount, POOL_DISCRIMINATOR_LEN, POOL_LEN, POOL_V4_LEN, V5_MIGRATION_MARKER } from "./parsers/poolAccount";
 export { toSdkError, describeProgramError } from "./utils/errors";
-export { decodeMintAccount } from "./parsers/mintAccount";
+export { decodeMintAccount, validatePlannedZapLpMint, validateTransferMintSnapshot } from "./parsers/mintAccount";
 export { parseCofferPoolEvents } from "./parsers/events";
 export { BorshReader } from "./parsers/borsh";
 
@@ -273,7 +273,7 @@ export {
 export { splitFee, nonLpShare, feeSplitTotal } from "./math/feeSplit";
 export type { FeeSplit } from "./math/feeSplit";
 export { applyLiquidityFee, applyDepositFee, applyWithdrawFee, lpBurnNetOfWithdrawFee } from "./math/liquidityFee";
-export { nav, navBalances, splitDepositCredit, splitExitPayout } from "./math/surgeBucket";
+export { nav, navBalances, splitDepositCredit, splitExitPayout, calculateExitPayout } from "./math/surgeBucket";
 export { poolNavBalances, lpPositionValue, lpPriceUsd } from "./math/lpPrice";
 export { simulatePoolSwap, swapLegOf, tokenSurgeBucket, hasDynamicFeeHook, hookPaused, pendingActionsStatusOf } from "./clients/quote-math";
 export { clampHookFeeOverride, effectiveSwapFeeRate } from "./math/swapSim";
@@ -320,7 +320,7 @@ export type {
 export type { PendingPoolAction, PoolHookInfo, LpMetadata } from "./types/pool";
 export type { SwapQuoteOptions, LpPriceQuote } from "./types/tx";
 export type { PendingActionsStatus, PendingActionStatus } from "./clients/quote-math";
-// ─── v6.1 (SDK 0.3.0): T11 re-cut events, T22 leverage invariant ─────────────
+// ─── v6.1 (SDK 0.3.0): T11 re-cut events, T22 concentrationFactor invariant ─────────────
 export {
   parseTransactionEvents, decodeEventLine, logTruncated, EVENT_TABLES, eventProgramOf, TYPED_EVENT_NAMES, PROGRAM_DATA_PREFIX,
   swapSurgeLpAmount, swapSlotDeltas, applySwapToVectors,
@@ -330,10 +330,10 @@ export { RECUT_EVENTS, RETIRED_EVENTS, LEGACY_EVENT_DISCRIMINATORS } from "./par
 export type { LegacyEventPin } from "./parsers/eventPins";
 export { ACTOR_KINDS, ACTOR_KIND, actorKindName } from "./types/events";
 export {
-  checkLeverage, leverageHolds, leverageViolations, assertLeverageInvariant, minVirtualBalance, virtualFloorViolations, assertVirtualFloor,
-  checkSeedLeverage, checkFundLeverage, applyRescale, minRescaleMultiplier,
-} from "./math/leverage";
-export type { RescaleResult } from "./math/leverage";
+  checkConcentrationFactor, concentrationFactorHolds, concentrationFactorViolations, assertConcentrationFactorInvariant, minVirtualBalance, virtualFloorViolations, assertVirtualFloor,
+  checkSeedConcentrationFactor, checkFundConcentrationFactor, applyRescale, minRescaleMultiplier,
+} from "./math/concentrationFactor";
+export type { RescaleResult } from "./math/concentrationFactor";
 export { MIN_VIRTUAL_BALANCE_ABS, MIN_VIRTUAL_RESCALE_MULTIPLIER, MAX_TOKEN_DECIMALS } from "./config";
 export { buildSetHookDisabledIx, buildRescaleVirtualBalancesIx } from "./clients/tx-builders";
 export { rescaleMultiplierArg } from "./clients/AdminClient";
@@ -343,3 +343,6 @@ export type {
   PoolEnabledUpdatedEvent, SwapsEnabledUpdatedV2Event, TokenActiveSetV2Event, RangeManagerUpdatedV2Event, MaxSelloffSetV2Event, SingleTokenDepositDirectV2Event,
   AdditionalContractEvent, TypedEventName,
 } from "./types/events";
+
+export { effectiveScaledUiMultiplier, rawAmountToScaledUiString, scaledUiAmountToRaw, scaledUiPriceToUnscaledPrice, unscaledPriceToScaledUiPrice } from "./utils/scaledUi";
+export type { ScaledUiAmountConfig, InterestBearingConfig, ConfidentialTransferMintConfig } from "./parsers/mintAccount";

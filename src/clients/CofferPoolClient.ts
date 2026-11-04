@@ -1,6 +1,6 @@
 import { simulatePoolSwap, quoteTimestamp, swapLegOf, u64, hasDynamicFeeHook, hookPaused, tokenSurgeBucket, pendingActionsStatusOf, PendingActionsStatus } from "./quote-math";
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
-import { PublicKey, Commitment, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
+import { PublicKey, Commitment, SYSVAR_CLOCK_PUBKEY, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { CofferConfig } from "../config";
 import { PoolInfo, PoolTokenInfo } from "../types/pool";
@@ -23,15 +23,18 @@ import {
   virtualBalanceAfterWithdrawal,
 } from "../math/poolMath";
 import { divDown } from "../math/fixedPoint";
-import { navBalances, splitDepositCredit, splitExitPayout } from "../math/surgeBucket";
+import { navBalances, splitDepositCredit, calculateExitPayout } from "../math/surgeBucket";
 import { applyDepositFee, lpBurnNetOfWithdrawFee } from "../math/liquidityFee";
 import { lpPositionValue, lpPriceUsd } from "../math/lpPrice";
-import { applyRescale, checkFundLeverage, checkSeedLeverage, leverageViolations, minRescaleMultiplier } from "../math/leverage";
+import { applyRescale, checkFundConcentrationFactor, checkSeedConcentrationFactor, concentrationFactorViolations, minRescaleMultiplier } from "../math/concentrationFactor";
 import { MathError } from "../math/fixedPoint";
-import { rescaleWindowOnVbChange, computeSelloffWindow, SelloffWindowStatus } from "../math/maxSelloff";
+import { rescaleWindowOnVbChange, computeSelloffWindow, SelloffWindowStatus, SelloffState } from "../math/maxSelloff";
 import { calcSurgeFeePct } from "../math/surgeFee";
 import { applySlippage, priceImpactHbps } from "../math/slippage";
-import { DEFAULT_INITIAL_LP_SUPPLY, LIQUIDITY_FEE_LOCK_FROZEN, MAX_INITIAL_LP_SUPPLY, MAX_SWAP_FEE_RATE, MIN_INITIAL_LP_SUPPLY, PERCENT_SCALE, SWAP_FEE_PRECISION } from "../config";
+import {
+  DEFAULT_INITIAL_LP_SUPPLY, LIQUIDITY_FEE_LOCK_FROZEN, MAX_INITIAL_LP_SUPPLY, MAX_SWAP_FEE_RATE, MIN_INITIAL_LP_SUPPLY, PERCENT_SCALE, SWAP_FEE_PRECISION,
+  SAFETY_FLAG_SEEDED, SAFETY_TOKEN_RESTRICTION_SHIFT, SAFETY_TOKEN_RESTRICTION_MASK, SAFETY_FLAG_SWAPS_RESTRICTED, SAFETY_FLAG_RANGE_MANAGER_RESTRICTED, SAFETY_FLAG_RANGE_MANAGER_WAS_ENABLED,
+} from "../config";
 import {
   buildAddLiquidityTx,
   buildFundSidelinedTokenTx,
@@ -150,11 +153,17 @@ export class CofferPoolClient {
     const tokens: PoolTokenInfo[] = [];
     for (let i = 0; i < n; i++) {
       const mintInfo = tokenMintInfos[i];
-      const mintRaw = mintInfo?.data;
-      if (mintInfo && !mintInfo.owner.equals(raw.tokenPrograms[i])) return err("parse_failure", `Mint token program mismatch at index ${i}`);
-      if (!mintRaw) {
+      const missingMint = !mintInfo || (mintInfo.owner.equals(SystemProgram.programId) && mintInfo.data.length === 0);
+      const emptyLeg = raw.actualBalances[i].isZero() && raw.protocolFeesOwed[i].isZero()
+        && raw.creatorFeesOwed[i].isZero() && raw.surgeFeesOwed[i].isZero();
+      if (missingMint && !emptyLeg) {
         return err("account_not_found", `Mint account missing for token index ${i}`);
       }
+      if (!missingMint && !mintInfo!.owner.equals(raw.tokenPrograms[i])) return err("parse_failure", `Mint token program mismatch at index ${i}`);
+      // Keep zero-payout exits quotable for a closed sidelined mint. This
+      // placeholder is explicitly marked missing and can never be transferred.
+      const mintRaw = missingMint ? Buffer.alloc(82) : mintInfo!.data;
+      if (missingMint) { mintRaw[44] = raw.tokenDecimals[i]; mintRaw[45] = 1; }
       let mintAcc;
       try {
         mintAcc = decodeMintAccount(mintRaw);
@@ -166,7 +175,7 @@ export class CofferPoolClient {
       if (raw.normalizedWeights[i].gt(new BN(Number.MAX_SAFE_INTEGER))) {
         return err("parse_failure", `Weight cannot be represented exactly at token index ${i}`);
       }
-      const concentration =
+      const concentrationFactor =
         virtualBalance.isZero() ? 0 : Number(actualBalance.toString()) / Number(virtualBalance.toString());
       tokens.push({
         index: i,
@@ -181,7 +190,7 @@ export class CofferPoolClient {
         metadata:
           this.config.tokens?.[raw.tokenMints[i].toBase58()] ??
           resolveKnownToken(raw.tokenMints[i].toBase58()),
-        concentration,
+        concentrationFactor,
         isActive: raw.isActive[i],
         maxSelloffPct: raw.maxSelloffPct[i],
         maxSelloffPeriodLength: raw.maxSelloffPeriodLength[i],
@@ -196,6 +205,7 @@ export class CofferPoolClient {
         variableFeeKinkPct: raw.variableFeeKinkPct[i],
         extensions: mintAcc.extensions,
         unsupportedExtensions: unsupportedMintExtensions(mintAcc.extensions),
+        missingMint,
         transferFee: mintAcc.transferFeeConfig ? selectEpochFee(mintAcc.transferFeeConfig, BigInt(chainEpoch)) : null,
         transferHookProgram:
           mintAcc.transferHook && !mintAcc.transferHook.programId.equals(PublicKey.default) ? mintAcc.transferHook.programId : null,
@@ -238,8 +248,8 @@ export class CofferPoolClient {
       swapsEnabled: raw.swapsEnabled,
       createdAt,
       lookupTable: raw.lookupTable,
-      rangeManagerMaxLeverageBps: raw.rangeManagerMaxLeverageBps,
-      rangeManagerMinLeverageBps: raw.rangeManagerMinLeverageBps,
+      rangeManagerMaxConcentrationFactorBps: raw.rangeManagerMaxConcentrationFactorBps,
+      rangeManagerMinConcentrationFactorBps: raw.rangeManagerMinConcentrationFactorBps,
       syncedAt: Date.now(),
       // ── v6.1 ──
       dataLen: raw.dataLen,
@@ -254,6 +264,12 @@ export class CofferPoolClient {
       liquidityFeeLock: raw.liquidityFeeLock,
       liquidityFeesLocked: (raw.liquidityFeeLock & LIQUIDITY_FEE_LOCK_FROZEN) !== 0,
       rangeManagerLocked: raw.rangeManagerLocked,
+      seeded: (raw.safetyFlags & SAFETY_FLAG_SEEDED) !== 0,
+      protocolRestrictedTokenMask: (raw.safetyFlags >> SAFETY_TOKEN_RESTRICTION_SHIFT) & SAFETY_TOKEN_RESTRICTION_MASK,
+      protocolSwapsRestricted: (raw.safetyFlags & SAFETY_FLAG_SWAPS_RESTRICTED) !== 0,
+      protocolRangeManagerRestricted: (raw.safetyFlags & SAFETY_FLAG_RANGE_MANAGER_RESTRICTED) !== 0,
+      protocolRangeManagerWasEnabled: (raw.safetyFlags & SAFETY_FLAG_RANGE_MANAGER_WAS_ENABLED) !== 0,
+      rangeManagerWeightAnchors: raw.rangeManagerWeightAnchors.slice(0, n),
       poolAdminDelaySecs: raw.poolAdminDelaySecs,
       poolAdminEpoch: raw.poolAdminEpoch,
       pendingPoolAdminEta: raw.pendingPoolAdminEta,
@@ -272,7 +288,7 @@ export class CofferPoolClient {
       layoutDrift: raw.layoutDrift,
       lpMetadata: lpMintAcc.tokenMetadata,
       // v6.1 (T22): a legacy pool at `V ≤ A` is frozen for swaps / deposits until rescaled.
-      leverageViolations: leverageViolations(tokens.map((t) => BigInt(t.virtualBalance.toString())), tokens.map((t) => BigInt(t.actualBalance.toString()))),
+      concentrationFactorViolations: concentrationFactorViolations(tokens.map((t) => BigInt(t.virtualBalance.toString())), tokens.map((t) => BigInt(t.actualBalance.toString()))),
     };
     this.cache = info;
     this.rawAccount = raw;
@@ -317,7 +333,7 @@ export class CofferPoolClient {
     if (!pool.ok) return pool;
     const unsupported = this.requireSupported([tokenInIndex, tokenOutIndex], "swap");
     if (!unsupported.ok) return unsupported;
-    const levered = this.requireLeverage("swap");
+    const levered = this.requireConcentrationFactor("swap");
     if (!levered.ok) return levered;
     const slip = opts.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
     const dynamic = hasDynamicFeeHook(pool.data);
@@ -483,7 +499,7 @@ export class CofferPoolClient {
 
   /**
    * Seed quote (v6.1 `seed_liquidity.rs`, T2): creator-only, runs exactly
-   * once (`lp_supply == 0`), takes `tokenAmounts` verbatim (zero legs stay
+   * once (durable seed flag plus `lp_supply == 0`), takes `tokenAmounts` verbatim (zero legs stay
    * sidelined, T10; the vault books the NET of any Token-2022 fee) and
    * mints the creator-chosen `lpAmount` EXACTLY — no invariant, no pool
    * ratio, no deposit fee, no `minimum_lp_amount`. The LP price is
@@ -495,7 +511,7 @@ export class CofferPoolClient {
     if (!state.ok) return state;
     const pool = state.data;
     if (!pool.poolEnabled) return err("pool_disabled", "PoolDisabled");
-    if (!pool.lpTotalSupply.isZero()) return err("unsupported_pool_state", "PoolAlreadySeeded: use quoteAddLiquidity");
+    if (pool.seeded || !pool.lpTotalSupply.isZero() || pool.tokens.some(t => !t.actualBalance.isZero() || !t.protocolFeesOwed.isZero() || !(t.creatorFeesOwed ?? pool.creatorFeesOwed?.[t.index] ?? new BN(0)).isZero() || tokenSurgeBucket(t, pool) !== 0n)) return err("unsupported_pool_state", "PoolAlreadySeeded: use quoteAddLiquidity");
     if (!pool.poolAdmin) return err("invalid_input", "Pool admin missing: sync the pool before quoting");
     if (pool.poolAdmin.equals(PublicKey.default)) return err("unsupported_pool_state", "PoolAdminDisabled: the pool can never be seeded");
     if (!pool.poolAdmin.equals(user)) return err("auth_failed", "SeedDepositNotPoolAdmin: only the pool admin can seed");
@@ -512,13 +528,13 @@ export class CofferPoolClient {
       const amounts = tokenAmounts.map(a => BigInt(a.toString()));
       const credited = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, a));
       if (credited.some((c, i) => amounts[i] > 0n && c === 0n)) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
-      // v6.1 (T22) `check_seed_leverage`: the seed books `actual_i = net_i`, so every slot needs `net_i < virtual_i`.
+      // v6.1 (T22) `check_seed_concentration_factor`: the seed books `actual_i = net_i`, so every slot needs `net_i < virtual_i`.
       try {
-        checkSeedLeverage(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), credited);
+        checkSeedConcentrationFactor(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), credited);
       } catch (e) {
         if (!(e instanceof MathError)) throw e;
         const bad = credited.findIndex((c, i) => c >= BigInt(pool.tokens[i].virtualBalance.toString()));
-        return err("leverage_invariant", `VirtualBalanceNotAboveActual: the net seed amount ${credited[bad]} for slot ${bad} must stay below its virtual balance ${pool.tokens[bad].virtualBalance}; lower the amount or deploy with a larger virtual balance`);
+        return err("concentration_factor_invariant", `VirtualBalanceNotAboveActual: the net seed amount ${credited[bad]} for slot ${bad} must stay below its virtual balance ${pool.tokens[bad].virtualBalance}; lower the amount or deploy with a larger virtual balance`);
       }
       const bnList = (xs: bigint[]) => xs.map((x) => new BN(x.toString()));
       const zeros = () => tokenAmounts.map(() => new BN(0));
@@ -570,10 +586,10 @@ export class CofferPoolClient {
     if (net === 0n) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
     const virtual = BigInt(t.virtualBalance.toString());
     try {
-      checkFundLeverage(virtual, net);
+      checkFundConcentrationFactor(virtual, net);
     } catch (e) {
       if (!(e instanceof MathError)) throw e;
-      return err("leverage_invariant", `VirtualBalanceNotAboveActual: the net amount ${net} must stay below slot ${tokenIndex}'s virtual balance ${virtual} (at most ${virtual - 1n} raw this way; rescale first for more depth)`);
+      return err("concentration_factor_invariant", `VirtualBalanceNotAboveActual: the net amount ${net} must stay below slot ${tokenIndex}'s virtual balance ${virtual} (at most ${virtual - 1n} raw this way; rescale first for more depth)`);
     }
     const b = (v: bigint) => new BN(v.toString());
     return ok({ tokenIndex, amountCharged: amount.clone(), amountCredited: b(net), transferFee: b(gross - net), virtualBalance: t.virtualBalance.clone(), actualAfter: b(net), maxAmountNet: b(virtual - 1n) });
@@ -585,9 +601,9 @@ export class CofferPoolClient {
    * program's checks (`multiplier ≥ 2`, no overflow, `V > A` and the
    * per-slot floor afterwards). `multiplier` defaults to the smallest
    * repairing value (`minRescaleMultiplier`); the runbook rounds up to a
-   * power of ten. Price-neutral by construction. Requires `sync()`.
+   * power of ten. Includes exact selloff-window rescaling and overflow checks. Requires `sync()`.
    */
-  quoteRescaleVirtualBalances(multiplier?: BN | bigint | number): SdkResult<{ multiplier: BN; oldVirtualBalances: BN[]; newVirtualBalances: BN[]; repairedSlots: number[]; minMultiplier: BN | null }> {
+  quoteRescaleVirtualBalances(multiplier?: BN | bigint | number): SdkResult<{ multiplier: BN; oldVirtualBalances: BN[]; newVirtualBalances: BN[]; repairedSlots: number[]; minMultiplier: BN | null; scope: "complete_rescale" | "virtual_balance_projection"; windowsAfter: SelloffState[] }> {
     const state = this.requireCache();
     if (!state.ok) return state;
     const pool = state.data;
@@ -600,24 +616,24 @@ export class CofferPoolClient {
     if (chosen === null) return err("unsupported_pool_state", "No u64 multiplier repairs this pool (a zero virtual balance or an overflowing product)");
     if (chosen < 0n || chosen > (1n << 64n) - 1n) return err("invalid_input", "multiplier must be a u64");
     try {
-      const r = applyRescale(virtuals, actuals, chosen, decimals);
+      const r = applyRescale(virtuals, actuals, chosen, decimals, pool.tokens.map(t => swapLegOf(t, pool).window));
       const b = (v: bigint) => new BN(v.toString());
-      return ok({ multiplier: b(chosen), oldVirtualBalances: virtuals.map(b), newVirtualBalances: r.newVirtualBalances.map(b), repairedSlots: r.repairedSlots, minMultiplier: min === null ? null : b(min) });
+      return ok({ multiplier: b(chosen), oldVirtualBalances: virtuals.map(b), newVirtualBalances: r.newVirtualBalances.map(b), scope: r.scope, windowsAfter: r.windowsAfter!, repairedSlots: r.repairedSlots, minMultiplier: min === null ? null : b(min) });
     } catch (e) {
       if (!(e instanceof MathError)) throw e;
-      const code = e.message === "InvalidVirtualRescale" ? "invalid_input" : e.message === "MathOverflow" ? "math_overflow" : e.message === "InvalidVirtualBalances" ? "unsupported_pool_state" : "leverage_invariant";
+      const code = e.message === "InvalidVirtualRescale" ? "invalid_input" : e.message === "MathOverflow" ? "math_overflow" : e.message === "InvalidVirtualBalances" ? "unsupported_pool_state" : "concentration_factor_invariant";
       return err(code, `${e.message}: multiplier ${chosen} ${e.message === "VirtualBalanceBelowFloor" ? "leaves a slot below its floor max(10^decimals, 1000)" : e.message === "VirtualBalanceNotAboveActual" ? "does not lift every slot above its actual balance" : "is rejected"}${min !== null ? ` (smallest repairing multiplier: ${min})` : ""}`, e);
     }
   }
 
   /** v6.1 (T22): swaps / deposits on a pool with a slot at `V ≤ A` revert with `VirtualBalanceNotAboveActual` (post-state guard on every slot). */
-  private requireLeverage(op: string): SdkResult<void> {
+  private requireConcentrationFactor(op: string): SdkResult<void> {
     const state = this.requireCache();
     if (!state.ok) return state;
     const pool = state.data;
-    const bad = pool.leverageViolations ?? leverageViolations(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), pool.tokens.map((t) => BigInt(t.actualBalance.toString())));
+    const bad = pool.concentrationFactorViolations ?? concentrationFactorViolations(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), pool.tokens.map((t) => BigInt(t.actualBalance.toString())));
     if (bad.length === 0) return ok(undefined);
-    return err("leverage_invariant", `VirtualBalanceNotAboveActual: slot${bad.length > 1 ? "s" : ""} ${bad.join(", ")} ${bad.length > 1 ? "are" : "is"} at virtual ≤ actual; ${op} reverts until the protocol admin runs rescale_virtual_balances (exits still work)`);
+    return err("concentration_factor_invariant", `VirtualBalanceNotAboveActual: slot${bad.length > 1 ? "s" : ""} ${bad.join(", ")} ${bad.length > 1 ? "are" : "is"} at virtual ≤ actual; ${op} reverts until the protocol admin runs rescale_virtual_balances (exits still work)`);
   }
 
   /**
@@ -650,7 +666,7 @@ export class CofferPoolClient {
     }
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
     if (hookPaused(pool)) return err("hook_rejected", "The pool's hook is disabled and fail-closed (HookPaused): deposits are paused");
-    const levered = this.requireLeverage("add_liquidity");
+    const levered = this.requireConcentrationFactor("add_liquidity");
     if (!levered.ok) return levered;
     if (tokenAmounts.some((a) => a.isNeg() || a.bitLength() > 64)) {
       return err("invalid_input", "tokenAmounts must be u64 values");
@@ -723,7 +739,8 @@ export class CofferPoolClient {
 
   /**
    * Proportional-withdraw quote (v6.1 `remove_liquidity.rs`): the burn is
-   * clamped to keep `MIN_LP_SUPPLY` in supply; per token the exit pays
+   * clamped to keep `MIN_LP_SUPPLY` in supply unless external burns already
+   * put supply at/below that floor (rc2); per token the exit pays
    * `floor(actual_i · burn / supply)` from the reserves PLUS
    * `floor(surge_i · burn / supply)` from the LP surge bucket (T12), each
    * net of the withdraw fee (`ceil`, T7), in ONE transfer; the Token-2022
@@ -747,14 +764,14 @@ export class CofferPoolClient {
       const supply = BigInt(pool.lpTotalSupply.toString());
       const requested = BigInt(lpIn.toString());
       if (requested <= 0n || requested > supply) return err("invalid_input", "InvalidLpAmount");
-      let effective: bigint;
-      try { effective = calcEffectiveLpBurn(requested, supply); } catch { return err("invalid_input", "InvalidLpAmount"); }
-      const grossActual = calcTokensOutGivenLpIn(actual, effective, supply);
-      const grossSurge = calcTokensOutGivenLpIn(surge, effective, supply);
       const withdrawFeeBps = pool.withdrawFeeBps ?? 0;
-      const legs = grossActual.map((g, i) => splitExitPayout(g, grossSurge[i], withdrawFeeBps));
-      const feeTookEverything = legs.some((l) => l.actualGross > 0n || l.surgeGross > 0n) && legs.every((l) => l.transferAmount === 0n);
-      if (feeTookEverything) return err("amount_too_small", "WithdrawFeeConsumesAll: the withdraw fee withholds every payout");
+      let payout: ReturnType<typeof calculateExitPayout>;
+      try { payout = calculateExitPayout(actual, surge, requested, supply, withdrawFeeBps); }
+      catch (e) {
+        if (e instanceof Error && /WithdrawFeeConsumesAll/.test(e.message)) return err("amount_too_small", "WithdrawFeeConsumesAll: the withdraw fee withholds every payout");
+        throw e;
+      }
+      const { effective, grossActual, grossSurge, legs } = payout;
       const supported = this.requireSupported(legs.flatMap((l, i) => (l.transferAmount > 0n ? [i] : [])), "remove_liquidity");
       if (!supported.ok) return supported;
       const lpBurnForSidelined = lpBurnNetOfWithdrawFee(effective, withdrawFeeBps);

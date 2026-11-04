@@ -56,15 +56,15 @@ export const PoolActions = {
   lockLiquidityFees: (): PoolAction => ({ LockLiquidityFees: {} }),
   lockRangeManager: (): PoolAction => ({ LockRangeManager: {} }),
   setRangeManager: (manager: PublicKey, enabled: boolean): PoolAction => ({ SetRangeManager: { manager, enabled } }),
-  setRangeManagerConfig: (c: { maxVbChangePct: number; maxWeightChangePct: number; minUpdateIntervalSecs: number; maxLeverageBps: number; minLeverageBps: number }): PoolAction => ({
+  setRangeManagerConfig: (c: { maxVbChangePct: number; maxWeightChangePct: number; minUpdateIntervalSecs: number; maxConcentrationFactorBps: number; minConcentrationFactorBps: number }): PoolAction => ({
     SetRangeManagerConfig: {
       max_vb_change_pct: c.maxVbChangePct, max_weight_change_pct: c.maxWeightChangePct, min_update_interval_secs: c.minUpdateIntervalSecs,
-      max_leverage_bps: c.maxLeverageBps, min_leverage_bps: c.minLeverageBps,
+      max_concentration_factor_bps: c.maxConcentrationFactorBps, min_concentration_factor_bps: c.minConcentrationFactorBps,
     },
   }),
   /** The queued slot stores a hash of `params`; the SAME vector must be passed to `execute_set_max_selloff`. */
   setMaxSelloff: (params: SelloffParams[]): PoolAction => ({ SetMaxSelloff: { params: params.map(selloffParamsArg) } }),
-  /** Queues a flip of `tokens[token_index].is_active`; the execute applies `!is_active` at execution time. */
+  /** Queues reactivation; execute applies `is_active = true`, irrespective of intervening deactivation. */
   setTokenActive: (tokenIndex: number): PoolAction => ({ SetTokenActive: { token_index: tokenIndex } }),
 } as const;
 
@@ -152,8 +152,9 @@ export const ProtocolActions = {
   poolDebugWithdraw: (pool: PublicKey, tokenAmounts: BN[], recipients: PublicKey[]): ProtocolAction => ({ PoolDebugWithdraw: { pool, token_amounts: tokenAmounts, recipients } }),
   /** T15: 0..=10_000 bps, per pool. */
   poolSetProtocolFeeRate: (pool: PublicKey, rate: number): ProtocolAction => ({ PoolSetProtocolFeeRate: { pool, rate } }),
-  /** Queues a flip of `pool_enabled` (the execute applies `!pool_enabled`). */
+  /** Queues enabling; execute applies `pool_enabled = true` (never toggles). */
   poolSetPoolEnabled: (pool: PublicKey): ProtocolAction => ({ PoolSetPoolEnabled: { pool } }),
+  /** Queues reactivation (`is_active = true`); deactivation is the immediate restrictive path. */
   poolSetTokenActive: (pool: PublicKey, tokenIndex: number): ProtocolAction => ({ PoolSetTokenActive: { pool, token_index: tokenIndex } }),
   unfreezePools: (pools: PublicKey[]): ProtocolAction => ({ UnfreezePools: { pools } }),
   poolProtocolAdminTransfer: (config: PublicKey, newAdmin: PublicKey): ProtocolAction => ({ PoolProtocolAdminTransfer: { config, new_admin: newAdmin } }),
@@ -161,6 +162,8 @@ export const ProtocolActions = {
   upgradeProgram: (program: PublicKey, buffer: PublicKey): ProtocolAction => ({ UpgradeProgram: { program, buffer } }),
   /** `op`: 0 = transfer_upgrade_authority (`target` = new authority), 1 = freeze_pool_program, 2 = close_pool_program (`target` = recipient). */
   programOp: (op: number, program: PublicKey, target: PublicKey): ProtocolAction => ({ ProgramOp: { op, program, target } }),
+  /** rc2 (kind 14): protocol-only restoration of the retained range manager. */
+  poolEnableRangeManager: (pool: PublicKey): ProtocolAction => ({ PoolEnableRangeManager: { pool } }),
   /** T22 (kind 13): multiply every `virtual_balance` of `pool` by `multiplier ≥ 2` (price-neutral repair; allowed on a frozen pool). */
   poolRescaleVirtualBalances: (pool: PublicKey, multiplier: BN | bigint | number): ProtocolAction => {
     const m = BN.isBN(multiplier) ? multiplier : new BN(multiplier.toString());
@@ -208,6 +211,7 @@ export const PROTOCOL_EXECUTE_INSTRUCTIONS = {
   UpgradeProgram: ["execute_upgrade_program"],
   ProgramOp: ["execute_transfer_upgrade_authority", "execute_freeze_pool_program", "execute_close_pool_program"],
   PoolRescaleVirtualBalances: ["execute_pool_rescale_virtual_balances"],
+  PoolEnableRangeManager: ["execute_pool_enable_range_manager"],
 } as const satisfies Record<ProtocolActionKindName, readonly string[]>;
 
 /** Remaining accounts `propose_action` needs for `action` (the upgrade buffer for `UpgradeProgram`, else none). */

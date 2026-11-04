@@ -18,7 +18,7 @@ function mockPool(): PoolInfo {
     actualBalance: new BN(1_000_000_000),
     protocolFeesOwed: new BN(0),
     vault: pk(),
-    concentration: 1,
+    concentrationFactor: 1,
     isActive: true,
     maxSelloffPct: 0,
     extensions: [] as number[],

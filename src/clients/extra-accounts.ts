@@ -12,7 +12,8 @@ import { PoolInfo } from "../types/pool";
 import { AddLiquidityParams, RemoveLiquidityParams, SwapParams } from "../types/tx";
 import { deriveAta } from "../utils/pda";
 import { AccountReader, MintSnapshot, resolveTransferExtraAccounts, ResolveTransferExtraAccountsOptions, TransferLeg } from "../utils/transferProfile";
-import { calcEffectiveLpBurn, calcTokensOutGivenLpIn } from "../math/poolMath";
+import { calculateExitPayout } from "../math/surgeBucket";
+import { tokenSurgeBucket } from "./quote-math";
 
 const bi = (v: BN): bigint => BigInt(v.toString());
 
@@ -64,7 +65,7 @@ export async function resolveSwapExtraAccounts(
     { mint: inTok.mint, tokenProgram: inTok.tokenProgram, source: deriveAta(params.user, inTok.mint, inTok.tokenProgram), destination: inTok.vault, authority: params.user, amount: bi(params.amountIn) },
     // The output ATA may not exist yet (first swap into this mint); the swap
     // transaction creates it idempotently ahead of the instruction.
-    { mint: outTok.mint, tokenProgram: outTok.tokenProgram, source: outTok.vault, destination: deriveAta(params.user, outTok.mint, outTok.tokenProgram), authority: pool.address, amount: bi(params.amountOut), destinationCreatedInTx: true },
+    { mint: outTok.mint, tokenProgram: outTok.tokenProgram, source: outTok.vault, destination: deriveAta(params.user, outTok.mint, outTok.tokenProgram), authority: pool.address, amount: bi(params.amountOut), destinationCreatedInTx: true, destinationOwner: params.user },
   ];
   return resolveTransferExtraAccounts(reader, legs, await mintSnapshots(reader, pool, indices, options), coreKeys(pool, params.user), options);
 }
@@ -100,14 +101,14 @@ export async function resolveRemoveLiquidityExtraAccounts(
   options: ResolveExtraAccountsParams = {}
 ): Promise<AccountMeta[]> {
   const supply = bi(pool.lpTotalSupply);
-  const effective = calcEffectiveLpBurn(bi(params.lpAmount), supply);
-  const payouts = calcTokensOutGivenLpIn(pool.tokens.map((t) => bi(t.actualBalance)), effective, supply);
+  const { legs: exitLegs } = calculateExitPayout(pool.tokens.map(t => bi(t.actualBalance)), pool.tokens.map(t => tokenSurgeBucket(t, pool)), bi(params.lpAmount), supply, pool.withdrawFeeBps ?? 0);
+  const payouts = exitLegs.map(l => l.transferAmount);
   const indices = payouts.flatMap((p, i) => (p > 0n ? [i] : []));
   if (!needsResolution(pool, indices)) return [];
   const legs: TransferLeg[] = indices.map((i) => {
     const t = pool.tokens[i];
     // Payout ATAs are created idempotently by the remove-liquidity transaction.
-    return { mint: t.mint, tokenProgram: t.tokenProgram, source: t.vault, destination: deriveAta(params.user, t.mint, t.tokenProgram), authority: pool.address, amount: payouts[i], destinationCreatedInTx: true };
+    return { mint: t.mint, tokenProgram: t.tokenProgram, source: t.vault, destination: deriveAta(params.user, t.mint, t.tokenProgram), authority: pool.address, amount: payouts[i], destinationCreatedInTx: true, destinationOwner: params.user };
   });
   return resolveTransferExtraAccounts(reader, legs, await mintSnapshots(reader, pool, indices, options), coreKeys(pool, params.user), options);
 }

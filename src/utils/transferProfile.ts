@@ -4,10 +4,9 @@
  * `AccountReader` (a `Connection` or anything with `getAccountInfo` /
  * `getMultipleAccountsInfo`).
  *
- * The v6 program (`util::token::build_transfer_checked`) appends every
- * remaining account after the instruction's fixed layout to each
- * `transfer_checked` CPI, read-only or writable as supplied, never as a
- * signer. An ARMED transfer hook then resolves its `ExtraAccountMetaList`
+ * The v6 program (`util::token::build_transfer_checked`) appends the
+ * remaining-account tail to transfers whose mint has an ARMED hook,
+ * read-only or writable as supplied, never as a signer. The hook resolves its `ExtraAccountMetaList`
  * against that tail; a destination with `MemoTransfer` needs the memo
  * program in the tail (`invoke_memo_if_required`). The SDK therefore
  * computes, for every gross transfer an instruction performs, the union of
@@ -21,6 +20,7 @@ import type { AccountInfo, AccountMeta, Commitment, Connection, PublicKey as Pub
 import { PublicKey } from "@solana/web3.js";
 import {
   createExecuteInstruction,
+  getAssociatedTokenAddressSync,
   getExtraAccountMetaAddress,
   getExtraAccountMetas,
   getMemoTransfer,
@@ -58,9 +58,13 @@ export interface TransferLeg {
    * (the user's ATA, via `createAssociatedTokenAccountIdempotent` ahead of
    * the instruction). Such a destination may be absent at resolution time:
    * a fresh account cannot have `MemoTransfer` enabled, so it needs no memo.
-   * Pool vaults never set this — a missing vault is an error.
+   * Existing pool vaults must be present. Atomic deployment may declare a
+   * future canonical vault ATA and its pool-PDA owner before creating it.
    */
   destinationCreatedInTx?: boolean;
+  /** Owner of a canonical ATA created before these transfers. Only its immutable
+   * mint/owner bytes may be used for future account-data seed resolution. */
+  destinationOwner?: PublicKeyType;
 }
 
 /** Mint account bytes as fetched (the same snapshot a quote was computed on). */
@@ -175,20 +179,71 @@ export async function resolveTransferExtraAccounts(
     return unpacked;
   };
 
+  const future = new Map<string, { mint: PublicKeyType; owner: PublicKeyType; program: PublicKeyType }>();
+  for (const leg of transfers) {
+    if (leg.amount < 0n || leg.amount > 0xffff_ffff_ffff_ffffn) throw new RangeError("Transfer amount outside u64");
+    if (leg.amount === 0n || !leg.destinationCreatedInTx || !leg.destinationOwner) continue;
+    if (!getAssociatedTokenAddressSync(leg.mint, leg.destinationOwner, true, leg.tokenProgram).equals(leg.destination)) {
+      throw new UnsupportedTransferProfileError("Future destination must be its declared owner's canonical ATA");
+    }
+    const old = future.get(leg.destination.toBase58());
+    if (old && (!old.owner.equals(leg.destinationOwner) || !old.mint.equals(leg.mint) || !old.program.equals(leg.tokenProgram))) {
+      throw new UnsupportedTransferProfileError("Conflicting future ATA declarations");
+    }
+    future.set(leg.destination.toBase58(), { mint: leg.mint, owner: leg.destinationOwner, program: leg.tokenProgram });
+  }
+  // One copied account snapshot per invocation, including negative reads. This
+  // is not a same-slot RPC guarantee; rebuild/simulate when issuer state changes.
+  const accountReads = new Map<string, Promise<AccountInfo<Buffer> | null>>();
+  const read = (key: PublicKeyType): Promise<AccountInfo<Buffer> | null> => {
+    let promise = accountReads.get(key.toBase58());
+    if (!promise) {
+      promise = reader.getAccountInfo(key, commitment).then(info => info ? { ...info, data: Buffer.from(info.data) } : null);
+      accountReads.set(key.toBase58(), promise);
+    }
+    return promise;
+  };
+  // A partial snapshot deliberately contains only immutable mint/owner bytes.
+  // Every read of a missing account must first validate the requested range.
+  const immutableFutureRead = async (key: PublicKeyType, offset: number, length: number): Promise<void> => {
+    if (await read(key)) return;
+    if (!future.has(key.toBase58()) || offset < 0 || length < 1 || offset + length > 64) {
+      throw new UnsupportedTransferProfileError("Future account-data seeds require preparation; only canonical ATA mint/owner bytes are known");
+    }
+  };
+  const validateFutureReads = async (extra: ExtraAccountMeta, keys: AccountMeta[]): Promise<void> => {
+    const config = extra.addressConfig;
+    const check = async (index: number, offset: number, length: number) => {
+      if (!keys[index]) throw new UnsupportedTransferProfileError("Invalid account-data seed index");
+      await immutableFutureRead(keys[index].pubkey, offset, length);
+    };
+    if (extra.discriminator === 2 && config[0] === 2) await check(config[1], config[2], 32);
+    if (extra.discriminator !== 1 && extra.discriminator < 128) return;
+    for (let at = 0; at < 32;) {
+      const kind = config[at]; if (kind === 0) break;
+      const size = kind === 1 ? 2 + config[at + 1] : kind === 2 ? 3 : kind === 3 ? 2 : kind === 4 ? 4 : 0;
+      if (!size || at + size > 32) throw new UnsupportedTransferProfileError("Invalid hook seed configuration");
+      if (kind === 4) await check(config[at + 1], config[at + 2], config[at + 3]);
+      at += size;
+    }
+  };
   const destinations = new Map<string, { key: PublicKeyType; program: PublicKeyType; createdInTx: boolean }>();
   const registries = new Map<string, { info: AccountInfo<Buffer>; metas: ExtraAccountMeta[] }>();
   // SPL's seed resolver only reads `getAccountInfo`. Serve a registry from
   // its checked snapshot so account-data seeds cannot race a second fetch,
   // and pin every other read to the same commitment.
   const resolutionConnection = {
-    getAccountInfo: (key: PublicKeyType, c?: Commitment | unknown) =>
-      registries.has(key.toBase58())
-        ? Promise.resolve(registries.get(key.toBase58())!.info)
-        : reader.getAccountInfo(key, typeof c === "string" ? (c as Commitment) : commitment),
+    getAccountInfo: async (key: PublicKeyType) => {
+      const registry = registries.get(key.toBase58()); if (registry) return registry.info;
+      const info = await read(key); if (info) return info;
+      const declared = future.get(key.toBase58()); if (!declared) return null;
+      const data = Buffer.concat([declared.mint.toBuffer(), declared.owner.toBuffer()]);
+      return { owner: declared.program, data, lamports: 0, executable: false };
+    },
   } as unknown as Connection;
 
   for (const transfer of transfers) {
-    if (!transfer.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) continue;
+    if (transfer.amount === 0n || !transfer.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) continue;
     const destinationKey = transfer.destination.toBase58();
     // The same account may be a vault for one leg and a user ATA for another
     // in theory; strictness wins when any leg needs the account to exist.
@@ -204,8 +259,8 @@ export async function resolveTransferExtraAccounts(
     let checked = registries.get(registry.toBase58());
     if (!checked) {
       const [program, info] = await Promise.all([
-        reader.getAccountInfo(hook.programId, commitment),
-        reader.getAccountInfo(registry, commitment),
+        read(hook.programId),
+        read(registry),
       ]);
       if (!program) throw new Error(`Missing transfer-hook program ${hook.programId.toBase58()}`);
       if (!program.executable) throw new Error(`Transfer-hook program ${hook.programId.toBase58()} is not executable`);
@@ -221,6 +276,7 @@ export async function resolveTransferExtraAccounts(
       hook.programId, transfer.source, transfer.mint, transfer.destination, transfer.authority, registry, transfer.amount
     );
     for (const extra of checked.metas) {
+      await validateFutureReads(extra, execute.keys);
       const meta = await resolveExtraAccountMeta(resolutionConnection, extra, execute.keys, execute.data, hook.programId);
       // SPL's deEscalateAccountMeta: a duplicate of a fixed Execute account
       // keeps at most the privileges that account already has.

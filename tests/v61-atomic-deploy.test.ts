@@ -3,7 +3,7 @@
  * by token count, paused launch, Jito marker, hooked deploy, identity
  * verification, and the refusals.
  */
-import { AddressLookupTableProgram, ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, VersionedTransaction } from "@solana/web3.js";
+import { AddressLookupTableProgram, ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, SYSVAR_CLOCK_PUBKEY, VersionedTransaction } from "@solana/web3.js";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import {
@@ -22,7 +22,7 @@ import type { ExpectedPoolIdentity } from "../src/types/tx-v61";
 const pk = (): PublicKey => Keypair.generate().publicKey;
 const BLOCKHASH = "11111111111111111111111111111111";
 
-interface FakeOpts { mintOwners?: Map<string, PublicKey>; occupied?: Map<string, { owner: PublicKey; data: Buffer }>; config?: { owner: PublicKey; data: Buffer } | null }
+interface FakeOpts { mintOwners?: Map<string, PublicKey>; occupied?: Map<string, { owner: PublicKey; data: Buffer; executable?: boolean }>; config?: { owner: PublicKey; data: Buffer } | null }
 function fakeConnection(configKey: PublicKey, o: FakeOpts = {}): DeployBuildConnection & { calls: string[] } {
   const configInfo = o.config === undefined ? { owner: cfg.programs.cofferPool, data: Buffer.concat([POOL_CONFIG_DISCRIMINATOR, Buffer.alloc(POOL_CONFIG_LEN - 8)]) } : o.config;
   const calls: string[] = [];
@@ -32,9 +32,10 @@ function fakeConnection(configKey: PublicKey, o: FakeOpts = {}): DeployBuildConn
       calls.push("getMultipleAccountsInfo");
       return keys.map((k) => {
         const s = k.toBase58();
+        if (k.equals(SYSVAR_CLOCK_PUBKEY)) return { owner: new PublicKey("Sysvar1111111111111111111111111111111111111"), data: Buffer.alloc(40), executable: false, lamports: 1 };
         if (k.equals(configKey)) return configInfo ? { ...configInfo, executable: false, lamports: 1 } : null;
-        if (o.occupied?.has(s)) return { ...o.occupied.get(s)!, executable: false, lamports: 1 };
-        if (o.mintOwners?.has(s)) return { owner: o.mintOwners.get(s)!, data: Buffer.alloc(82), executable: false, lamports: 1 };
+        if (o.occupied?.has(s)) return { ...o.occupied.get(s)!, executable: o.occupied.get(s)!.executable ?? false, lamports: 1 };
+        if (o.mintOwners?.has(s)) return { owner: o.mintOwners.get(s)!, data: (() => { const b = Buffer.alloc(82); b[45] = 1; return b; })(), executable: false, lamports: 1 };
         return null;
       });
     },
@@ -47,6 +48,7 @@ function params(n: number, extra: Record<string, unknown> = {}) {
   const mints = Array.from({ length: n }, pk);
   const w = Math.floor(10_000 / n);
   return {
+    seedEpoch: 0n, seedMintSnapshots: mints.map(address => { const data = Buffer.alloc(82); data[45] = 1; return { address, owner: TOKEN_PROGRAM_ID, data }; }),
     payer: pk(), config: pk(), mints, tokenPrograms: Array(n).fill(TOKEN_PROGRAM_ID),
     weights: Array.from({ length: n }, (_, i) => new BN(i === n - 1 ? 10_000 - w * (n - 1) : w)),
     virtualBalances: Array(n).fill(new BN(1_000_000)), swapFeeRate: 3000, seedAmounts: Array(n).fill(new BN(1_000)), lpMetadata: LP_METADATA_GOOD, poolId: new BN(7), ...extra,
@@ -135,7 +137,7 @@ describe("layouts", () => {
     expect(r.instructions[1].filter((ix) => ix.programId.equals(ComputeBudgetProgram.programId)).length).toBe(2);
   });
   test("[P07] token programs are read from the mint owners when omitted", async () => {
-    const p = params(2); delete p.tokenPrograms;
+    const p = params(2); delete p.tokenPrograms; delete p.seedMintSnapshots; delete p.seedEpoch;
     const owners = new Map<string, PublicKey>([[p.mints[0].toBase58(), TOKEN_PROGRAM_ID], [p.mints[1].toBase58(), TOKEN_2022_PROGRAM_ID]]);
     const r = await buildAtomicDeploy(cfg, fakeConnection(p.config, { mintOwners: owners }), p);
     expect(r.tokenPrograms.map(String)).toEqual([TOKEN_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58()]);
@@ -172,7 +174,7 @@ describe("paused launch, Jito marker, hooks", () => {
     const hookConfig = { program: hookProgram, flags: HOOK_FLAGS.BEFORE_SWAP | HOOK_FLAGS.BEFORE_ADD_LIQUIDITY, feeMin: 0, feeMax: 0, maxCu: 20_000, accountsLen: 2 };
     const hookAccounts = deployHookAccounts({ hookConfig, hookAccounts: [{ pubkey: hookProgram, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }] });
     expect(hookAccounts.length).toBe(2);
-    const p = params(2, { hookConfig, hookAccounts }); const r = await buildAtomicDeploy(cfg, fakeConnection(p.config), p);
+    const p = params(2, { hookConfig, hookAccounts, externalCpiTraceBudget: 2 }); const r = await buildAtomicDeploy(cfg, fakeConnection(p.config, { occupied: new Map([[hookProgram.toBase58(), { owner: SystemProgram.programId, data: Buffer.alloc(0), executable: true }]]) }), p);
     const init = r.instructions[0].find((ix) => ix.data.subarray(0, 8).toString("hex") === INIT_DISC)!;
     expect(init.data[init.data.length - 48]).toBe(1);
     expect(init.keys.slice(-2).map((k) => k.pubkey.toBase58())).toEqual(hookAccounts.map((a) => a.pubkey.toBase58()));
@@ -219,7 +221,7 @@ describe("refusals", () => {
     await expect(buildAtomicDeploy(cfg, fakeConnection(p.config, { config: { owner: pk(), data: Buffer.alloc(POOL_CONFIG_LEN) } }), p)).rejects.toThrow(/config owner/);
     await expect(buildAtomicDeploy(cfg, fakeConnection(p.config, { config: { owner: cfg.programs.cofferPool, data: Buffer.alloc(POOL_CONFIG_LEN) } }), p)).rejects.toThrow(/config layout/);
     await expect(buildAtomicDeploy(cfg, fakeConnection(p.config, { config: { owner: cfg.programs.cofferPool, data: Buffer.alloc(100) } }), p)).rejects.toThrow(/config layout/);
-    const noPrograms = params(2); delete noPrograms.tokenPrograms;
+    const noPrograms = params(2); delete noPrograms.tokenPrograms; delete noPrograms.seedMintSnapshots; delete noPrograms.seedEpoch;
     await expect(buildAtomicDeploy(cfg, fakeConnection(noPrograms.config), noPrograms)).rejects.toThrow(/does not exist/);
   });
   test("[N04] the dont-front assertion rejects a writable marker", async () => {
@@ -295,5 +297,113 @@ describe("pool identity (I-08)", () => {
     const tx = r.transactions[0];
     expect(v0WireSize(tx.message as any)).toBe(tx.serialize().length);
     expect(v0AccountCount(tx.message as any)).toBe(tx.message.staticAccountKeys.length);
+  });
+});
+
+describe("current source seed combinations (concentration-factor-20261102)", () => {
+  function extendedMint(parts: Array<[number, Buffer]>) {
+    const base = Buffer.alloc(166); base[45] = 1; base[165] = 1;
+    return Buffer.concat([base, ...parts.map(([t, body]) => { const h = Buffer.alloc(4); h.writeUInt16LE(t); h.writeUInt16LE(body.length, 2); return Buffer.concat([h, body]); })]);
+  }
+  function feeBody() {
+    const b = Buffer.alloc(108);
+    b.writeBigUInt64LE(100n, 80); b.writeUInt16LE(1000, 88);
+    b.writeBigUInt64LE(10n, 90); b.writeBigUInt64LE(100n, 98); b.writeUInt16LE(5000, 106);
+    return b;
+  }
+  function feeParams() {
+    const p = params(2, { seedAmounts: [new BN(1500), new BN(1)], virtualBalances: [new BN(1100), new BN(1000)] });
+    p.tokenPrograms[0] = TOKEN_2022_PROGRAM_ID;
+    const fee = feeBody(); fee.writeBigUInt64LE(1000n, 80); fee.writeBigUInt64LE(1000n, 98);
+    p.seedMintSnapshots[0] = { address: p.mints[0], owner: TOKEN_2022_PROGRAM_ID, data: extendedMint([[1, fee]]) };
+    p.seedEpoch = 10n;
+    return p;
+  }
+  test("gross seed may exceed virtual balance when the epoch-selected NET is below it", async () => {
+    const p = feeParams();
+    const r = await buildAtomicDeploy(cfg, fakeConnection(p.config), p);
+    expect(r.seedSnapshot.netAmounts).toEqual([750n, 1n]);
+    expect(r.seedSnapshot.epoch).toBe(10n);
+    expect(r.transactions.every(t => t.message.header.numRequiredSignatures === 1)).toBe(true);
+    expect(r.txSizes.every(s => s <= SOLANA_TX_LIMIT)).toBe(true);
+    p.seedEpoch = 9n; // old schedule credits 1350, above V=1100
+    await expect(buildAtomicDeploy(cfg, fakeConnection(p.config), p)).rejects.toThrow(/net seedAmounts\[0\].*6104/);
+  });
+  test("refuses wrong owners, order, epoch, decimals, account-only/malformed/unsupported extensions and zero credit", async () => {
+    const p = feeParams();
+    for (const mutated of [
+      { ...p, seedEpoch: -1n },
+      { ...p, seedMintSnapshots: [...p.seedMintSnapshots].reverse() },
+      { ...p, tokenPrograms: [TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID] },
+      { ...p, tokenDecimals: [9, 0] },
+      { ...p, seedMintSnapshots: [{ ...p.seedMintSnapshots[0], owner: pk() }, p.seedMintSnapshots[1]] },
+    ]) await expect(buildAtomicDeploy(cfg, fakeConnection(p.config), mutated)).rejects.toThrow();
+    for (const data of [extendedMint([[1, Buffer.alloc(107)]]), extendedMint([[8, Buffer.from([1])]]), extendedMint([[28, Buffer.alloc(32)]]), extendedMint([[9, Buffer.alloc(0)]])]) {
+      await expect(buildAtomicDeploy(cfg, fakeConnection(p.config), { ...p, seedMintSnapshots: [{ ...p.seedMintSnapshots[0], data }, p.seedMintSnapshots[1]] })).rejects.toThrow();
+    }
+    const data = Buffer.from(p.seedMintSnapshots[0].data); data.writeUInt16LE(10_000, 170 + 106);
+    await expect(buildAtomicDeploy(cfg, fakeConnection(p.config), { ...p, seedAmounts: [new BN(1), new BN(0)], seedMintSnapshots: [{ ...p.seedMintSnapshots[0], data }, p.seedMintSnapshots[1]] })).rejects.toThrow(/zero net/);
+  });
+  test("paused zero-seed slots are admitted structurally; positive transfers and malformed zero slots reject", async () => {
+    const p = params(2, { seedAmounts: [new BN(1000), new BN(0)] });
+    const paused = Buffer.alloc(33); paused[32] = 1;
+    p.tokenPrograms[1] = TOKEN_2022_PROGRAM_ID;
+    p.seedMintSnapshots[1] = { address: p.mints[1], owner: TOKEN_2022_PROGRAM_ID, data: extendedMint([[26, paused]]) };
+    const result = await buildAtomicDeploy(cfg, fakeConnection(p.config), p);
+    expect(result.seedSnapshot.netAmounts).toEqual([1000n, 0n]);
+    await expect(buildAtomicDeploy(cfg, fakeConnection(p.config), { ...p, seedAmounts: [new BN(1000), new BN(1)] })).rejects.toThrow(/paused/);
+    await expect(buildAtomicDeploy(cfg, fakeConnection(p.config), { ...p, seedMintSnapshots: [p.seedMintSnapshots[0], { ...p.seedMintSnapshots[1], owner: pk() }] })).rejects.toThrow(/owner/);
+    await expect(buildAtomicDeploy(cfg, fakeConnection(p.config), { ...p, seedMintSnapshots: [p.seedMintSnapshots[0], { ...p.seedMintSnapshots[1], data: extendedMint([[26, Buffer.alloc(32)]]) }] })).rejects.toThrow();
+  });
+  test("swap-only native hooks require OnRegister budget and charge it to split initialization", async () => {
+    const hookProgram = pk();
+    const p = params(10, { hookConfig: { program: hookProgram, flags: HOOK_FLAGS.BEFORE_SWAP, feeMin: 0, feeMax: 0, maxCu: 20000, accountsLen: 2 }, hookAccounts: [{ pubkey: hookProgram, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }] });
+    const reader = () => fakeConnection(p.config, { occupied: new Map([[hookProgram.toBase58(), { owner: SystemProgram.programId, data: Buffer.alloc(0), executable: true }]]) });
+    await expect(buildAtomicDeploy(cfg, reader(), p)).rejects.toThrow(/externalCpiTraceBudget.*OnRegister/);
+    const result = await buildAtomicDeploy(cfg, reader(), { ...p, externalCpiTraceBudget: 40 });
+    expect(result.layout).toBe("alt-2");
+    expect(result.traces.every(t => t <= TRACE_BUDGET)).toBe(true);
+    // Independent source-derived placement: registration belongs to init,
+    // while BEFORE_SWAP alone causes no seed callback.
+    const initIndex = result.instructions.findIndex(ixs => discs(ixs).includes(INIT_DISC));
+    const seedIndex = result.instructions.findIndex(ixs => discs(ixs).includes(SEED_DISC));
+    expect(initIndex).not.toBe(seedIndex);
+    for (const index of [initIndex, seedIndex]) {
+      const ixs = result.instructions[index];
+      const ataCount = ixs.filter(ix => ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).length;
+      const cbCount = ixs.filter(ix => ix.programId.equals(ComputeBudgetProgram.programId)).length;
+      const expected = ATA_CREATE_TRACE * ataCount + cbCount + (index === initIndex ? INIT_POOL_TRACE + 40 : seedTrace(10));
+      expect(result.traces[index]).toBe(expected);
+    }
+    await expect(buildAtomicDeploy(cfg, reader(), { ...p, externalCpiTraceBudget: 60 })).rejects.toThrow(/no deploy layout fits/);
+  });
+  test("armed Token-2022 amount-seeded tail follows the native hook slice and enters ALT sizing", async () => {
+    const p = params(2);
+    const transferHook = pk(), nativeHook = pk();
+    const hookBody = Buffer.alloc(64); transferHook.toBuffer().copy(hookBody, 32);
+    p.tokenPrograms[0] = TOKEN_2022_PROGRAM_ID;
+    p.seedMintSnapshots[0] = { address: p.mints[0], owner: TOKEN_2022_PROGRAM_ID, data: extendedMint([[14, hookBody]]) };
+    p.hookConfig = { program: nativeHook, flags: HOOK_FLAGS.BEFORE_ADD_LIQUIDITY, feeMin: 0, feeMax: 0, maxCu: 20_000, accountsLen: 2 };
+    p.hookAccounts = [{ pubkey: nativeHook, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }];
+    p.externalCpiTraceBudget = 4;
+    const { getExtraAccountMetaAddress } = await import("@solana/spl-token");
+    const registryAddress = getExtraAccountMetaAddress(p.mints[0], transferHook);
+    const entry = Buffer.alloc(35); entry[0] = 1; entry[1] = 2; entry[2] = 8; entry[3] = 8;
+    const registry = Buffer.alloc(16 + 35); Buffer.from([105,37,101,197,75,251,102,26]).copy(registry); registry.writeUInt32LE(39, 8); registry.writeUInt32LE(1, 12); entry.copy(registry, 16);
+    const [pool] = derivePoolPda(cfg.programs.cofferPool,p.config,p.poolId);
+    const vault = deriveAta(pool,p.mints[0],TOKEN_2022_PROGRAM_ID);
+    const vaultData = Buffer.alloc(171); p.mints[0].toBuffer().copy(vaultData); pool.toBuffer().copy(vaultData,32); vaultData[108] = 1; vaultData[165] = 2; vaultData.writeUInt16LE(8,166); vaultData.writeUInt16LE(1,168); vaultData[170] = 1;
+    const conn = fakeConnection(p.config, { occupied: new Map([[registryAddress.toBase58(), { owner: transferHook, data: registry }], [transferHook.toBase58(), { owner: SystemProgram.programId, data: Buffer.alloc(0), executable: true }], [nativeHook.toBase58(), { owner: SystemProgram.programId, data: Buffer.alloc(0), executable: true }], [vault.toBase58(), { owner: TOKEN_2022_PROGRAM_ID, data: vaultData }]]) });
+    const r = await buildAtomicDeploy(cfg, conn, p);
+    const seed = r.instructions.flat().find(i => i.data.subarray(0, 8).toString("hex") === SEED_DISC)!;
+    expect(seed.keys.slice(5 + 4 * 2, 5 + 4 * 2 + 2)).toEqual(p.hookAccounts);
+    const amount = Buffer.alloc(8); amount.writeBigUInt64LE(1000n);
+    const expected = PublicKey.findProgramAddressSync([amount], transferHook)[0];
+    expect(r.seedSnapshot.token2022Accounts.some(m => m.pubkey.equals(expected))).toBe(true);
+    expect(r.seedSnapshot.token2022Accounts.some(m => m.pubkey.toBase58() === "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")).toBe(true);
+    expect(seed.keys.slice(5 + 4 * 2 + 2)).toEqual(r.seedSnapshot.token2022Accounts);
+    expect(r.txSizes.every(s => s <= SOLANA_TX_LIMIT)).toBe(true);
+    await expect(buildAtomicDeploy(cfg, conn, { ...p, seedExtraAccounts: [] })).rejects.toThrow(/exact resolved/);
+    await expect(buildAtomicDeploy(cfg, conn, { ...p, externalCpiTraceBudget: 0 })).rejects.toThrow(/externalCpiTraceBudget/);
   });
 });

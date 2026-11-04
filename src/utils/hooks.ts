@@ -180,7 +180,12 @@ export function requireHookSlice(
   if (!hookAccounts[0].pubkey.equals(hook!.program)) throw new Error(`${op}: hookAccounts[0] must be the hook program ${hook!.program.toBase58()}`);
   const [caller] = hookCallerPda(cfg.programs.cofferPool);
   if (!hookAccounts[1].pubkey.equals(caller)) throw new Error(`${op}: hookAccounts[1] must be HOOK_CALLER ${caller.toBase58()}`);
+  const seen = new Set<string>();
   return hookAccounts.map((meta, i) => {
+    const key = meta.pubkey.toBase58();
+    if (seen.has(key)) throw new Error(`${op}: duplicate hook account ${key}`);
+    seen.add(key);
+    if (i >= 2 && meta.pubkey.equals(pool.address)) throw new Error(`${op}: hook extras cannot repeat the pool`);
     if (meta.isSigner) throw new Error(`${op}: hook slice accounts cannot be signers (${meta.pubkey.toBase58()})`);
     if (i < 2 && meta.isWritable) throw new Error(`${op}: hook program / HOOK_CALLER must be read-only`);
     return { pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable };

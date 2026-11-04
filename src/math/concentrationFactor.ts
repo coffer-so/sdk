@@ -1,8 +1,8 @@
 /**
- * leverage — v6.1 (T22) strict leverage invariant, mirrored from
- * `programs/coffer-pool/src/math/pool_math.rs` (`PoolMath::check_leverage`),
+ * concentrationFactor — v6.1 (T22) strict concentrationFactor invariant, mirrored from
+ * `programs/coffer-pool/src/math/pool_math.rs` (`PoolMath::check_concentration_factor`),
  * `constants.rs` (`min_virtual_balance`), `seed_liquidity.rs`
- * (`check_seed_leverage`), `fund_sidelined_token.rs` (`check_fund_leverage`)
+ * (`check_seed_concentration_factor`), `fund_sidelined_token.rs` (`check_fund_concentration_factor`)
  * and `rescale_virtual_balances.rs` (`apply_rescale`).
  *
  * The rule: `virtual_balance[i] > actual_balance[i]` for every slot
@@ -22,30 +22,31 @@
  * relative and the floor bounds it.
  */
 import { MAX_TOKEN_DECIMALS, MIN_VIRTUAL_BALANCE_ABS, MIN_VIRTUAL_RESCALE_MULTIPLIER } from "../config";
+import { SelloffState, rescaleWindowOnVbChange } from "./maxSelloff";
 import { MathError, U64_MAX, assertU64 } from "./fixedPoint";
 
-/** `PoolMath::check_leverage`: throws `MathError("VirtualBalanceNotAboveActual")` unless `V > A`. */
-export function checkLeverage(virtualBalance: bigint, actualBalance: bigint): void {
+/** `PoolMath::check_concentration_factor`: throws `MathError("VirtualBalanceNotAboveActual")` unless `V > A`. */
+export function checkConcentrationFactor(virtualBalance: bigint, actualBalance: bigint): void {
   assertU64(virtualBalance, "virtual balance"); assertU64(actualBalance, "actual balance");
   if (!(virtualBalance > actualBalance)) throw new MathError("VirtualBalanceNotAboveActual");
 }
 
 /** `V > A` as a boolean (no throw). */
-export function leverageHolds(virtualBalance: bigint, actualBalance: bigint): boolean {
+export function concentrationFactorHolds(virtualBalance: bigint, actualBalance: bigint): boolean {
   return virtualBalance > actualBalance;
 }
 
 /** Indices `i < tokenCount` whose slot violates `V > A` (`[]` on a compliant pool). */
-export function leverageViolations(virtualBalances: readonly bigint[], actualBalances: readonly bigint[], tokenCount = virtualBalances.length): number[] {
+export function concentrationFactorViolations(virtualBalances: readonly bigint[], actualBalances: readonly bigint[], tokenCount = virtualBalances.length): number[] {
   if (actualBalances.length < tokenCount || virtualBalances.length < tokenCount) throw new MathError("InvalidArrayLength");
   const out: number[] = [];
-  for (let i = 0; i < tokenCount; i++) if (!leverageHolds(virtualBalances[i], actualBalances[i])) out.push(i);
+  for (let i = 0; i < tokenCount; i++) if (!concentrationFactorHolds(virtualBalances[i], actualBalances[i])) out.push(i);
   return out;
 }
 
-/** `CofferPool::assert_leverage_invariant`: every slot `i < tokenCount` holds `V > A`. */
-export function assertLeverageInvariant(virtualBalances: readonly bigint[], actualBalances: readonly bigint[], tokenCount = virtualBalances.length): void {
-  if (leverageViolations(virtualBalances, actualBalances, tokenCount).length) throw new MathError("VirtualBalanceNotAboveActual");
+/** `CofferPool::assert_concentration_factor_invariant`: every slot `i < tokenCount` holds `V > A`. */
+export function assertConcentrationFactorInvariant(virtualBalances: readonly bigint[], actualBalances: readonly bigint[], tokenCount = virtualBalances.length): void {
+  if (concentrationFactorViolations(virtualBalances, actualBalances, tokenCount).length) throw new MathError("VirtualBalanceNotAboveActual");
 }
 
 /**
@@ -73,22 +74,25 @@ export function assertVirtualFloor(virtualBalances: readonly bigint[], decimals:
 }
 
 /**
- * `seed_liquidity::check_seed_leverage`: the seed books `actual_i = net_i`
+ * `seed_liquidity::check_seed_concentration_factor`: the seed books `actual_i = net_i`
  * against the creator's `virtual_i`, so every slot needs `net_i < virtual_i`
  * (a sidelined slot with `net = 0` passes for any `V > 0`). Runs on the
  * NET amounts (after Token-2022 fee netting), before any transfer.
  */
-export function checkSeedLeverage(virtualBalances: readonly bigint[], netAmounts: readonly bigint[]): void {
+export function checkSeedConcentrationFactor(virtualBalances: readonly bigint[], netAmounts: readonly bigint[]): void {
   if (virtualBalances.length !== netAmounts.length) throw new MathError("InvalidArrayLength");
-  for (let i = 0; i < virtualBalances.length; i++) checkLeverage(virtualBalances[i], netAmounts[i]);
+  for (let i = 0; i < virtualBalances.length; i++) checkConcentrationFactor(virtualBalances[i], netAmounts[i]);
 }
 
-/** `fund_sidelined_token::check_fund_leverage`: the funded slot books `actual = net`, so `net < virtual`. */
-export function checkFundLeverage(virtualBalance: bigint, netAmount: bigint): void {
-  checkLeverage(virtualBalance, netAmount);
+/** `fund_sidelined_token::check_fund_concentration_factor`: the funded slot books `actual = net`, so `net < virtual`. */
+export function checkFundConcentrationFactor(virtualBalance: bigint, netAmount: bigint): void {
+  checkConcentrationFactor(virtualBalance, netAmount);
 }
 
 export interface RescaleResult {
+  /** Explicit completeness marker: omitting windows or decimals yields only a balance projection. */
+  scope: "complete_rescale" | "virtual_balance_projection";
+  windowsAfter?: SelloffState[];
   /** `V_i · multiplier` per slot. */
   newVirtualBalances: bigint[];
   /** Slots that violated `V > A` BEFORE the rescale (what the repair fixes). */
@@ -100,20 +104,21 @@ export interface RescaleResult {
  * (`InvalidVirtualRescale`), every `V_i · multiplier` checked
  * (`MathOverflow`; `V_i = 0` is `InvalidVirtualBalances`), then the result
  * must satisfy the strict invariant and — when `decimals` are given — the
- * per-slot floor. Price-neutral: `V_i' · V_j = V_i · V_j'`. The sell-off
- * window snapshots rescale with the same ratio on chain (not modelled here).
+ * per-slot floor. Price-neutral: `V_i' · V_j = V_i · V_j'`. Pass windows and decimals to validate the complete rescale; otherwise the returned scope explicitly marks a balance projection.
  */
 export function applyRescale(
   virtualBalances: readonly bigint[],
   actualBalances: readonly bigint[],
   multiplier: bigint,
   decimals?: readonly number[],
+  windows?: readonly SelloffState[],
 ): RescaleResult {
   assertU64(multiplier, "multiplier");
   if (multiplier < MIN_VIRTUAL_RESCALE_MULTIPLIER) throw new MathError("InvalidVirtualRescale");
   const n = virtualBalances.length;
   if (actualBalances.length !== n || (decimals && decimals.length !== n)) throw new MathError("InvalidArrayLength");
-  const repairedSlots = leverageViolations(virtualBalances, actualBalances);
+  if (windows && windows.length !== n) throw new MathError("InvalidArrayLength");
+  const repairedSlots = concentrationFactorViolations(virtualBalances, actualBalances);
   const newVirtualBalances: bigint[] = [];
   for (let i = 0; i < n; i++) {
     const old = assertU64(virtualBalances[i], "virtual balance");
@@ -122,9 +127,13 @@ export function applyRescale(
     if (next > U64_MAX) throw new MathError("MathOverflow");
     newVirtualBalances.push(next);
   }
-  assertLeverageInvariant(newVirtualBalances, actualBalances);
+  const windowsAfter = windows?.map((w, i) => {
+    try { return rescaleWindowOnVbChange(w, virtualBalances[i], newVirtualBalances[i]); }
+    catch (e) { if (e instanceof MathError && /outside u64|outside u128/.test(e.message)) throw new MathError("MathOverflow"); throw e; }
+  });
+  assertConcentrationFactorInvariant(newVirtualBalances, actualBalances);
   if (decimals) assertVirtualFloor(newVirtualBalances, decimals);
-  return { newVirtualBalances, repairedSlots };
+  return { scope: windows && decimals ? "complete_rescale" : "virtual_balance_projection", newVirtualBalances, repairedSlots, windowsAfter };
 }
 
 /**
@@ -141,10 +150,10 @@ export function minRescaleMultiplier(virtualBalances: readonly bigint[], actualB
   for (let i = 0; i < n; i++) {
     const v = virtualBalances[i];
     if (v <= 0n) return null;
-    const needLeverage = actualBalances[i] / v + 1n; // smallest m with v·m > a
+    const needConcentrationFactor = actualBalances[i] / v + 1n; // smallest m with v·m > a
     const floor = decimals ? minVirtualBalance(decimals[i]) : 0n;
     const needFloor = floor > 0n ? (floor + v - 1n) / v : 0n; // ceil(floor / v)
-    const need = needLeverage > needFloor ? needLeverage : needFloor;
+    const need = needConcentrationFactor > needFloor ? needConcentrationFactor : needFloor;
     if (need > m) m = need;
   }
   for (let i = 0; i < n; i++) if (virtualBalances[i] * m > U64_MAX) return null;

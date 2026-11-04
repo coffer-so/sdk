@@ -1,5 +1,5 @@
 /**
- * Bit-for-bit parity of the TypeScript planner with the canonical Rust
+ * Historical fixture compatibility of the TypeScript planner with an older Rust
  * planner (`cargo build -p single-token-liquidity --example zap_plan` on a
  * contracts `v6` checkout).
  *
@@ -9,7 +9,7 @@
  * sell-off window and surge curve). CI compares `quoteZap` to them without
  * Rust. To regenerate, point `ZAP_PLAN_BINARY` at the built example:
  *
- *   ZAP_PLAN_BINARY=../contracts/target/debug/examples/zap_plan SKIP_MAINNET_TESTS=1 npx jest tests/zap-plan-fixtures
+ *   Provide an explicitly owner-built current-epoch ZAP_PLAN_BINARY only for regeneration.
  */
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -23,7 +23,7 @@ import { ContractAccountMap } from "../src/types/contracts";
 
 type State = ContractAccountMap["cofferPool"]["CofferPool"];
 // The fixtures were produced by the `zap_plan` binary built from contracts
-// v6.1 `409067d` (T22 strict leverage), whose `declare_id` is the localnet
+// v6.1 `409067d` (T22 strict concentrationFactor), whose `declare_id` is the localnet
 // table — snapshot keys derived under it (LP mint PDA, pool owner) must not
 // drift when the mainnet/devnet tables change.
 const cfg = getConfig("localnet");
@@ -107,7 +107,7 @@ function snapshot(sc: Scenario) {
     pool_enabled: true, swaps_enabled: true, pool_admin: key(3), pending_pool_admin: PublicKey.default, range_manager: PublicKey.default,
     range_manager_enabled: false, range_manager_max_vb_change_pct: 0, range_manager_max_weight_change_pct: 0, range_manager_min_update_interval_secs: 0,
     range_manager_last_updated: bn(0), tokens: Array.from({ length: 10 }, (_, i) => (i < sc.tokenCount ? slot(i) : empty())),
-    lookup_table: PublicKey.default, _deprecated_banned_extensions: bn(0), range_manager_max_leverage_bps: 0, range_manager_min_leverage_bps: 0,
+    lookup_table: PublicKey.default, _deprecated_banned_extensions: bn(0), range_manager_max_concentration_factor_bps: 0, range_manager_min_concentration_factor_bps: 0,
     reserved: [0x56, 0x35, 0x4d, 0x31, ...Array(12).fill(0)],
   } as unknown as State;
   const mints = Array.from({ length: sc.tokenCount }, (_, i) => ({ key: key(100 + i), owner: programs[i], data: sc.feeMints[i] ? feeMint(6, sc.feeMints[i][0], sc.feeMints[i][1]) : plainMint(6, 0n) }));

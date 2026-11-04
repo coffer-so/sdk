@@ -54,8 +54,8 @@ export const POOL_LAYOUT = {
   TOKENS:                           { offset: 179,  size: 1440 },
   LOOKUP_TABLE:                     { offset: 1619, size: 32 },
   DEPRECATED_BANNED_EXTENSIONS:     { offset: 1651, size: 8 },
-  RANGE_MANAGER_MAX_LEVERAGE_BPS:   { offset: 1659, size: 4 },
-  RANGE_MANAGER_MIN_LEVERAGE_BPS:   { offset: 1663, size: 4 },
+  RANGE_MANAGER_MAX_CONCENTRATION_FACTOR_BPS:   { offset: 1659, size: 4 },
+  RANGE_MANAGER_MIN_CONCENTRATION_FACTOR_BPS:   { offset: 1663, size: 4 },
   /** Legacy block, frozen since v6.1: `V5M1` marker in the first 4 bytes. */
   RESERVED:                         { offset: 1667, size: 16 },
   TOTAL_V5:                         1683,
@@ -95,8 +95,10 @@ export const POOL_LAYOUT = {
   HOOK_FEE_MAX:                     { offset: 2093, size: 4 },
   HOOK_MAX_CU:                      { offset: 2097, size: 4 },
   HOOK_ACCOUNTS_LEN:                { offset: 2101, size: 1 },
-  /** Zero on every v6.1 account; T2/T10's 2 B are the only remaining planned carve. */
-  RESERVED_V61:                     { offset: 2102, size: 202 },
+  /** rc2 reserve after the safety flags and range-manager weight anchors. */
+  SAFETY_FLAGS:                    { offset: 2102, size: 2 },
+  RANGE_MANAGER_WEIGHT_ANCHORS:    { offset: 2104, size: 20 },
+  RESERVED_V61:                     { offset: 2124, size: 180 },
   TOTAL:                            2304,
 } as const;
 
@@ -139,7 +141,7 @@ export const POOL_ACTION_KIND = Object.fromEntries(POOL_ACTION_KINDS.map((n, i) 
 /** Protocol-admin (Treasury) pending-slot kinds (`cancel_action(kind)`; `ProtocolAction` tag = kind − 1). Kind 13 (`PoolRescaleVirtualBalances`) is v6.1 T22. */
 export const PROTOCOL_ACTION_KINDS = [
   "TransferAdmin", "SetDelay", "SetSupervisor", "Withdraw", "WithdrawSol", "PoolDebugWithdraw", "PoolSetProtocolFeeRate",
-  "PoolSetPoolEnabled", "PoolSetTokenActive", "UnfreezePools", "PoolProtocolAdminTransfer", "UpgradeProgram", "ProgramOp", "PoolRescaleVirtualBalances",
+  "PoolSetPoolEnabled", "PoolSetTokenActive", "UnfreezePools", "PoolProtocolAdminTransfer", "UpgradeProgram", "ProgramOp", "PoolRescaleVirtualBalances", "PoolEnableRangeManager",
 ] as const;
 export type ProtocolActionKindName = (typeof PROTOCOL_ACTION_KINDS)[number];
 export const PROTOCOL_ACTION_KIND = Object.fromEntries(PROTOCOL_ACTION_KINDS.map((n, i) => [n, i])) as Record<ProtocolActionKindName, number>;
@@ -182,7 +184,8 @@ export const TREASURY_LAYOUT = {
   PENDING_PROGRAM_OP:                    { offset: 1426, size: 73 },
   // ── v6.1 (T22) kind 13: `eta: i64` + `pool` + `multiplier: u64` ──
   PENDING_POOL_RESCALE_VIRTUAL_BALANCES: { offset: 1499, size: 48 },
-  RESERVED_V61:                          { offset: 1547, size: 77 },
+  PENDING_POOL_ENABLE_RANGE_MANAGER:     { offset: 1547, size: 40 },
+  RESERVED_V61:                          { offset: 1587, size: 37 },
   TOTAL:           1624,
   TOTAL_V2:        818,
   TOTAL_V1:        786,

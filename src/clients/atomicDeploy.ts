@@ -99,17 +99,18 @@ import {
   MessageV0,
   PublicKey,
   SystemProgram,
+  SYSVAR_CLOCK_PUBKEY,
   TransactionInstruction,
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
 } from "@solana/spl-token";
 import BN from "bn.js";
-import { CofferConfig, DEFAULT_INITIAL_LP_SUPPLY } from "../config";
+import { CofferConfig, DEFAULT_INITIAL_LP_SUPPLY, HOOK_FLAGS } from "../config";
 import type {
   AtomicDeployParams,
   AtomicDeployResult,
@@ -118,7 +119,11 @@ import type {
   SendDeployResult,
 } from "../types/tx-v61";
 import { validateLpMetadata } from "../utils/lpMetadata";
-import { validateHookConfig } from "../utils/hooks";
+import { requireHookSlice, validateHookConfig } from "../utils/hooks";
+import { validateTransferMintSnapshot } from "../parsers/mintAccount";
+import { tokenTransferBlockers, unsupportedMintExtensions } from "../utils/extensions";
+import { netOfTransferFee, selectEpochFee } from "../math/transferFee";
+import { resolveTransferExtraAccounts, MintSnapshot, AccountReader, MEMO_PROGRAM_ID } from "../utils/transferProfile";
 import { deriveAta, deriveLpMint, derivePoolPda } from "../utils/pda";
 import { verifyCreatedPool, type PoolAccountReader } from "./poolIdentity";
 import { buildInitializePoolIx, buildSeedLiquidityRawIx, buildSetSwapsEnabledIx } from "./tx-builders";
@@ -286,10 +291,9 @@ export async function buildAtomicDeploy(
   if (!weightSum.eqn(10_000)) throw new Error(`weights must sum to 10000 (got ${weightSum})`);
   if (virtualBalances.some((vb) => vb.isZero() || vb.isNeg())) throw new Error("virtualBalances must all be > 0");
   // v6.1 (T22): the seed books `actual_i = net_i` against `virtual_i`, so the
-  // (gross ≥ net) seed amount must stay below the virtual balance.
+  // NET seed amount must stay below the virtual balance.
   seedAmounts.forEach((a, i) => {
     if (a.isNeg() || a.bitLength() > 64) throw new Error(`seedAmounts[${i}] must be an unsigned 64-bit BN`);
-    if (a.gte(virtualBalances[i])) throw new Error(`seedAmounts[${i}] = ${a} must stay below virtualBalances[${i}] = ${virtualBalances[i]} (VirtualBalanceNotAboveActual, 6104)`);
   });
 
   const initialLpSupply = params.initialLpSupply ?? new BN(DEFAULT_INITIAL_LP_SUPPLY.toString());
@@ -316,27 +320,46 @@ export async function buildAtomicDeploy(
   // token and cap at the per-transaction ceiling.
   const computeUnitLimit = params.computeUnitLimit ?? Math.min(1_400_000, 200_000 + n * 60_000);
 
-  // Token program per mint — read from the mint account's owner unless the
-  // caller already knows it.
-  let tokenPrograms = params.tokenPrograms;
-  let tokenDecimals = params.tokenDecimals;
-  if (!tokenPrograms) {
-    const infos = await connection.getMultipleAccountsInfo(mints);
-    const decimals: number[] = [];
-    tokenPrograms = infos.map((info, i) => {
-      if (!info) throw new Error(`mint ${mints[i].toBase58()} does not exist`);
-      // SPL / Token-2022 `Mint`: decimals at byte 44 (the base layout precedes any extension).
-      if (info.data.length >= MINT_DECIMALS_OFFSET + 1) decimals.push(info.data[MINT_DECIMALS_OFFSET]);
-      return info.owner;
+  // Mint ownership, decimals and epoch are read even when caller supplies program hints.
+  let snapshots: MintSnapshot[];
+  let epoch: bigint;
+  if (params.seedMintSnapshots !== undefined || params.seedEpoch !== undefined) {
+    if (!params.seedMintSnapshots || params.seedEpoch === undefined) throw new Error("seedMintSnapshots and seedEpoch must be supplied together");
+    snapshots = params.seedMintSnapshots.map(m => ({ ...m, data: Buffer.from(m.data) }));
+    epoch = params.seedEpoch;
+  } else {
+    const infos = await connection.getMultipleAccountsInfo([...mints, SYSVAR_CLOCK_PUBKEY], "confirmed");
+    snapshots = mints.map((address, i) => {
+      const info = infos[i];
+      if (!info) throw new Error(`mint ${address.toBase58()} does not exist`);
+      return { address, owner: info.owner, data: Buffer.from(info.data) };
     });
-    // v6.1 (T22): the per-slot floor is checked by `buildInitializePoolIx`
-    // when every mint exposed its decimals (pass `tokenDecimals` to check it
-    // with explicit `tokenPrograms`).
-    tokenDecimals ??= decimals.length === n ? decimals : undefined;
+    const clock = infos[n];
+    if (!clock || !clock.owner.equals(new PublicKey("Sysvar1111111111111111111111111111111111111")) || clock.data.length !== 40) throw new Error("Invalid Clock snapshot for seed epoch");
+    epoch = clock.data.readBigUInt64LE(16);
   }
-  if (tokenPrograms.length !== n) throw new Error("tokenPrograms length mismatch");
-  if (tokenDecimals && tokenDecimals.length !== n) throw new Error("tokenDecimals length mismatch");
-
+  if (epoch < 0n || epoch > (1n << 64n) - 1n) throw new Error("seedEpoch must be u64");
+  if (snapshots.length !== n || new Set(mints.map(m => m.toBase58())).size !== n) throw new Error("mint snapshot length or duplicate mint");
+  if (params.tokenPrograms && params.tokenPrograms.length !== n) throw new Error("tokenPrograms length mismatch");
+  if (params.tokenDecimals && params.tokenDecimals.length !== n) throw new Error("tokenDecimals length mismatch");
+  const decoded = snapshots.map((m, i) => {
+    if (!m.address.equals(mints[i])) throw new Error(`mint snapshot order mismatch at ${i}`);
+    if (!m.owner.equals(TOKEN_PROGRAM_ID) && !m.owner.equals(TOKEN_2022_PROGRAM_ID)) throw new Error(`Invalid mint owner at ${i}`);
+    if (params.tokenPrograms && !m.owner.equals(params.tokenPrograms[i])) throw new Error(`tokenPrograms owner mismatch at ${i}`);
+    if (m.owner.equals(TOKEN_PROGRAM_ID) && m.data.length !== 82) throw new Error(`Invalid SPL mint layout at ${i}`);
+    const mint = validateTransferMintSnapshot(m.address, m.owner, Buffer.from(m.data));
+    if (params.tokenDecimals && mint.decimals !== params.tokenDecimals[i]) throw new Error(`tokenDecimals mismatch at ${i}`);
+    const blockers = tokenTransferBlockers({ index: i, mint: m.address, tokenProgram: m.owner, unsupportedExtensions: unsupportedMintExtensions(mint.extensions), paused: mint.pausableConfig?.paused ?? false });
+    if (!seedAmounts[i].isZero() && blockers.length) throw new Error(`Unsupported seed mint ${i}: ${blockers.join("; ")}`);
+    return mint;
+  });
+  const tokenPrograms = snapshots.map(m => m.owner);
+  const tokenDecimals = decoded.map(m => m.decimals);
+  const netAmounts = decoded.map((m, i) => netOfTransferFee(m.transferFeeConfig ? selectEpochFee(m.transferFeeConfig, epoch) : null, BigInt(seedAmounts[i].toString())));
+  netAmounts.forEach((net, i) => {
+    if (net >= BigInt(virtualBalances[i].toString())) throw new Error(`net seedAmounts[${i}] must stay below virtualBalances[${i}] (VirtualBalanceNotAboveActual, 6104)`);
+    if (!seedAmounts[i].isZero() && net === 0n) throw new Error(`seedAmounts[${i}] has zero net credit (AmountFullyConsumedByTransferFee)`);
+  });
   const [poolPda] = derivePoolPda(programId, config, poolId);
   const [lpMint] = deriveLpMint(programId, poolPda);
   const [existingPool, existingLpMint, configInfo] = await connection.getMultipleAccountsInfo([poolPda, lpMint, config], "confirmed");
@@ -368,6 +391,40 @@ export async function buildAtomicDeploy(
   const userTokenAccounts = mints.map((m, i) => deriveAta(payer, m, tokenPrograms![i]));
   const userLpAccount = deriveAta(payer, lpMint, lpTokenProgram);
 
+  const nativeSlice = requireHookSlice(cfg, { address: poolPda, hook: hookConfig ? { ...hookConfig, active: true, disabled: false } as any : undefined }, params.hookAccounts, "seed_liquidity");
+  const resolutionSnapshots: AtomicDeployResult["seedSnapshot"]["resolutionSnapshots"] = [];
+  const readAccounts: AccountReader["getMultipleAccountsInfo"] = async (keys, commitment) => {
+    const infos = await connection.getMultipleAccountsInfo(keys, commitment);
+    return keys.map((address, i) => {
+      const info = infos[i];
+      if (!info) { resolutionSnapshots.push({ address, missing: true }); return null; }
+      const data = Buffer.from(info.data);
+      resolutionSnapshots.push({ address, owner: info.owner, data: Buffer.from(data), executable: info.executable });
+      return { ...info, data };
+    });
+  };
+  const reader: AccountReader = {
+    getMultipleAccountsInfo: readAccounts,
+    getAccountInfo: async (key, commitment) => (await readAccounts([key], commitment))[0],
+  };
+  const legs = mints.flatMap((mint, i) => seedAmounts[i].isZero() ? [] : [{ mint, tokenProgram: tokenPrograms[i], source: userTokenAccounts[i], destination: vaults[i], authority: payer, amount: BigInt(seedAmounts[i].toString()), destinationCreatedInTx: true, destinationOwner: poolPda }]);
+  if (nativeSlice.length) {
+    const infos = await readAccounts(nativeSlice.map(m => m.pubkey), "confirmed");
+    if (!infos[0]?.executable) throw new Error("Native hook program must be executable");
+    nativeSlice.slice(2).forEach((m, i) => { if (m.isWritable && !infos[i + 2]?.owner.equals(nativeSlice[0].pubkey)) throw new Error("Writable native hook extras must be hook-owned"); });
+  }
+  const resolved = await resolveTransferExtraAccounts(reader, legs, snapshots, [payer, poolPda, lpMint, userLpAccount, ...nativeSlice.map(m => m.pubkey)]);
+  const supplied = params.seedExtraAccounts;
+  if (supplied && (supplied.length !== resolved.length || supplied.some((m, i) => !m.pubkey.equals(resolved[i].pubkey) || m.isSigner !== resolved[i].isSigner || m.isWritable !== resolved[i].isWritable))) throw new Error("seedExtraAccounts do not match exact resolved Token-2022 tail");
+  const seedExtras = [...nativeSlice, ...resolved];
+  const memoTrace = resolved.some(m => m.pubkey.equals(MEMO_PROGRAM_ID)) ? legs.filter(l => l.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)).length : 0;
+  // Registration always invokes a configured native hook, independently of
+  // its swap/add flags. Seed hooks only run in the seed-bearing transaction.
+  const hasRegistrationHook = !!hookConfig;
+  const hasSeedHooks = !!(hookConfig && (hookConfig.flags & (HOOK_FLAGS.BEFORE_ADD_LIQUIDITY | HOOK_FLAGS.AFTER_ADD_LIQUIDITY))) || decoded.some((m, i) => !seedAmounts[i].isZero() && m.transferHook?.programId && !m.transferHook.programId.equals(PublicKey.default));
+  const externalTrace = params.externalCpiTraceBudget ?? 0;
+  if (!Number.isSafeInteger(externalTrace) || externalTrace < 0 || ((hasRegistrationHook || hasSeedHooks) && externalTrace === 0)) throw new Error("externalCpiTraceBudget required for external hooks, including OnRegister (runtime trace cannot be inferred)");
+
   // ── Instruction pieces ──────────────────────────────────────────────────
 
   const initIx = buildInitializePoolIx(cfg, {
@@ -391,7 +448,7 @@ export async function buildAtomicDeploy(
   const seedIx = buildSeedLiquidityRawIx(cfg, {
     pool: poolPda, lpMint, userLpAccount, user: payer, mints, tokenPrograms,
     userTokenAccounts, vaults, amounts: seedAmounts, lpAmount: initialLpSupply, lpTokenProgram,
-    extraAccounts: hookAccounts,
+    extraAccounts: seedExtras,
   });
 
   // Paused launch: the pause rides in the SAME transaction as the seed.
@@ -405,7 +462,7 @@ export async function buildAtomicDeploy(
     ...vaults,
     ...userTokenAccounts,
     ...mints,
-    ...hookAccounts.map((a) => a.pubkey),
+    ...seedExtras.map((a) => a.pubkey),
     poolPda,
     lpMint,
     userLpAccount,
@@ -466,7 +523,7 @@ export async function buildAtomicDeploy(
   const bestLayout = await (async (): Promise<Built | null> => {
     const seedTopLevel = (atas: number, withCb: boolean) => atas + 2 /* init + seed */ + tailIxs.length + extraCb(withCb);
     const seedTraceOf = (atas: number, withCb: boolean, withInit: boolean) =>
-      (withInit ? INIT_POOL_TRACE : 0) + ATA_CREATE_TRACE * atas + seedTrace(n) + tailIxs.length + extraCb(withCb);
+      (withInit ? INIT_POOL_TRACE : 0) + ATA_CREATE_TRACE * atas + seedTrace(n) + ((hasSeedHooks || (withInit && hasRegistrationHook)) ? externalTrace : 0) + memoTrace + tailIxs.length + extraCb(withCb);
 
     if (layoutMode !== "alt") {
       for (const withCb of jitoDontFront ? [true] : [true, false]) {
@@ -528,7 +585,7 @@ export async function buildAtomicDeploy(
     // trace-wise), ATAs + seed (+ pause) follow in tx3.
     for (let spill = 0; spill <= n; spill++) {
       for (const withCb of jitoDontFront ? [true] : [true, false]) {
-        const trace2 = INIT_POOL_TRACE + ATA_CREATE_TRACE * spill + extraCb(withCb);
+        const trace2 = INIT_POOL_TRACE + (hasRegistrationHook ? externalTrace : 0) + ATA_CREATE_TRACE * spill + extraCb(withCb);
         const ataInTx3 = n + 1 - spill;
         const trace3 = seedTraceOf(ataInTx3, withCb, false);
         if (trace2 > TRACE_BUDGET || trace3 > TRACE_BUDGET) continue;
@@ -640,6 +697,7 @@ export async function buildAtomicDeploy(
     sizes: { tx1: txSizes[0], tx2: txSizes[1], tx3: txSizes[2] },
     traces: bestLayout.traces,
     expectedIdentity,
+    seedSnapshot: { epoch, mints: snapshots, netAmounts, token2022Accounts: resolved, resolutionSnapshots },
     accountCount: bestLayout.accountCount,
     vaultAtasInTx1: bestLayout.vaultAtasInTx1,
     computeBudgetInTx2: bestLayout.computeBudgetInTx2,

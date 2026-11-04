@@ -1,6 +1,6 @@
 /**
- * Bit-for-bit parity with the contracts `v6` Rust math. The fixture is
- * produced by `tests/math/generate-rust-reference.py` from a v6 checkout:
+ * Historical pre-rename fixture compatibility, not current compiled-contract parity. The fixture is
+ * produced by `tests/math/generate-rust-reference.py` from a v6.1 checkout:
  * the program's own `pool_math.rs`, `surge_fee.rs`, `max_selloff.rs`,
  * `log_exp_math.rs`, the STLD `compute_allocations` and the swap handler's
  * fee helpers plus its verbatim surge-charge block, compiled natively.
@@ -41,6 +41,7 @@ function evaluate(v: Vector): bigint | bigint[] {
     case "pow": return powFp(b("base"), b("exponent"));
     case "swap": return calcOutGivenIn({ virtualBalanceIn: 1000000000n, weightInBps: b("weight"), virtualBalanceOut: 1000000000n, weightOutBps: 10000n - b("weight"), amountIn: b("amount"), actualBalanceOut: 1000000000n });
     case "swapEqualWeights": return calcOutGivenIn({ virtualBalanceIn: b("vbIn"), weightInBps: b("weight"), virtualBalanceOut: b("vbOut"), weightOutBps: b("weight"), amountIn: b("amount"), actualBalanceOut: b("actualOut") });
+    case "swapUnequalWeights": return calcOutGivenIn({ virtualBalanceIn: b("vbIn"), weightInBps: b("weightIn"), virtualBalanceOut: b("vbOut"), weightOutBps: b("weightOut"), amountIn: b("amount"), actualBalanceOut: b("actualOut") });
     case "allocation": return computeAllocations({ actualBalances: list("actual"), virtualBalances: [1000000n, 1000000n], weightsBps: [5000, 5000], amountIn: b("amount"), tokenInIndex: 0 }).allocations;
     case "surgeRate": return calcSurgeFeeRate(b("before"), b("after"), b("cap"), curve());
     case "surgePct": return BigInt(calcSurgeFeePct(b("before"), b("after"), b("cap"), curve()));
@@ -118,9 +119,11 @@ function evaluate(v: Vector): bigint | bigint[] {
 const NAMED_ERRORS = new Set(["MaxSelloffExceeded", "InvalidVirtualBalances", "TokenLivenessMismatch", "InvalidAmounts", "InvalidLpAmount", "PoolNotSeeded", "AmountOutExceedsBalance", "MaxSelloffInvalidConfig"]);
 
 describe(`native Rust arithmetic parity (contracts ${fixtures.contractBranch} ${fixtures.contractCommit.slice(0, 7)})`, () => {
-  test("fixture was generated from the v6 branch", () => {
-    expect(fixtures.contractBranch).toBe("v6");
+  test("fixture was generated from the v6.1 branch", () => {
+    expect(fixtures.contractBranch).toBe("v6.1");
     expect(Object.keys(fixtures.sourceHashes)).toContain("programs/coffer-pool/src/instructions/user/swap.rs");
+    expect(fixtures.referenceCompileFlags).toContain("overflow-checks=yes");
+    expect(fixtures.generatorSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test.each(vectors.map((v, i) => [`${i} ${v.kind}`, v] as const))("%s", (_name, v) => {

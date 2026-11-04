@@ -19,7 +19,7 @@ function pool(count = 2): PoolInfo {
       decimals: 9, weightBps: count === 2 ? 5000 : [5000, 3000, 2000][index],
       // v6.1 (T22): strictly levered (`V > A`) — the program refuses every swap / join otherwise.
       actualBalance: bn(1_000_000_000), virtualBalance: bn(2_000_000_000),
-      protocolFeesOwed: bn(0), concentration: 1, isActive: true,
+      protocolFeesOwed: bn(0), concentrationFactor: 1, isActive: true,
       maxSelloffPct: 0, maxSelloffPeriodLength: 0, variableFeeThresholdPct: 0,
       variableFeeSlopeLowPct: 0, variableFeeSlopeMidPct: 0, variableFeeSlopeHighPct: 0,
       variableFeeKinkPct: 0, previousSelloff: bn(0), currentSelloff: bn(0),
@@ -29,7 +29,7 @@ function pool(count = 2): PoolInfo {
     poolAdmin: creator, pendingPoolAdmin: PublicKey.default, rangeManager: PublicKey.default,
     rangeManagerEnabled: false, rangeManagerMaxVbChangePct: 0, rangeManagerMaxWeightChangePct: 0,
     rangeManagerMinUpdateIntervalSecs: 0, rangeManagerLastUpdated: bn(0),
-    rangeManagerMinLeverageBps: 0, rangeManagerMaxLeverageBps: 0,
+    rangeManagerMinConcentrationFactorBps: 0, rangeManagerMaxConcentrationFactorBps: 0,
     swapFeeRate: 0, protocolFeeRate: 0, poolEnabled: true, swapsEnabled: true,
     createdAt: 0, chainTimestamp: 10030, lookupTable: PublicKey.default,
     unsupportedTokenIndices: [], syncedAt: 10030_000,
@@ -126,9 +126,9 @@ describe("proportional liquidity quotes", () => {
   test.each(["0", "-1", "1000000001", (U64_MAX + 1n).toString()])("invalid withdrawal %s is refused", (amount) => {
     expect(client(pool()).quoteRemove(bn(amount)).ok).toBe(false);
   });
-  test("no withdrawal below the LP reserve and no liquidity quotes when disabled", () => {
+  test("below-floor redemption remains available; disabled pools refuse liquidity quotes", () => {
     const state = pool(); const c = client(state);
-    state.lpTotalSupply = bn(1000); expect(c.quoteRemove(bn(1)).ok).toBe(false);
+    state.lpTotalSupply = bn(1000); expect(c.quoteRemove(bn(1)).ok).toBe(true);
     state.lpTotalSupply = bn(2000); state.poolEnabled = false;
     expect(c.quoteRemove(bn(1)).ok).toBe(false);
     expect(c.quoteAddLiquidity([bn(1000), bn(1000)]).ok).toBe(false);

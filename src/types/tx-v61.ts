@@ -243,6 +243,13 @@ export interface VerifiedPoolIdentity {
 }
 
 export interface AtomicDeployParams {
+  /** Exact mint snapshots used with seedEpoch; both supplied together, otherwise read mints + Clock. */
+  seedMintSnapshots?: import("../utils/transferProfile").MintSnapshot[];
+  seedEpoch?: bigint;
+  /** Token-2022 transfer-hook / memo tail only; native hooks use hookAccounts. Omit to resolve. */
+  seedExtraAccounts?: AccountMeta[];
+  /** Conservative additional trace slots per hook-bearing transaction, covering all external callbacks in it. Required for any native hook (OnRegister always runs) and armed seed transfer hooks. Split initialization and seed transactions each receive this bound when they invoke hooks. */
+  externalCpiTraceBudget?: number;
   /** Fee payer + pool admin + seed depositor. Must be the wallet signer. */
   payer: PublicKey;
   /** Existing `CofferPoolConfig`. */
@@ -253,7 +260,7 @@ export interface AtomicDeployParams {
   tokenPrograms?: PublicKey[];
   /** Normalized weights, Σ = 10_000. */
   weights: BN[];
-  /** Seed virtual balances, each > 0 and (T22) ≥ `max(10^decimals, 1000)` raw; every `seedAmounts[i]` must stay below `virtualBalances[i]`. */
+  /** Seed virtual balances, each > 0 and (T22) ≥ `max(10^decimals, 1000)` raw; every NET seed credit must stay below `virtualBalances[i]`. */
   virtualBalances: BN[];
   /** T22: mint decimals in `mints` order; read from the mint accounts when omitted. */
   tokenDecimals?: number[];
@@ -306,6 +313,8 @@ export interface AtomicDeployParams {
 export interface AtomicDeployResult {
   /** Signed creation intent to verify before reporting a successful deployment. */
   expectedIdentity: ExpectedPoolIdentity;
+  /** Mint bytes and epoch used for seed fee netting and extra-account resolution. */
+  seedSnapshot: { epoch: bigint; mints: import("../utils/transferProfile").MintSnapshot[]; netAmounts: bigint[]; token2022Accounts: AccountMeta[]; resolutionSnapshots: Array<{ address: PublicKey; owner: PublicKey; data: Buffer; executable: boolean } | { address: PublicKey; missing: true }> };
   /** `[tx]`, `[tx1, tx2]` or `[tx1, tx2, tx3]` — hand straight to `signAllTransactions`. */
   transactions: VersionedTransaction[];
   layout: DeployLayout;

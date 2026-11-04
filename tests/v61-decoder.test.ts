@@ -33,7 +33,7 @@ const C = {
   PENDING_SET_RANGE_MANAGER_OFFSET: 1940, PENDING_SET_RANGE_MANAGER_CONFIG_OFFSET: 1981, PENDING_SET_MAX_SELLOFF_OFFSET: 2005,
   PENDING_SET_TOKEN_ACTIVE_OFFSET: 2045, COOLDOWN_BLOCK_LEN: 192,
   HOOK_PROGRAM_OFFSET: 2054, HOOK_FLAGS_OFFSET: 2086, HOOK_DISABLED_OFFSET: 2088, HOOK_FEE_MIN_OFFSET: 2089, HOOK_FEE_MAX_OFFSET: 2093,
-  HOOK_MAX_CU_OFFSET: 2097, HOOK_ACCOUNTS_LEN_OFFSET: 2101, HOOK_BLOCK_LEN: 48, RESERVED_V61_OFFSET: 2102, RESERVED_V61_LEN: 202,
+  HOOK_MAX_CU_OFFSET: 2097, HOOK_ACCOUNTS_LEN_OFFSET: 2101, HOOK_BLOCK_LEN: 48, SAFETY_FLAGS_OFFSET: 2102, RANGE_MANAGER_WEIGHT_ANCHORS_OFFSET: 2104, RESERVED_V61_OFFSET: 2124, RESERVED_V61_LEN: 180,
   TREASURY_LEN_V1: 786, TREASURY_LEN_V2: 818, TREASURY_LEN_V3: 1624,
   TREASURY_DELAY_SECS_OFFSET: 818, TREASURY_ADMIN_EPOCH_OFFSET: 822, TREASURY_PENDING_ADMIN_ETA_OFFSET: 826,
   TREASURY_PENDING_SET_DELAY_OFFSET: 834, TREASURY_PENDING_SET_SUPERVISOR_OFFSET: 846, TREASURY_PENDING_WITHDRAW_OFFSET: 886,
@@ -41,10 +41,10 @@ const C = {
   TREASURY_PENDING_POOL_SET_PROTOCOL_FEE_RATE_OFFSET: 1119, TREASURY_PENDING_POOL_SET_POOL_ENABLED_OFFSET: 1161,
   TREASURY_PENDING_POOL_SET_TOKEN_ACTIVE_OFFSET: 1201, TREASURY_PENDING_UNFREEZE_POOLS_OFFSET: 1242,
   TREASURY_PENDING_POOL_PROTOCOL_ADMIN_TRANSFER_OFFSET: 1282, TREASURY_PENDING_UPGRADE_PROGRAM_OFFSET: 1354,
-  TREASURY_PENDING_PROGRAM_OP_OFFSET: 1426, TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET: 1499, TREASURY_RESERVED_V61_OFFSET: 1547, TREASURY_RESERVED_V61_LEN: 77,
+  TREASURY_PENDING_PROGRAM_OP_OFFSET: 1426, TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET: 1499, TREASURY_PENDING_POOL_ENABLE_RANGE_MANAGER_OFFSET: 1547, TREASURY_RESERVED_V61_OFFSET: 1587, TREASURY_RESERVED_V61_LEN: 37,
   MAX_DELAY_SECS: 30 * 86_400, GRACE_PERIOD_SECS: 14 * 86_400,
   POOL_ACTION_KIND: { TransferPoolAdmin: 0, SetDelay: 1, SetSwapFeeRate: 2, SetCreatorFeeBps: 3, SetLiquidityFees: 4, LockLiquidityFees: 5, LockRangeManager: 6, SetRangeManager: 7, SetRangeManagerConfig: 8, SetMaxSelloff: 9, SetTokenActive: 10 },
-  PROTOCOL_ACTION_KIND: { TransferAdmin: 0, SetDelay: 1, SetSupervisor: 2, Withdraw: 3, WithdrawSol: 4, PoolDebugWithdraw: 5, PoolSetProtocolFeeRate: 6, PoolSetPoolEnabled: 7, PoolSetTokenActive: 8, UnfreezePools: 9, PoolProtocolAdminTransfer: 10, UpgradeProgram: 11, ProgramOp: 12, PoolRescaleVirtualBalances: 13 },
+  PROTOCOL_ACTION_KIND: { TransferAdmin: 0, SetDelay: 1, SetSupervisor: 2, Withdraw: 3, WithdrawSol: 4, PoolDebugWithdraw: 5, PoolSetProtocolFeeRate: 6, PoolSetPoolEnabled: 7, PoolSetTokenActive: 8, UnfreezePools: 9, PoolProtocolAdminTransfer: 10, UpgradeProgram: 11, ProgramOp: 12, PoolRescaleVirtualBalances: 13, PoolEnableRangeManager: 14 },
 } as const;
 const POOL_DISC = Buffer.from("89d22a16d19c2b4e", "hex");
 
@@ -141,6 +141,7 @@ function treasuryV3(): Buffer {
   b.writeBigInt64LE(1_800_000_012n, C.TREASURY_PENDING_PROGRAM_OP_OFFSET); b[C.TREASURY_PENDING_PROGRAM_OP_OFFSET + 8] = 1; key(93).toBuffer().copy(b, C.TREASURY_PENDING_PROGRAM_OP_OFFSET + 9); key(94).toBuffer().copy(b, C.TREASURY_PENDING_PROGRAM_OP_OFFSET + 41);
   // v6.1 (T22) kind 13
   b.writeBigInt64LE(1_800_000_013n, C.TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET); key(95).toBuffer().copy(b, C.TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET + 8); b.writeBigUInt64LE(1_000_000_000n, C.TREASURY_PENDING_POOL_RESCALE_VIRTUAL_BALANCES_OFFSET + 40);
+  b.writeBigInt64LE(1_800_000_014n, C.TREASURY_PENDING_POOL_ENABLE_RANGE_MANAGER_OFFSET); key(96).toBuffer().copy(b, C.TREASURY_PENDING_POOL_ENABLE_RANGE_MANAGER_OFFSET + 8);
   return b;
 }
 
@@ -169,7 +170,8 @@ describe("v6.1 layout constants agree with the contracts' v61-layout.ts", () => 
     const L = POOL_LAYOUT;
     expect([L.HOOK_PROGRAM.offset, L.HOOK_FLAGS.offset, L.HOOK_DISABLED.offset, L.HOOK_FEE_MIN.offset, L.HOOK_FEE_MAX.offset, L.HOOK_MAX_CU.offset, L.HOOK_ACCOUNTS_LEN.offset, L.RESERVED_V61.offset, L.RESERVED_V61.size])
       .toEqual([C.HOOK_PROGRAM_OFFSET, C.HOOK_FLAGS_OFFSET, C.HOOK_DISABLED_OFFSET, C.HOOK_FEE_MIN_OFFSET, C.HOOK_FEE_MAX_OFFSET, C.HOOK_MAX_CU_OFFSET, C.HOOK_ACCOUNTS_LEN_OFFSET, C.RESERVED_V61_OFFSET, C.RESERVED_V61_LEN]);
-    expect(L.RESERVED_V61.offset - L.HOOK_PROGRAM.offset).toBe(C.HOOK_BLOCK_LEN);
+    expect(L.SAFETY_FLAGS.offset - L.HOOK_PROGRAM.offset).toBe(C.HOOK_BLOCK_LEN);
+    expect(L.RANGE_MANAGER_WEIGHT_ANCHORS.offset).toBe(C.RANGE_MANAGER_WEIGHT_ANCHORS_OFFSET);
     const T = TREASURY_LAYOUT;
     expect([TREASURY_LEN_V1, TREASURY_LEN_V2, TREASURY_LEN_V3]).toEqual([C.TREASURY_LEN_V1, C.TREASURY_LEN_V2, C.TREASURY_LEN_V3]);
     expect([T.DELAY_SECS.offset, T.ADMIN_EPOCH.offset, T.PENDING_ADMIN_ETA.offset, T.PENDING_SET_DELAY.offset, T.PENDING_SET_SUPERVISOR.offset, T.PENDING_WITHDRAW.offset,
@@ -188,7 +190,7 @@ describe("v6.1 layout constants agree with the contracts' v61-layout.ts", () => 
       "LIQUIDITY_FEE_LOCK", "RANGE_MANAGER_LOCKED", "POOL_ADMIN_DELAY_SECS", "POOL_ADMIN_EPOCH", "PENDING_POOL_ADMIN_ETA", "PENDING_SET_DELAY", "PENDING_SET_SWAP_FEE_RATE",
       "PENDING_SET_CREATOR_FEE_BPS", "PENDING_SET_LIQUIDITY_FEES", "PENDING_LOCK_LIQUIDITY_FEES", "PENDING_LOCK_RANGE_MANAGER", "PENDING_SET_RANGE_MANAGER",
       "PENDING_SET_RANGE_MANAGER_CONFIG", "PENDING_SET_MAX_SELLOFF", "PENDING_SET_TOKEN_ACTIVE", "HOOK_PROGRAM", "HOOK_FLAGS", "HOOK_DISABLED", "HOOK_FEE_MIN",
-      "HOOK_FEE_MAX", "HOOK_MAX_CU", "HOOK_ACCOUNTS_LEN", "RESERVED_V61"];
+      "HOOK_FEE_MAX", "HOOK_MAX_CU", "HOOK_ACCOUNTS_LEN", "SAFETY_FLAGS", "RANGE_MANAGER_WEIGHT_ANCHORS", "RESERVED_V61"];
     for (let i = 1; i < order.length; i++) expect(L[order[i - 1]].offset + L[order[i - 1]].size).toBe(L[order[i]].offset);
     expect(L.RESERVED.offset + L.RESERVED.size).toBe(1683);
     expect(L.RESERVED_V61.offset + L.RESERVED_V61.size).toBe(2304);
@@ -196,13 +198,13 @@ describe("v6.1 layout constants agree with the contracts' v61-layout.ts", () => 
     const T = TREASURY_LAYOUT as any;
     const torder = ["SUPERVISOR", "DELAY_SECS", "ADMIN_EPOCH", "PENDING_ADMIN_ETA", "PENDING_SET_DELAY", "PENDING_SET_SUPERVISOR", "PENDING_WITHDRAW", "PENDING_WITHDRAW_SOL",
       "PENDING_POOL_DEBUG_WITHDRAW", "PENDING_POOL_SET_PROTOCOL_FEE_RATE", "PENDING_POOL_SET_POOL_ENABLED", "PENDING_POOL_SET_TOKEN_ACTIVE", "PENDING_UNFREEZE_POOLS",
-      "PENDING_POOL_PROTOCOL_ADMIN_TRANSFER", "PENDING_UPGRADE_PROGRAM", "PENDING_PROGRAM_OP", "PENDING_POOL_RESCALE_VIRTUAL_BALANCES", "RESERVED_V61"];
+      "PENDING_POOL_PROTOCOL_ADMIN_TRANSFER", "PENDING_UPGRADE_PROGRAM", "PENDING_PROGRAM_OP", "PENDING_POOL_RESCALE_VIRTUAL_BALANCES", "PENDING_POOL_ENABLE_RANGE_MANAGER", "RESERVED_V61"];
     for (let i = 1; i < torder.length; i++) expect(T[torder[i - 1]].offset + T[torder[i - 1]].size).toBe(T[torder[i]].offset);
     expect(T.RESERVED_V61.offset + T.RESERVED_V61.size).toBe(1624);
   });
   test("[P05] kind tables and cooldown constants", () => {
     expect(POOL_ACTION_KIND).toEqual(C.POOL_ACTION_KIND); expect(PROTOCOL_ACTION_KIND).toEqual(C.PROTOCOL_ACTION_KIND);
-    expect(POOL_ACTION_KINDS).toHaveLength(11); expect(PROTOCOL_ACTION_KINDS).toHaveLength(14);
+    expect(POOL_ACTION_KINDS).toHaveLength(11); expect(PROTOCOL_ACTION_KINDS).toHaveLength(15);
     expect(MAX_DELAY_SECS).toBe(C.MAX_DELAY_SECS); expect(GRACE_PERIOD_SECS).toBe(C.GRACE_PERIOD_SECS);
   });
 });
@@ -212,7 +214,7 @@ describe("decodePoolAccount on a 2304-byte v6.1 account", () => {
   test("[P06] legacy prefix fields are unchanged", () => {
     expect(raw.dataLen).toBe(2304); expect(raw.tokenCount).toBe(3); expect(raw.poolId.toString()).toBe("123456789"); expect(raw.swapFeeRate).toBe(3000);
     expect(raw.protocolFeeRate).toBe(1000); expect(raw.poolAdmin.equals(key(3))).toBe(true); expect(raw.lookupTable.equals(key(30))).toBe(true);
-    expect(raw.deprecatedBannedExtensions.toString()).toBe(String(0xdeadbeef)); expect(raw.rangeManagerMaxLeverageBps).toBe(20000); expect(raw.rangeManagerMinLeverageBps).toBe(5000);
+    expect(raw.deprecatedBannedExtensions.toString()).toBe(String(0xdeadbeef)); expect(raw.rangeManagerMaxConcentrationFactorBps).toBe(20000); expect(raw.rangeManagerMinConcentrationFactorBps).toBe(5000);
     expect(raw.v5Migrated).toBe(true); expect(raw.tokenMints[1].equals(key(11))).toBe(true); expect(raw.tokenPrograms[1].equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
     expect(raw.actualBalances[2].toString()).toBe("2700000"); expect(raw.variableFeeKinkPct[0]).toBe(90);
   });
@@ -241,14 +243,14 @@ describe("decodePoolAccount on a 2304-byte v6.1 account", () => {
     expect(p[1].payload).toEqual({ secs: 3600 }); expect(p[2].payload).toEqual({ rate: 4000 }); expect(p[3].payload).toEqual({ bps: 1234 });
     expect(p[4].payload).toEqual({ depositFeeBps: 11, withdrawFeeBps: 22 }); expect(p[5].payload).toEqual({}); expect(p[6].payload).toEqual({});
     expect((p[7].payload.manager as PublicKey).equals(key(40))).toBe(true); expect(p[7].payload.enabled).toBe(true);
-    expect(p[8].payload).toEqual({ maxVbChangePct: 501, maxWeightChangePct: 602, minUpdateIntervalSecs: 61, maxLeverageBps: 20001, minLeverageBps: 5001 });
+    expect(p[8].payload).toEqual({ maxVbChangePct: 501, maxWeightChangePct: 602, minUpdateIntervalSecs: 61, maxConcentrationFactorBps: 20001, minConcentrationFactorBps: 5001 });
     expect(p[9].payload).toEqual({ paramsHash: "ab".repeat(32) }); expect(p[10].payload).toEqual({ tokenIndex: 2 });
     expect(raw.pendingActionsMask).toBe(0b11111111111);
   });
   test("[P13] T9 hook block", () => {
     expect(raw.hookProgram.equals(key(41))).toBe(true); expect(raw.hookFlags).toBe(0b1110000); expect(raw.hookDisabled).toBe(0);
     expect(raw.hookFeeMin).toBe(100); expect(raw.hookFeeMax).toBe(50_000); expect(raw.hookMaxCu).toBe(60_000); expect(raw.hookAccountsLen).toBe(4);
-    expect(raw.reservedV61.length).toBe(202); expect(raw.reservedV61.every((b) => b === 0)).toBe(true);
+    expect(raw.reservedV61.length).toBe(180); expect(raw.reservedV61.every((b) => b === 0)).toBe(true);
   });
   test("[P14] an empty cooldown block decodes as nothing pending", () => {
     const b = v61Pool(); b.fill(0, C.POOL_ADMIN_DELAY_SECS_OFFSET, C.HOOK_PROGRAM_OFFSET);
@@ -329,7 +331,7 @@ describe("decodeTreasuryAccount", () => {
     expect(t.delaySecs).toBe(7200); expect(t.adminEpoch).toBe(5); expect(t.pendingAdminEta.toString()).toBe("1800000000");
     const p = t.pendingActions;
     expect(p.map((s) => s.name)).toEqual([...PROTOCOL_ACTION_KINDS]);
-    expect(p.map((s) => s.eta.toString())).toEqual(Array.from({ length: 14 }, (_, i) => String(1_800_000_000 + i)));
+    expect(p.map((s) => s.eta.toString())).toEqual(Array.from({ length: 15 }, (_, i) => String(1_800_000_000 + i)));
     expect((p[13].payload.pool as PublicKey).equals(key(95))).toBe(true); expect(p[13].payload.multiplier!.toString()).toBe("1000000000"); expect(p[13].name).toBe("PoolRescaleVirtualBalances");
     expect((p[0].payload.newAdmin as PublicKey).equals(key(51))).toBe(true);
     expect(p[1].payload).toEqual({ secs: 99 }); expect((p[2].payload.key as PublicKey).equals(key(80))).toBe(true);
@@ -343,7 +345,7 @@ describe("decodeTreasuryAccount", () => {
     expect((p[10].payload.config as PublicKey).equals(key(89))).toBe(true); expect((p[10].payload.newAdmin as PublicKey).equals(key(90))).toBe(true);
     expect((p[11].payload.program as PublicKey).equals(key(91))).toBe(true); expect((p[11].payload.buffer as PublicKey).equals(key(92))).toBe(true);
     expect(p[12].payload.op).toBe(1); expect((p[12].payload.program as PublicKey).equals(key(93))).toBe(true); expect((p[12].payload.target as PublicKey).equals(key(94))).toBe(true);
-    expect(t.pendingActionsMask).toBe(0b11111111111111); expect(t.reservedV61NonZero).toBe(false);
+    expect(t.pendingActionsMask).toBe(0b111111111111111); expect(t.reservedV61NonZero).toBe(false);
   });
   test("[P27] an empty v3 cooldown block reads as direct-path (delay 0, nothing pending)", () => {
     const b = treasuryV3(); b.fill(0, 818, 1624);

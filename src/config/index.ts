@@ -124,6 +124,16 @@ export const LIQUIDITY_FEE_PRECISION = 10_000;
 export const MAX_LIQUIDITY_FEE_BPS = 10_000;
 /** T7: `CofferPool.liquidity_fee_lock` bit — once set, `set_liquidity_fees` is rejected for ever. */
 export const LIQUIDITY_FEE_LOCK_FROZEN = 0x01;
+/** rc2: `CofferPool.safety_flags` bits (u16 @2102). Bits 1..=10 are the per-token protocol input-restriction bitmap. */
+export const SAFETY_FLAG_SEEDED = 1;
+export const SAFETY_TOKEN_RESTRICTION_SHIFT = 1;
+export const SAFETY_TOKEN_RESTRICTION_MASK = 0x3ff;
+export const SAFETY_FLAG_SWAPS_RESTRICTED = 1 << 11;
+export const SAFETY_FLAG_RANGE_MANAGER_RESTRICTED = 1 << 12;
+/** rc2: set with `SAFETY_FLAG_RANGE_MANAGER_RESTRICTED` when the manager was enabled at suspension; the protocol release restores that state and clears both. */
+export const SAFETY_FLAG_RANGE_MANAGER_WAS_ENABLED = 1 << 13;
+/** Every defined `safety_flags` bit; anything else is reported as `layoutDrift`. */
+export const SAFETY_FLAGS_KNOWN_MASK = 0x3fff;
 /** T2: creator-chosen initial LP supply bounds (raw, 9 decimals). */
 export const MIN_INITIAL_LP_SUPPLY = 1_000_000_000n; // 1 LP
 export const MAX_INITIAL_LP_SUPPLY = 10_000_000_000_000_000n; // 1e7 LP

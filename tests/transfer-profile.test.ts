@@ -202,7 +202,7 @@ describe("resolveTransferExtraAccounts", () => {
     const expected = mode === "public key" ? chosen : PublicKey.findProgramAddressSync([chosen.toBuffer().subarray(0, 4)], hook)[0];
     const resolved = await f.resolve();
     expect(resolved.some((item) => item.pubkey.equals(expected))).toBe(true);
-    expect(commitments).toEqual(["confirmed", "confirmed"]);
+    expect(commitments).toEqual(["confirmed"]); // one pinned snapshot reused by both legs
   });
 
   test("an additional signer is outside the supported profile", async () => {
@@ -280,7 +280,7 @@ describe("per-instruction resolvers", () => {
       tokens: f.mints.map((mint, index) => ({
         index, mint, tokenProgram: f.tokenPrograms[index], decimals: 6, weightBps: 5000,
         virtualBalance: new BN(1_000_000), actualBalance: new BN(1_000_000), protocolFeesOwed: new BN(0),
-        vault: f.vaults[index], concentration: 1, isActive: true, maxSelloffPct: 0, extensions: index === 1 ? [ExtensionType.TransferHook] : [], unsupportedExtensions: [],
+        vault: f.vaults[index], concentrationFactor: 1, isActive: true, maxSelloffPct: 0, extensions: index === 1 ? [ExtensionType.TransferHook] : [], unsupportedExtensions: [],
         transferHookProgram: index === 1 ? hook : null, transferFee: null, paused: false,
       })),
       lpMint: f.lpMint, lpTokenProgram: TOKEN_PROGRAM_ID, lpTotalSupply: new BN(1_000_000), swapFeeRate: 0, protocolFeeRate: 0,
@@ -333,4 +333,24 @@ describe("per-instruction resolvers", () => {
     expect(() => buildSwapIx(cfg, pool, { user: f.user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(100), minAmountOut: new BN(1), extraAccounts: [{ pubkey: state, isSigner: true, isWritable: false }] })).toThrow(/signers/);
     expect(() => buildSwapIx(cfg, pool, { user: f.user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(100), minAmountOut: new BN(1), extraAccounts: [...tail, tail[0]] })).toThrow(/duplicate/);
   });
+  test("current source exit: amount-seeded hook sees reserve + surge, separate fee ceilings, effective floor and surge-only legs", async () => {
+    const entry = Buffer.alloc(35); entry[0] = 1; entry[1] = 2; entry[2] = 8; entry[3] = 8;
+    const { pool, f } = withAtas(fixture(registry([entry])));
+    pool.withdrawFeeBps = 1;
+    pool.tokens[1].surgeFeesOwed = new BN(1_000_000);
+    const check = async (expected: bigint, burn = 10_000) => {
+      const tail = await resolveRemoveLiquidityExtraAccounts(f.reader, pool, { user: f.user, lpAmount: new BN(burn) }, { mintSnapshots: f.snapshots });
+      const bytes = Buffer.alloc(8); bytes.writeBigUInt64LE(expected);
+      expect(tail.some(m => m.pubkey.equals(PublicKey.findProgramAddressSync([bytes], hook)[0]))).toBe(true);
+    };
+    await check(19_998n);
+    pool.tokens[1].actualBalance = new BN(0);
+    await check(9_999n);
+    await check(998_900n, 1_000_000); // floor retains 1000 LP; ceil(999000 / 10000)=100
+    pool.withdrawFeeBps = 10_000;
+    await expect(resolveRemoveLiquidityExtraAccounts(f.reader, pool, { user: f.user, lpAmount: new BN(10_000) }, { mintSnapshots: f.snapshots })).rejects.toThrow(/WithdrawFeeConsumesAll/);
+    pool.tokens.forEach(t => { t.actualBalance = new BN(0); t.surgeFeesOwed = new BN(0); });
+    expect(await resolveRemoveLiquidityExtraAccounts(f.reader, pool, { user: f.user, lpAmount: new BN(10_000) }, { mintSnapshots: f.snapshots })).toEqual([]);
+  });
+
 });

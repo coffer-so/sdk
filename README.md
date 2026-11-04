@@ -12,29 +12,24 @@ for the migration table. The on-chain PDA seed bytes (`"cubic_pool"`,
 `LP_MINT_SEED`).
 
 This is a separate package from [`@coffer_so/sdk`](https://www.npmjs.com/package/@coffer_so/sdk)
-(the 1.x line), which keeps tracking the v5 contracts deployed on mainnet.
+(the 1.x line), which targets the historical v5 ABI.
 Pick by the program version you talk to:
 
 | Package | Contracts | Status |
 | --- | --- | --- |
 | `@coffer_so/sdk` 1.x | v5 (`main`, mainnet since 2026-09-07) | stable |
-| `@coffer_so/sdk-v6` 0.x | v6 (`contracts/v6`: Token-2022 transfer fees, hooks and memos; planned single-token deposits; 100 % fee ceilings; v6 rounding) | pre-release until v6 is deployed |
+| `@coffer_so/sdk-v6` 0.x | v6.1 (`../contracts-v6.1`: Token-2022 transfer fees, hooks and memos; planned single-token deposits; 100 % fee ceilings; v6 rounding) | deployment verification required |
 
 ## Contract compatibility
 
-This release targets `contracts` **v6.1** (`v6.1-t11` at `409067d`: T9 hooks,
-T22 leverage invariant, T11 events): the 2304-byte pool layout, LP metadata,
-seed deposits, admin cooldowns, vault-PDA fee claims, deposit / withdraw /
-creator fees, surge buckets, sidelined tokens, native hooks, the atomic
-deploy, the strict leverage invariant with `rescale_virtual_balances` and the
-re-cut `…V2` events. The vendored IDLs match that revision; `address` fields
-carry the v6 deployment ids and `MAINNET_V51_FACTORY_PROGRAMS` the v6.1
-factory. Typed `buildContractInstruction` covers all 107 instructions,
-`parseContractEvents` all 79 events, and `decodeContractAccount` every
-declared account. See
-[the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for usage and
-limits, and [the exact state-field mapping](docs/STATE_FIELDS.md) for decoded
-account data.
+Source: `contracts-v6.1` at `v6.1-rc2` (IDL sha256 pins in
+[CONTRACT_COMPATIBILITY.md](docs/CONTRACT_COMPATIBILITY.md)). Vendored IDLs
+contain 110 instructions (51 + 55 + 4) and 81 events (41 + 38 + 2); raw
+builders, generated types and event decoding cover that ABI.
+Program addresses are configuration values; this checkout has no verified owner
+deployment receipt for installed devnet v6.1. Final stable contract integration
+remains a parent gate. [Compatibility](docs/CONTRACT_COMPATIBILITY.md),
+[state fields](docs/STATE_FIELDS.md), [owner devnet tests](docs/OWNER_DEVNET_TESTS.md).
 
 ## Install
 
@@ -263,8 +258,8 @@ insufficient funds) short-circuit.
 | `CofferPoolClient` | `sync`, `getCached`, `quoteSwap`, `quoteSeedDeposit`, `quoteAddLiquidity`, `quoteRemove`, `resolve*ExtraAccounts`, swap/add/remove transaction builders, `plannedZap` getter, `quotePlannedZap`, `parseEventsFromLogs` |
 | `PlannedZapClient` | `quote`, `replayAt`, `ensureUserTokenAccountIxs`, `resolveExtraAccounts`, `buildIx`, `buildTx`, `walletLookupAddresses`, `prepareWalletLookupTable`, `waitForWalletLookupTable`, `poolLookupTable`, `compileTransaction`; see [PLANNED_ZAP.md](docs/PLANNED_ZAP.md) |
 | `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializePoolIx` |
-| `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 29 protocol-admin instructions |
-| Generic ABI | `buildContractInstruction` for all 107 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 79 events; `parseTransactionEvents` with invoke-stack attribution ([EVENTS.md](docs/EVENTS.md)) |
+| `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 55 protocol-admin instructions |
+| Generic ABI | `buildContractInstruction` for all 110 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 81 events; `parseTransactionEvents` with invoke-stack attribution ([EVENTS.md](docs/EVENTS.md)) |
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation; `buildPlannedZapIx`, `stateCommitment`, `compilePlannedZapTransaction`; `resolveTransferExtraAccounts` |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 | XP snapshots | Frozen results of finished epochs and campaigns — `getLeaderboardEpochSnapshot`, `getCampaignSnapshotTop`, …; see [XP snapshots guide](docs/XP_SNAPSHOTS.md) |
@@ -296,7 +291,8 @@ const zap = await pool.plannedZap.quote(inIndex, amountIn, { slippageHundredthsB
 - Join `tokenAmounts` are spend ceilings. Display `creditedAmounts` as the pool
   credit, `chargedAmounts` as the wallet debit (credit + transfer fee) and
   `unspentAmounts` as what stays. Seed uses exact amounts.
-- Exit `effectiveLpIn` may be smaller than requested to preserve 1,000 raw LP;
+- Exit `effectiveLpIn` may be smaller than requested to preserve 1,000 raw LP. If direct external burns already reduced supply to
+  that floor or below, rc2 permits redemption of the remaining full supply;
   `receivedAmounts` is what lands in the wallet. Derive `minimumTokenAmounts`
   from it.
 - Add/zap builders require a **positive** LP floor at runtime, even though the
@@ -313,7 +309,7 @@ For 7+-token pools compile the zap with the pool ALT plus a wallet-owned ALT
 (`prepareWalletLookupTable`); neither quoting nor compiling creates an ALT.
 
 The complete typed event API keeps snake_case fields and full-width BN values.
-The camelCase `parseCofferPoolEvents` API recognizes all 79 current events
+The camelCase `parseCofferPoolEvents` API recognizes all 81 current events
 (typed `…V2` shapes for the trading / liquidity / admin events, the IDL coder
 for the rest) with numeric timestamps; pre-T11 (v6) discriminators and the
 retired `PoolStateLog` / `MaxSelloffWindowAdvanced` / `SingleTokenDeposit`

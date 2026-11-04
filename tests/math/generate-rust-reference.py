@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Compile the contracts `v6` Rust math as a native, dependency-free reference.
-Usage: python3 tests/math/generate-rust-reference.py /path/to/contracts   (checkout of `v6`)
+"""Compile the contracts `v6.1` Rust math as a native, dependency-free reference.
+Usage: python3 tests/math/generate-rust-reference.py /path/to/contracts   (checkout of `v6.1`)
 Only Anchor error plumbing is replaced; arithmetic bodies come from the repo.
 The one visibility edit is `rebase_snapshot` (private in the program) so the
 SDK's exported `rebaseSnapshot` can be pinned to it directly.
 """
 import argparse, hashlib, json, pathlib, re, subprocess, tempfile
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("contracts", type=pathlib.Path, help="Contracts repository checked out at the v6 revision")
+parser.add_argument("contracts", type=pathlib.Path, help="Contracts repository checked out at the v6.1 revision")
 root = parser.parse_args().contracts.resolve()
 sources={
  'log_exp_math':'programs/coffer-pool/src/math/log_exp_math.rs',
  'fixed_point':'programs/coffer-pool/src/math/fixed_point.rs',
+ 'fee_split':'programs/coffer-pool/src/math/fee_split.rs',
  'pool_math':'programs/coffer-pool/src/math/pool_math.rs',
- 'weighted_math':'programs/coffer-pool/src/math/weighted_math.rs',
  'max_selloff':'programs/coffer-pool/src/math/max_selloff.rs',
  'surge_fee':'programs/coffer-pool/src/math/surge_fee.rs',
  'single_token':'programs/single-token-liquidity/src/math.rs',
@@ -21,17 +21,17 @@ sources={
 SWAP='programs/coffer-pool/src/instructions/user/swap.rs'
 preamble='''#![allow(dead_code,unused_imports,unused_mut,unused_variables)]
 extern crate self as coffer_pool;
-#[derive(Debug,Clone,Copy)] enum E {MathOverflow,MathUnderflow,DivisionByZero,AmountOutExceedsBalance,InvalidArrayLength,InvalidTokenCount,PoolNotSeeded,InvalidLpAmount,InvalidWeights,MaxSelloffInvalidConfig,MaxSelloffExceeded,InvalidTokenIndex,InvalidVirtualBalance,AmountTooSmall,TokenLivenessMismatch,InvalidVirtualBalances,InvalidAmounts,TransferFeeCalculationMismatch,AmountFullyConsumedByTransferFee,TokenInactive,DepositTooSmall,InvalidSurgeFeeConfig,ZeroFeeAmount,InsufficientLiquidity,SlippageExceeded}
+#[derive(Debug,Clone,Copy)] enum E {MathOverflow,MathUnderflow,DivisionByZero,AmountOutExceedsBalance,InvalidArrayLength,InvalidTokenCount,PoolNotSeeded,InvalidLpAmount,InvalidWeights,MaxSelloffInvalidConfig,MaxSelloffExceeded,InvalidTokenIndex,InvalidVirtualBalance,AmountTooSmall,TokenLivenessMismatch,InvalidVirtualBalances,InvalidAmounts,TransferFeeCalculationMismatch,AmountFullyConsumedByTransferFee,TokenInactive,DepositTooSmall,InvalidSurgeFeeConfig,ZeroFeeAmount,InsufficientLiquidity,SlippageExceeded,ProtocolFeeRateMaxExceeded,CreatorFeeBpsMaxExceeded,VirtualBalanceNotAboveActual,VirtualBalanceBelowFloor,InvalidVirtualRescale}
 type Result<T> = std::result::Result<T,E>;
 macro_rules! require { ($ok:expr,$err:expr) => {if !$ok{return Err($err.into());}}; }
 macro_rules! err { ($err:expr) => {Err($err.into())}; }
 mod errors {pub(crate) use crate::E as ErrorCode;pub(crate) use crate::E as StldError;}
-mod constants {pub const ONE:u128=1_000_000_000_000_000_000;pub const PERCENT_SCALE:u64=10000;pub const MIN_WEIGHT:u64=100;pub const MAX_WEIGHT:u64=9900;pub const WEIGHT_SCALE:u64=10000;pub const SURGE_FEE_SEGMENTS:u8=4;pub const MIN_LP_SUPPLY:u64=1_000;pub const SWAP_FEE_PRECISION:u64=1_000_000;pub const PROTOCOL_FEE_PRECISION:u64=10_000;pub fn weight_to_fixed_point(w:u64)->u128{w as u128*ONE/10000}}
+mod constants {pub const ONE:u128=1_000_000_000_000_000_000;pub const PERCENT_SCALE:u64=10000;pub const MIN_WEIGHT:u64=100;pub const MAX_WEIGHT:u64=9900;pub const WEIGHT_SCALE:u64=10000;pub const SURGE_FEE_SEGMENTS:u8=4;pub const MIN_LP_SUPPLY:u64=1_000;pub const SWAP_FEE_PRECISION:u64=1_000_000;pub const PROTOCOL_FEE_PRECISION:u64=10_000;pub const CREATOR_FEE_PRECISION:u64=10_000;pub const NO_CREATOR_FEE:u16=0;pub fn weight_to_fixed_point(w:u64)->u128{w as u128*ONE/10000}}
 mod state {#[derive(Debug,Clone,Copy,Default)] pub struct AssetDynamics {pub virtual_balance:u64,pub actual_balance:u64,pub protocol_fees_owed:u64,pub previous_selloff:u64,pub current_selloff:u64,pub window_start_timestamp:i64,pub selloff_vb_snapshot:u64} pub struct Config {pub max_selloff_pct:u16} pub struct Token {pub config:Config,pub dynamics:AssetDynamics} pub struct CofferPool {pub tokens:Vec<Token>}}
 '''
 # Sanitizing imports/error types is necessary to compile outside Anchor. No math edits.
 def sanitized(text):
- text=text.split('#[cfg(test)]')[0]
+ text=re.split(r'#\[cfg\(test\)\]\s*mod\s+\w+\s*\{',text,maxsplit=1)[0]
  text=re.sub(r'^//!.*$', '', text, flags=re.M)
  text=text.replace('use anchor_lang::prelude::*;', 'use crate::Result;')
  text=text.replace('\nfn rebase_snapshot(', '\npub fn rebase_snapshot(')
@@ -39,7 +39,7 @@ def sanitized(text):
 mathmod='mod math {\n'
 for name,path in sources.items():
  if name!='single_token':mathmod+='pub mod '+name+' {\n'+sanitized((root/path).read_text())+'\n}\n'
-mathmod+='}\nmod single_token {\n'+sanitized((root/sources['single_token']).read_text())+'\n}\n'
+mathmod+='pub use fee_split::split_fee;\n}\nmod single_token {\n'+sanitized((root/sources['single_token']).read_text())+'\n}\n'
 swap=(root/SWAP).read_text()
 # The two fee helpers verbatim (ceil rounding is the audited behaviour).
 fees=swap[swap.index('pub fn calculate_swap_fee'):swap.index('#[cfg(test)]\nmod protocol_fee_tests')]
@@ -70,6 +70,11 @@ let amounts=[1u64,3,1000,100_000_000,990_000_000,1_000_000_000,100_000_000_000,M
 for amount in amounts {for wi in [100u64,5000,8000,9500,9900]{let wo=10000-wi;println!("{{\"kind\":\"swap\",\"amount\":\"{}\",\"weight\":{},\"expected\":{}}}",amount,wi,value(PoolMath::calc_out_given_in(1_000_000_000,wi,1_000_000_000,wo,amount,1_000_000_000,9,9)));}}
 // v6: equal positive weights take the exact `base` path (no ln/exp); unequal keep pow.
 for (vb_in,vb_out,actual_out) in [(1_000_000_000u64,1_000_000_000u64,1_000_000_000u64),(1,1,1),(3,7,7),(1_000_000,3_000_000_000,3_000_000_000),(M,M,M),(M,1,1),(1_000_000_000,2_000_000_000,500_000_000)] {for amount in [1u64,2,999,1_000_000,1_000_000_000,M] {for w in [100u64,2500,5000,9900,10000]{println!("{{\"kind\":\"swapEqualWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weight\":{},\"expected\":{}}}",vb_in,vb_out,actual_out,amount,w,value(PoolMath::calc_out_given_in(vb_in,w,vb_out,w,amount,actual_out,9,9)));}}}
+// Exact-integer counterexamples and full-u64 unequal-weight boundaries.
+for (vb_in,wi,amount) in [(223130160148429829u64,200u64,776869839851570171u64),(416862019678508403,200,583137980321491597),(687289278790972199,800,312710721209027801),(882496902584595403,800,117503097415404597),(882496902584595403,1600,117503097415404597)] {
+println!("{{\"kind\":\"swapUnequalWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weightIn\":{},\"weightOut\":100,\"expected\":{}}}",vb_in,M,M-1,amount,wi,value(PoolMath::calc_out_given_in(vb_in,wi,M,100,amount,M-1,9,9)));}
+for exponent in [2u64,3,8,16,32,64,99] {for vb_in in [3u64,1_000_000_000,1_000_000_000_000_000_000,M] {for amount in [0u64,1,vb_in/100,vb_in/10] {for vb_out in [1u64,1_000_000_000,M] {
+println!("{{\"kind\":\"swapUnequalWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weightIn\":{},\"weightOut\":100,\"expected\":{}}}",vb_in,vb_out,vb_out,amount,exponent*100,value(PoolMath::calc_out_given_in(vb_in,exponent*100,vb_out,100,amount,vb_out,9,9)));}}}}
 for amounts in [[1_000_000u64,1_000_000],[1_000_000,500_000_000],[400_000,800_000],[68_056_473_384_187_693,68_056_473_384_187_693],[M,M-1]] {for amount in [1u64,1000,1_000_000,M]{println!("{{\"kind\":\"allocation\",\"actual\":[\"{}\",\"{}\"],\"amount\":\"{}\",\"expected\":{}}}",amounts[0],amounts[1],amount,list(single_token::compute_allocations(&amounts,&[1_000_000,1_000_000],&[5000,5000],amount,0)));}}
 let curves=[(0u16,0u16,0u16,3000u16,0u8),(8000,10,100,3000,95),(5000,100,700,8000,80),(10000,0,0,10000,0),(0,100,1000,3000,50),(2000,100,500,5000,60),(3000,250,800,4000,70),(5000,20000,30000,65535,70),(2000,700,100,3000,50)];
 for (before,after,cap) in [(0u64,10000u64,10000u64),(8000,10000,10000),(9999,10000,10000),(5000,5000,10000),(1,2,3),(12345678,556677889,1000000000),(2001,2001,10000),(6000,6000,10000),(3001,3001,10000),(2500,2500,10000),(7500,7500,10000),(0,1,M),(M-1,M,M),(10000,10000,10000),(0,0,10000)] {for (threshold,low,mid,high,kink) in curves{
@@ -134,20 +139,21 @@ for (amount,rate) in [(3998u64,1000u32),(1999,1000),(1,1),(0,1000),(M,1_000_000)
 println!("{{\"kind\":\"swapFee\",\"amount\":\"{}\",\"rate\":{},\"expected\":{}}}",amount,rate,value(calculate_swap_fee(amount,rate)));}
 for (fee,rate) in [(4u64,2000u16),(1,1),(0,2000),(10,10000),(12345,2000),(M,10000),(M,1),(5,2000),(4,2500),(1_000_000,3333)] {
 println!("{{\"kind\":\"protocolFee\",\"fee\":\"{}\",\"rate\":{},\"expected\":{}}}",fee,rate,value(calculate_protocol_fee(fee,rate)));}
-for decimals in [0u8,6,9,18] {println!("{{\"kind\":\"invariant\",\"decimals\":{},\"expected\":{}}}",decimals,value(math::weighted_math::WeightedMath::calculate_invariant(&[1_000_000_000,2_000_000_000],&[5000,5000],&[decimals,decimals])));}
-let seeded=math::weighted_math::WeightedMath::calculate_invariant(&[3,3],&[5000,5000],&[0,0]).unwrap() as u64;
+// removed invariant in v6.1: no oracle rows
+// for decimals in [0u8,6,9,18] {println!("{{\"kind\":\"invariant\",\"decimals\":{},\"expected\":{}}}",decimals,value(math::weighted_math::WeightedMath::calculate_invariant(&[1_000_000_000,2_000_000_000],&[5000,5000],&[decimals,decimals])));}
+let seeded=3_000_000_000u64; // v6.1 creator-chosen initial LP supply
 let mut supply=seeded;let mut acquired=0u64;
 for round in 0..3 {
-let (lp,ratio)=PoolMath::calc_lp_out_given_exact_tokens_in(&[3,3],&[1,1],&[0,0],supply).unwrap();
+let (lp,ratio)=PoolMath::calc_lp_out_given_exact_tokens_in(&[3,3],&[1,1],supply).unwrap();
 let credit=PoolMath::calc_deposit_credit(3,ratio).unwrap();
 assert!(seeded>=1000 && lp>0 && credit<=1);
 println!("{{\"kind\":\"joinRounding\",\"round\":{},\"supply\":\"{}\",\"expected\":[\"{}\",\"{}\",\"{}\"]}}",round,supply,ratio,lp,credit);
 supply+=lp;acquired+=lp;
 }
-println!("{{\"kind\":\"joinRoundingExit\",\"supply\":\"{}\",\"acquired\":\"{}\",\"expected\":{}}}",supply,acquired,list(PoolMath::calc_tokens_out_given_lp_in(&[3,3],acquired,supply,&[0,0])));
+println!("{{\"kind\":\"joinRoundingExit\",\"supply\":\"{}\",\"acquired\":\"{}\",\"expected\":{}}}",supply,acquired,list(PoolMath::calc_tokens_out_given_lp_in(&[3,3],acquired,supply)));
 // v6 join leg: ratio -> lp (floor) -> credit (ceil) -> virtual balance (ceil), then the exact exit floor.
 for (actual,vb,amount,supply) in [([3u64,3u64],[5u64,5u64],[1u64,1u64],1000u64),([1_000_000,2_000_000],[3_000_000,5_000_000],[333_333,1_000_000],1_000_000_000),([4,0],[5,9],[1,0],1000),([1,M],[M,1],[1,M],M-1000),([1_000_000_000,1_000_000_000],[7_000_000_000,3],[1,1],1_000_000_000_000)] {
-let r=(||->Result<Vec<u64>>{let (lp,ratio)=PoolMath::calc_lp_out_given_exact_tokens_in(&actual,&amount,&[0,0],supply)?;let mut out=vec![lp,(ratio/ONE_U) as u64,(ratio%ONE_U) as u64];
+let r=(||->Result<Vec<u64>>{let (lp,ratio)=PoolMath::calc_lp_out_given_exact_tokens_in(&actual,&amount,supply)?;let mut out=vec![lp,(ratio/ONE_U) as u64,(ratio%ONE_U) as u64];
 for i in 0..2 {let credit=if actual[i]>0 {PoolMath::calc_deposit_credit(actual[i],ratio)?} else {0};let next=PoolMath::virtual_balance_after_deposit(vb[i],actual[i],credit,lp,supply)?;out.push(credit);out.push(next);
 let payout=if actual[i]>0 {credit} else {0};out.push(PoolMath::virtual_balance_after_withdrawal(next,actual[i]+credit,payout,lp,supply+lp)?);}
 Ok(out)})();
@@ -157,7 +163,7 @@ const ONE_U:u128=1_000_000_000_000_000_000;
 '''
 with tempfile.TemporaryDirectory(prefix='coffer-rust-math-') as tmp:
  tmp=pathlib.Path(tmp);(tmp/'reference.rs').write_text(preamble+mathmod+wrapper+main)
- subprocess.run(['rustc','--edition=2021','-O',str(tmp/'reference.rs'),'-o',str(tmp/'reference')],check=True)
+ subprocess.run(['rustc','--edition=2021','-O','-C','overflow-checks=yes',str(tmp/'reference.rs'),'-o',str(tmp/'reference')],check=True)
  rows=[json.loads(line) for line in subprocess.check_output([str(tmp/'reference')],text=True).splitlines()]
-meta={'contractBranch':'v6','contractCommit':subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip(),'sourceHashes':{p:hashlib.sha256((root/p).read_bytes()).hexdigest() for p in [*sources.values(),SWAP]},'vectors':rows}
+meta={'contractBranch':subprocess.check_output(['git','-C',str(root),'branch','--show-current'],text=True).strip(),'contractTreeDirty':bool(subprocess.check_output(['git','-C',str(root),'diff','--name-only','--',*sources.values(),SWAP],text=True).strip()),'contractCommit':subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip(),'sourceHashes':{p:hashlib.sha256((root/p).read_bytes()).hexdigest() for p in [*sources.values(),SWAP]},'generatorSha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'rustcVersion':subprocess.check_output(['rustc','--version'],text=True).strip(),'referenceCompileFlags':['--edition=2021','-O','-C','overflow-checks=yes'],'vectors':rows}
 out=pathlib.Path(__file__).parent/'fixtures/deployed-v6-math.json';out.write_text(json.dumps(meta,indent=2)+'\n');print(f'Wrote {len(rows)} native Rust reference vectors to {out}')

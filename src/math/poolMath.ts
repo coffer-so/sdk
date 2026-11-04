@@ -29,8 +29,9 @@ export function calcOutGivenIn(params: {
   // skips ln/exp there, so raw quotes differ from v5 at rounding boundaries.
   // Unequal weights keep the fixed-point power path bit for bit.
   let power = weightInBps > 0n && weightInBps === weightOutBps ? base : powFp(base, exp);
-  // Match Rust's +1 bias + clamp to ONE.
-  power = power + 1n;
+  // Production-domain ln/exp bound: <199.595 power ULP underestimation.
+  // Equal positive weights use the exact base and retain +1 ULP.
+  power += weightInBps > 0n && weightInBps === weightOutBps ? 1n : 200n;
   if (power > ONE) power = ONE;
   const comp = complement(power);
   const out = mulDown(virtualBalanceOut, comp);
@@ -153,12 +154,12 @@ export function virtualBalanceAfterDeposit(virtualBalance: bigint, actualBalance
 export function virtualBalanceAfterWithdrawal(virtualBalance: bigint, actualBalance: bigint, grossPayout: bigint, lpBurned: bigint, lpSupply: bigint): bigint {
   [virtualBalance, actualBalance, grossPayout, lpBurned, lpSupply].forEach((v) => assertU64(v));
   if (virtualBalance === 0n) throw new MathError("InvalidVirtualBalances");
-  if (lpSupply === 0n || lpBurned >= lpSupply) throw new MathError("InvalidLpAmount");
+  if (lpSupply === 0n || lpBurned > lpSupply) throw new MathError("InvalidLpAmount");
   if (grossPayout > actualBalance) throw new MathError("MathUnderflow");
   const remaining = actualBalance - grossPayout;
   let numerator: bigint, denominator: bigint;
   if (actualBalance > 0n) {
-    if (remaining === 0n) throw new MathError("InvalidAmounts");
+    if (remaining === 0n && lpBurned !== lpSupply) throw new MathError("InvalidAmounts");
     numerator = remaining; denominator = actualBalance;
   } else {
     numerator = lpSupply - lpBurned; denominator = lpSupply;
@@ -172,11 +173,11 @@ export function virtualBalanceAfterWithdrawal(virtualBalance: bigint, actualBala
   return next > 1n ? next : 1n;
 }
 
-/** `calc_effective_lp_burn`: honour the caller's ceiling while keeping `MIN_LP_SUPPLY` in supply. */
+/** Keep the normal LP floor; rc2 permits redemption below it after external burns. */
 export function calcEffectiveLpBurn(requested: bigint, supply: bigint): bigint {
   assertU64(requested); assertU64(supply);
   if (requested === 0n || requested > supply) throw new MathError("InvalidLpAmount");
-  const maxBurnable = supply > MIN_LP_SUPPLY ? supply - MIN_LP_SUPPLY : 0n;
+  const maxBurnable = supply > MIN_LP_SUPPLY ? supply - MIN_LP_SUPPLY : supply;
   if (maxBurnable === 0n) throw new MathError("InvalidLpAmount");
   return requested < maxBurnable ? requested : maxBurnable;
 }

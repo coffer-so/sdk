@@ -334,3 +334,20 @@ describe("pendingActionsStatus (T3)", () => {
     expect(clientFor(pool).pendingActionsStatus(-1).ok).toBe(false);
   });
 });
+
+
+test("pending replacement exposes latest payload and ETA; epoch invalidation exposes cleared slots", () => {
+  const now = 1_700_000_000;
+  const pool = mockPool({ pendingEtas: [0,0,now+100,0,0,0,0,0,0,0,0], chainTimestamp: now, poolAdminEpoch: 2 });
+  pool.pendingActions![2].payload = { rate: 1000 };
+  const first = unwrap(clientFor(pool).pendingActionsStatus());
+  pool.pendingActions![2] = { ...pool.pendingActions![2], eta: new BN(now+200), payload: { rate: 2000 } };
+  const replacement = unwrap(clientFor(pool).pendingActionsStatus());
+  expect(first.actions[2].payload).toEqual({ rate: 1000 });
+  expect(replacement.actions[2].payload).toEqual({ rate: 2000 });
+  expect(replacement.actions[2].eta.toString()).toBe(String(now+200));
+  expect(replacement.actions[2].secondsUntilReady).toBe(200);
+  pool.poolAdminEpoch = 3; pool.pendingActions!.forEach(a => { a.eta = new BN(0); a.payload = {}; }); pool.pendingActionsMask = 0;
+  const cleared = unwrap(clientFor(pool).pendingActionsStatus());
+  expect(cleared.epoch).toBe(3); expect(cleared.mask).toBe(0); expect(cleared.readyKinds).toEqual([]);
+});

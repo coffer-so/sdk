@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const root = path.resolve(__dirname, '..');
 const programs = { cofferPool: 'coffer_pool', protocolAdmin: 'protocol_admin', singleTokenLiquidity: 'single_token_liquidity' };
 const idls = Object.fromEntries(Object.entries(programs).map(([key, name]) => [key, JSON.parse(fs.readFileSync(path.join(root, 'src/idl', name + '.json'), 'utf8'))]));
@@ -28,7 +29,8 @@ const enumType = (variants, program) => variants.map(v => {
   if (v.fields && v.fields.length && typeof v.fields[0] !== 'object') throw new Error('Tuple enum variants are not supported');
   return `{ ${prop(v.name)}: ${fields(v.fields || [], program)} }`;
 }).join(' | ');
-const lines = ['// Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.', 'import BN from "bn.js";', 'import { PublicKey } from "@solana/web3.js";', '', 'export interface ContractTypes {'];
+const pins = Object.entries(programs).map(([key,name]) => `${key}=${crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'src/idl',name+'.json'))).digest('hex')}`).join('; ');
+const lines = ['// Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.', '// Epoch concentration-factor-20261102; ' + pins, 'import BN from "bn.js";', 'import { PublicKey } from "@solana/web3.js";', '', 'export interface ContractTypes {'];
 for (const [program, idl] of Object.entries(idls)) {
   lines.push(`  ${prop(program)}: {`);
   for (const type of idl.types || []) {

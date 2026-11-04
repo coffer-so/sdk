@@ -24,7 +24,7 @@ export interface PoolTokenInfo {
   /** Cached off-chain metadata; `undefined` if no registry hit. */
   metadata?: TokenInfo;
   /** factBalance / virtBalance as a float, for display/math. */
-  concentration: number;
+  concentrationFactor: number;
   /**
    * Per-token input kill switch. When `false`, swaps with THIS token as
    * input revert (`TokenInactive`); it can still be a swap output and
@@ -68,6 +68,8 @@ export interface PoolTokenInfo {
    * requirements are supported and are NOT listed here.
    */
   unsupportedExtensions?: number[];
+  /** rc2: an absent/closed mint on an empty leg; zero-payout exits remain available. */
+  missingMint?: boolean;
   /**
    * Token-2022 transfer-fee schedule in force at `PoolInfo.chainEpoch`
    * (`selectEpochFee` of the mint's `TransferFeeConfig`); `null` for mints
@@ -212,7 +214,7 @@ export interface PoolInfo {
    * `true` once `migrate_to_v5` stamped the `"V5M1"` marker into the
    * account's reserved bytes. A pool created by the v5/v6 program is marked
    * at creation; an unmarked pool still needs the guarded migration before
-   * its per-token kill switches and leverage band are trustworthy.
+   * its per-token kill switches and concentrationFactor band are trustworthy.
    */
   v5Migrated?: boolean;
   /** Total supply of LP tokens at snapshot time. */
@@ -235,12 +237,12 @@ export interface PoolInfo {
    * manager may leave a token at, in basis points (10_000 = 1.0×). `0` ⇒
    * band disabled. New in v5.1 — `0` on pools written by the older program.
    */
-  rangeManagerMaxLeverageBps?: number;
+  rangeManagerMaxConcentrationFactorBps?: number;
   /**
    * Absolute LOWER bound on the same ratio, same units. `0` ⇒ floor
    * disabled. New in v5.1.
    */
-  rangeManagerMinLeverageBps?: number;
+  rangeManagerMinConcentrationFactorBps?: number;
   /** Unix timestamp (ms) when sync() ran. Useful for staleness checks. */
   syncedAt: number;
 
@@ -278,6 +280,15 @@ export interface PoolInfo {
   liquidityFeesLocked?: boolean;
   /** v6.1 (T6): `true` ⇒ the pool can never have a range manager again. */
   rangeManagerLocked?: boolean;
+  /** rc2: durable seed history survives external LP burns. */
+  seeded?: boolean;
+  /** rc2: restrictions that only the protocol may lift. */
+  protocolRestrictedTokenMask?: number;
+  protocolSwapsRestricted?: boolean;
+  protocolRangeManagerRestricted?: boolean;
+  /** rc2: the manager was enabled when the protocol suspended it; the protocol release restores that state (bit 13). */
+  protocolRangeManagerWasEnabled?: boolean;
+  rangeManagerWeightAnchors?: number[];
   /** v6.1 (T3): pool-admin cooldown in force (seconds; 0 = direct instructions work). */
   poolAdminDelaySecs?: number;
   /** v6.1 (T3): bumped on every pool-admin change; voids every pending slot. */
@@ -297,7 +308,7 @@ export interface PoolInfo {
    * until the protocol admin runs `rescale_virtual_balances`; exits still
    * work. `[]` on a compliant pool.
    */
-  leverageViolations?: number[];
+  concentrationFactorViolations?: number[];
   /** v6.1: layout-drift notes from the decoder (empty on a healthy account). */
   layoutDrift?: string[];
   /**

@@ -1,11 +1,14 @@
 {
-  "address": "6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck",
+  "address": "3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81",
   "metadata": {
     "name": "protocol_admin",
     "version": "0.3.0",
     "spec": "0.1.0",
     "description": "Protocol Admin - governance contract for the Coffer Pool protocol"
   },
+  "docs": [
+    "Treasury governance entrypoints and privileged CPI dispatch."
+  ],
   "instructions": [
     {
       "name": "accept_admin_transfer",
@@ -27,10 +30,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "new_admin",
+          "docs": [
+            "Pending administrator who signs to accept the nominated authority."
+          ],
           "signer": true
         }
       ],
@@ -40,7 +49,8 @@
       "name": "cancel_action",
       "docs": [
         "Clear pending slot `kind` (0 = admin transfer … 12 = program op,",
-        "13 = pool virtual-balance rescale). `NoPendingAction` when empty.",
+        "13 = pool virtual-balance rescale, 14 = pool range-manager release).",
+        "`NoPendingAction` when empty.",
         "",
         "# Authority",
         "`treasury.admin` OR `treasury.supervisor` (cancelling only ever",
@@ -62,10 +72,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -94,10 +110,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         }
       ],
@@ -120,18 +142,76 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
           "name": "programdata",
+          "docs": [
+            "state, authority and the program's back-reference are checked by apply."
+          ],
           "writable": true
         },
         {
           "name": "program_to_close",
+          "writable": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "bpf_loader_upgradeable"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_upgrade_buffer",
+      "docs": [
+        "rc2: close a loader `Buffer` whose authority is the Treasury PDA and",
+        "refund its rent (recovery after a cancelled or superseded upgrade",
+        "proposal). Instant, admin-only; the pending proposal's buffer is",
+        "refused until the proposal is cancelled."
+      ],
+      "discriminator": [
+        236,
+        125,
+        119,
+        188,
+        84,
+        47,
+        236,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "buffer",
+          "docs": [
+            "by `require_closable_buffer`; the loader validates the rest."
+          ],
           "writable": true
         },
         {
@@ -163,14 +243,23 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
           "name": "programdata",
+          "docs": [
+            "loader state, authority and the executable program's back-reference."
+          ],
           "writable": true
         },
         {
@@ -205,10 +294,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -243,10 +338,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -270,6 +371,49 @@
       ]
     },
     {
+      "name": "execute_pool_enable_range_manager",
+      "docs": [
+        "Execute `PoolEnableRangeManager` (kind 14) for its proposed pool."
+      ],
+      "discriminator": [
+        51,
+        253,
+        60,
+        184,
+        76,
+        88,
+        208,
+        14
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "execute_pool_protocol_admin_transfer",
       "docs": [
         "Execute the pending `PoolProtocolAdminTransfer` (kind 10): nominates",
@@ -288,10 +432,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -323,10 +473,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -360,10 +516,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -397,10 +559,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -435,10 +603,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -472,10 +646,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -520,10 +700,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         }
       ],
@@ -547,10 +733,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         }
       ],
@@ -574,10 +766,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -598,7 +796,10 @@
           "writable": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         },
         {
           "name": "stld_program"
@@ -625,10 +826,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -670,10 +877,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -701,10 +914,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -727,10 +946,16 @@
           "writable": true
         },
         {
-          "name": "rent"
+          "name": "rent",
+          "docs": [
+            "Rent sysvar used by loader instructions."
+          ]
         },
         {
-          "name": "clock"
+          "name": "clock",
+          "docs": [
+            "Clock sysvar used by loader instructions."
+          ]
         },
         {
           "name": "bpf_loader_upgradeable"
@@ -757,25 +982,43 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
-          "name": "mint"
+          "name": "mint",
+          "docs": [
+            "Mint identifying the token and its vault."
+          ]
         },
         {
           "name": "vault",
+          "docs": [
+            "Treasury token vault for this mint."
+          ],
           "writable": true
         },
         {
           "name": "recipient",
+          "docs": [
+            "Account receiving the withdrawn assets."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "SPL Token or Token-2022 program owning the mint and vault."
+          ]
         }
       ],
       "args": []
@@ -798,10 +1041,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -828,10 +1077,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -909,10 +1164,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "payer",
+          "docs": [
+            "Signer funding account creation and rent."
+          ],
           "writable": true,
           "signer": true
         },
@@ -925,7 +1186,10 @@
           ]
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": [
@@ -954,10 +1218,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         }
       ],
@@ -997,11 +1267,17 @@
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "writable": true,
           "signer": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": []
@@ -1027,10 +1303,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1060,10 +1342,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1078,6 +1366,10 @@
     },
     {
       "name": "pool_collect_protocol_fees",
+      "docs": [
+        "Collect accrued protocol fees through a Treasury-signed pool CPI.",
+        "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
+      ],
       "discriminator": [
         132,
         186,
@@ -1090,10 +1382,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1111,6 +1409,10 @@
     },
     {
       "name": "pool_debug_withdraw_liquidity",
+      "docs": [
+        "Withdraw the requested raw token amounts from the pool vaults.",
+        "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
+      ],
       "discriminator": [
         233,
         72,
@@ -1123,10 +1425,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1177,10 +1485,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         },
         {
@@ -1189,6 +1503,49 @@
             "must equal it, and its `protocol_admin` must equal the Treasury PDA",
             "signing this CPI)."
           ]
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "pool_enable_range_manager",
+      "docs": [
+        "Restore the same range manager disabled by the protocol circuit",
+        "breaker. Admin-only, D-class; cannot appoint a different manager."
+      ],
+      "discriminator": [
+        57,
+        120,
+        150,
+        141,
+        34,
+        148,
+        87,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config"
         },
         {
           "name": "pool",
@@ -1223,10 +1580,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "writable": true,
           "signer": true
         },
@@ -1245,7 +1608,10 @@
           "writable": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         },
         {
           "name": "alt_program"
@@ -1263,6 +1629,10 @@
     },
     {
       "name": "pool_initialize_config",
+      "docs": [
+        "Create a pool configuration whose protocol authority is the Treasury PDA.",
+        "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
+      ],
       "discriminator": [
         208,
         110,
@@ -1275,10 +1645,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "writable": true,
           "signer": true
         },
@@ -1295,7 +1671,10 @@
           "name": "coffer_pool_program"
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": [
@@ -1322,10 +1701,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1397,7 +1782,10 @@
           ]
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         },
         {
           "name": "coffer_pool_program"
@@ -1414,11 +1802,11 @@
       "name": "pool_rescale_virtual_balances",
       "docs": [
         "v6.1 (T22): price-neutral repair of a pool that violates the strict",
-        "leverage invariant (`virtual_balance > actual_balance` on every",
+        "concentration_factor invariant (`virtual_balance > actual_balance` on every",
         "slot, e.g. a migrated legacy pool at `V == A`): multiply every",
         "slot's virtual balance by `multiplier` (`>= 2`), signing",
         "`coffer_pool::rescale_virtual_balances` as the Treasury PDA. Pair",
-        "prices are unchanged; depth / leverage grows. Works on a frozen pool",
+        "prices are unchanged; depth / concentration_factor grows. Works on a frozen pool",
         "so the repair can precede the unfreeze.",
         "",
         "D-class — direct only at `delay_secs == 0`, otherwise",
@@ -1426,7 +1814,7 @@
         "`execute_pool_rescale_virtual_balances` (same `apply`).",
         "",
         "# Authority",
-        "`treasury.admin` ONLY (raising a pool's leverage is a governance",
+        "`treasury.admin` ONLY (raising a pool's concentration_factor is a governance",
         "judgement with reserve-depletion exposure; never the supervisor)."
       ],
       "discriminator": [
@@ -1441,10 +1829,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1491,10 +1885,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1517,6 +1917,10 @@
     },
     {
       "name": "pool_set_pool_enabled",
+      "docs": [
+        "Set the pool-wide operation switch.",
+        "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
+      ],
       "discriminator": [
         46,
         70,
@@ -1529,10 +1933,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1555,6 +1965,10 @@
     },
     {
       "name": "pool_set_protocol_fee_rate",
+      "docs": [
+        "Set the protocol fee share in basis points.",
+        "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
+      ],
       "discriminator": [
         133,
         48,
@@ -1567,10 +1981,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1593,6 +2013,10 @@
     },
     {
       "name": "pool_set_swaps_enabled",
+      "docs": [
+        "Set the independent swap switch through an admin-authorized pool CPI.",
+        "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
+      ],
       "discriminator": [
         43,
         166,
@@ -1605,10 +2029,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1654,10 +2084,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         },
         {
@@ -1688,6 +2124,10 @@
     },
     {
       "name": "pool_withdraw_sol",
+      "docs": [
+        "Withdraw lamports from a pool-owned source above its rent floor.",
+        "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
+      ],
       "discriminator": [
         29,
         48,
@@ -1700,10 +2140,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1757,10 +2203,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         }
       ],
@@ -1793,25 +2245,43 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
-          "name": "mint"
+          "name": "mint",
+          "docs": [
+            "Mint identifying the token and its vault."
+          ]
         },
         {
           "name": "vault",
+          "docs": [
+            "Treasury token vault for this mint."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "writable": true,
           "signer": true
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "SPL Token or Token-2022 program owning the mint and vault."
+          ]
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": []
@@ -1847,10 +2317,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         }
       ],
@@ -1875,9 +2351,10 @@
         "Single-step: admin sets it directly, no claim flow.",
         "Pass `Pubkey::default()` to revoke.",
         "",
-        "v6.1 (T3): D-class — direct only at `delay_secs == 0`, otherwise",
-        "`propose_action(SetSupervisor)` → `execute_set_supervisor`. The",
-        "former v1 → v2 realloc side-effect moved to",
+        "Nonzero appointments are D-class: direct only at `delay_secs == 0`,",
+        "otherwise `propose_action(SetSupervisor)` → `execute_set_supervisor`.",
+        "Revoking to the default pubkey is always instant and clears any",
+        "pending supervisor appointment. The former v1 → v2 realloc moved to",
         "`migrate_treasury_layout_v61`.",
         "",
         "# Authority",
@@ -1896,15 +2373,24 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "writable": true,
           "signer": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": [
@@ -1916,6 +2402,10 @@
     },
     {
       "name": "stld_withdraw_sol",
+      "docs": [
+        "Withdraw lamports from the STLD helper while preserving its rent floor.",
+        "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
+      ],
       "discriminator": [
         200,
         145,
@@ -1928,10 +2418,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -1955,7 +2451,10 @@
           "writable": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         },
         {
           "name": "stld_program"
@@ -1989,10 +2488,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -2086,10 +2591,16 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -2109,10 +2620,16 @@
           "writable": true
         },
         {
-          "name": "rent"
+          "name": "rent",
+          "docs": [
+            "Rent sysvar used by loader instructions."
+          ]
         },
         {
-          "name": "clock"
+          "name": "clock",
+          "docs": [
+            "Clock sysvar used by loader instructions."
+          ]
         },
         {
           "name": "bpf_loader_upgradeable"
@@ -2137,25 +2654,43 @@
       ],
       "accounts": [
         {
-          "name": "treasury"
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
         },
         {
-          "name": "mint"
+          "name": "mint",
+          "docs": [
+            "Mint identifying the token and its vault."
+          ]
         },
         {
           "name": "vault",
+          "docs": [
+            "Treasury token vault for this mint."
+          ],
           "writable": true
         },
         {
           "name": "recipient",
+          "docs": [
+            "Account receiving the withdrawn assets."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "SPL Token or Token-2022 program owning the mint and vault."
+          ]
         }
       ],
       "args": [
@@ -2183,10 +2718,16 @@
       "accounts": [
         {
           "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
           "writable": true
         },
         {
           "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
           "signer": true
         },
         {
@@ -2466,6 +3007,19 @@
       ]
     },
     {
+      "name": "PoolRangeManagerEnabled",
+      "discriminator": [
+        173,
+        77,
+        197,
+        128,
+        59,
+        26,
+        133,
+        153
+      ]
+    },
+    {
       "name": "PoolSolWithdrawnViaTreasury",
       "discriminator": [
         175,
@@ -2685,6 +3239,19 @@
         140,
         192
       ]
+    },
+    {
+      "name": "UpgradeBufferClosed",
+      "discriminator": [
+        220,
+        21,
+        205,
+        2,
+        230,
+        80,
+        224,
+        43
+      ]
     }
   ],
   "errors": [
@@ -2798,26 +3365,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
+            "docs": [
+              "Signer role encoded by the `actor_kind` constants."
+            ],
             "type": "u8"
           },
           {
             "name": "kind",
+            "docs": [
+              "Pending-action discriminant; see the corresponding action-kind enum."
+            ],
             "type": "u8"
           },
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time of the reported proposal, in Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -2834,26 +3419,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "kind",
+            "docs": [
+              "Pending-action discriminant; see the corresponding action-kind enum."
+            ],
             "type": "u8"
           },
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time of the reported proposal, in Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "epoch",
+            "docs": [
+              "Governance epoch to which this proposal belongs."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -2871,33 +3474,51 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "kind",
             "docs": [
-              "`ProtocolActionKind` as `u8` (1 = SetDelay … 13 = PoolRescale…)."
+              "`ProtocolActionKind` as `u8` (1 = SetDelay … 14 = PoolEnableRangeManager)."
             ],
             "type": "u8"
           },
           {
             "name": "payload",
+            "docs": [
+              "Borsh-encoded absolute action arguments, including the variant tag."
+            ],
             "type": "bytes"
           },
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time of the reported proposal, in Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "epoch",
+            "docs": [
+              "Governance epoch to which this proposal belongs."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -2915,18 +3536,30 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "cancelled_pending",
+            "docs": [
+              "Nominee cleared by cancellation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -2944,26 +3577,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "current_admin",
+            "docs": [
+              "Administrator nominating the successor."
+            ],
             "type": "pubkey"
           },
           {
             "name": "previous_pending_admin",
+            "docs": [
+              "Nominee replaced by this proposal; default means none."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pending_admin",
+            "docs": [
+              "Nominated administrator awaiting acceptance."
+            ],
             "type": "pubkey"
           },
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time of the reported proposal, in Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -2981,26 +3632,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_admin",
+            "docs": [
+              "Administrator before the accepted transfer."
+            ],
             "type": "pubkey"
           },
           {
             "name": "new_admin",
+            "docs": [
+              "Administrator receiving the authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_epoch",
+            "docs": [
+              "Governance epoch before the transfer."
+            ],
             "type": "u32"
           },
           {
             "name": "new_epoch",
+            "docs": [
+              "Governance epoch after the transfer invalidates older proposals."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3018,38 +3687,65 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "mint",
+            "docs": [
+              "Mint identifying the token and its vault."
+            ],
             "type": "pubkey"
           },
           {
             "name": "vault",
+            "docs": [
+              "Treasury token vault for this mint."
+            ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
+            "docs": [
+              "Account receiving the withdrawn assets."
+            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
+            "docs": [
+              "Amount debited, in raw token units."
+            ],
             "type": "u64"
           },
           {
             "name": "vault_balance_before",
+            "docs": [
+              "Vault balance before withdrawal, in raw token units."
+            ],
             "type": "u64"
           },
           {
             "name": "vault_balance_after",
+            "docs": [
+              "Vault balance after withdrawal, in raw token units."
+            ],
             "type": "u64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3066,10 +3762,16 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "hash",
+            "docs": [
+              "SHA-256 commitment to the ordered pool addresses."
+            ],
             "type": {
               "array": [
                 "u8",
@@ -3092,14 +3794,23 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "params_hash",
+            "docs": [
+              "SHA-256 commitment to the pool, ordered amounts and recipients."
+            ],
             "type": {
               "array": [
                 "u8",
@@ -3114,21 +3825,30 @@
       "name": "PendingPoolRescale",
       "docs": [
         "v6.1 (T22): `pool_rescale_virtual_balances(pool, multiplier)` — the",
-        "price-neutral repair of a pool violating the strict leverage invariant."
+        "price-neutral repair of a pool violating the strict concentration_factor invariant."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "multiplier",
+            "docs": [
+              "Integer factor applied equally to every virtual balance."
+            ],
             "type": "u64"
           }
         ]
@@ -3136,19 +3856,31 @@
     },
     {
       "name": "PendingPoolSetProtocolFeeRate",
+      "docs": [
+        "Pending pool protocol-fee share, pinned to a pool and execution time."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "rate",
+            "docs": [
+              "Proposed protocol fee share in basis points."
+            ],
             "type": "u16"
           }
         ]
@@ -3164,14 +3896,23 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_index",
+            "docs": [
+              "Zero-based token slot in the relevant registry or pool."
+            ],
             "type": "u8"
           }
         ]
@@ -3188,10 +3929,16 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           }
         ]
@@ -3210,18 +3957,30 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "op",
+            "docs": [
+              "Loader action: 0 transfer authority, 1 freeze, 2 close."
+            ],
             "type": "u8"
           },
           {
             "name": "program",
+            "docs": [
+              "Upgradeable program targeted by the loader operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "target",
+            "docs": [
+              "Incoming authority for transfer, rent recipient for close; unused for freeze."
+            ],
             "type": "pubkey"
           }
         ]
@@ -3229,15 +3988,24 @@
     },
     {
       "name": "PendingSetDelay",
+      "docs": [
+        "Pending governance delay: execution time and absolute delay in seconds."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "secs",
+            "docs": [
+              "Proposed governance delay in seconds."
+            ],
             "type": "u32"
           }
         ]
@@ -3245,11 +4013,17 @@
     },
     {
       "name": "PendingSetSupervisor",
+      "docs": [
+        "Pending supervisor appointment: execution time and nominated key."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
@@ -3273,14 +4047,23 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "a",
+            "docs": [
+              "First pinned key: configuration or upgradeable program."
+            ],
             "type": "pubkey"
           },
           {
             "name": "b",
+            "docs": [
+              "Second pinned key: incoming administrator or loader buffer."
+            ],
             "type": "pubkey"
           }
         ]
@@ -3297,18 +4080,30 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "mint",
+            "docs": [
+              "Mint identifying the token and its vault."
+            ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
+            "docs": [
+              "Account receiving the withdrawn assets."
+            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
+            "docs": [
+              "Amount debited, in raw token units."
+            ],
             "type": "u64"
           }
         ]
@@ -3326,22 +4121,37 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "route",
+            "docs": [
+              "SOL route: 0 treasury, 1 pool-owned account, 2 STLD helper."
+            ],
             "type": "u8"
           },
           {
             "name": "source",
+            "docs": [
+              "Account debited by the SOL withdrawal."
+            ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
+            "docs": [
+              "Account receiving the withdrawn assets."
+            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
+            "docs": [
+              "SOL amount debited from the source, in lamports."
+            ],
             "type": "u64"
           }
         ]
@@ -3358,22 +4168,37 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "lookup_table",
+            "docs": [
+              "Address lookup table provisioned for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3391,18 +4216,30 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3420,18 +4257,30 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3449,26 +4298,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_enabled",
+            "docs": [
+              "Enabled state before the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "new_enabled",
+            "docs": [
+              "Enabled state after the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3486,18 +4353,30 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3513,30 +4392,51 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "hook_program",
+            "docs": [
+              "Immutable native-hook program configured for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_disabled",
+            "docs": [
+              "Hook emergency-disable state before the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "new_disabled",
+            "docs": [
+              "Hook emergency-disable state after the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3553,22 +4453,37 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "reactivate_tokens",
+            "docs": [
+              "Whether the legacy migration requests token reactivation."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3585,18 +4500,30 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3613,18 +4540,30 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3642,22 +4581,37 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "new_admin",
+            "docs": [
+              "Administrator receiving the authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3675,26 +4629,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_rate",
+            "docs": [
+              "Fee rate before the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "new_rate",
+            "docs": [
+              "Fee rate after the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3713,30 +4685,112 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
+            "docs": [
+              "Signer role encoded by the `actor_kind` constants."
+            ],
             "type": "u8"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "manager",
+            "docs": [
+              "Range-manager authority retained or appointed for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_enabled",
+            "docs": [
+              "Enabled state before the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolRangeManagerEnabled",
+      "docs": [
+        "S-05: protocol admin restores the existing range manager after its",
+        "emergency restriction. Emitted by both direct and delayed execution."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "docs": [
+              "Range-manager authority retained or appointed for the pool."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "old_enabled",
+            "docs": [
+              "Enabled state before the operation."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "new_enabled",
+            "docs": [
+              "Enabled state after the operation."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3754,26 +4808,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "source",
+            "docs": [
+              "Account debited by the SOL withdrawal."
+            ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
+            "docs": [
+              "Account receiving the withdrawn assets."
+            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
+            "docs": [
+              "SOL amount debited from the source, in lamports."
+            ],
             "type": "u64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3790,26 +4862,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_enabled",
+            "docs": [
+              "Enabled state before the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "new_enabled",
+            "docs": [
+              "Enabled state after the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3827,34 +4917,58 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
+            "docs": [
+              "Signer role encoded by the `actor_kind` constants."
+            ],
             "type": "u8"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_index",
+            "docs": [
+              "Zero-based token slot in the relevant registry or pool."
+            ],
             "type": "u8"
           },
           {
             "name": "old_is_active",
+            "docs": [
+              "Token input permission before the change."
+            ],
             "type": "bool"
           },
           {
             "name": "new_is_active",
+            "docs": [
+              "Token input permission after the change."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3871,22 +4985,37 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "multiplier",
+            "docs": [
+              "Integer factor applied equally to every virtual balance."
+            ],
             "type": "u64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3905,30 +5034,48 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
+            "docs": [
+              "Signer role encoded by the `actor_kind` constants."
+            ],
             "type": "u8"
           },
           {
             "name": "pools",
+            "docs": [
+              "Ordered pool addresses affected by the operation."
+            ],
             "type": {
               "vec": "pubkey"
             }
           },
           {
             "name": "old_enabled",
+            "docs": [
+              "Pre-operation enabled states corresponding to the ordered `pools` list."
+            ],
             "type": {
               "vec": "bool"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3945,30 +5092,48 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
+            "docs": [
+              "Signer role encoded by the `actor_kind` constants."
+            ],
             "type": "u8"
           },
           {
             "name": "pools",
+            "docs": [
+              "Ordered pool addresses affected by the operation."
+            ],
             "type": {
               "vec": "pubkey"
             }
           },
           {
             "name": "old_enabled",
+            "docs": [
+              "Pre-operation enabled states corresponding to the ordered `pools` list."
+            ],
             "type": {
               "vec": "bool"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -3986,26 +5151,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "program",
+            "docs": [
+              "Upgradeable program targeted by the loader operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "programdata",
+            "docs": [
+              "Canonical loader ProgramData account for the program."
+            ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
+            "docs": [
+              "Account receiving the withdrawn assets."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4023,22 +5206,37 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "program",
+            "docs": [
+              "Upgradeable program targeted by the loader operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "programdata",
+            "docs": [
+              "Canonical loader ProgramData account for the program."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4056,26 +5254,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "program",
+            "docs": [
+              "Upgradeable program targeted by the loader operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "buffer",
+            "docs": [
+              "Loader buffer containing the proposed program image."
+            ],
             "type": "pubkey"
           },
           {
             "name": "spill",
+            "docs": [
+              "Account receiving excess loader lamports during upgrade."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4095,6 +5311,9 @@
             "fields": [
               {
                 "name": "secs",
+                "docs": [
+                  "Proposed governance delay in seconds."
+                ],
                 "type": "u32"
               }
             ]
@@ -4104,6 +5323,9 @@
             "fields": [
               {
                 "name": "key",
+                "docs": [
+                  "Proposed supervisor key; default revokes the appointment."
+                ],
                 "type": "pubkey"
               }
             ]
@@ -4113,14 +5335,23 @@
             "fields": [
               {
                 "name": "mint",
+                "docs": [
+                  "Mint identifying the token and its vault."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "recipient",
+                "docs": [
+                  "Account receiving the withdrawn assets."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "amount",
+                "docs": [
+                  "Amount debited, in raw token units."
+                ],
                 "type": "u64"
               }
             ]
@@ -4130,18 +5361,30 @@
             "fields": [
               {
                 "name": "route",
+                "docs": [
+                  "SOL route: 0 treasury, 1 pool-owned account, 2 STLD helper."
+                ],
                 "type": "u8"
               },
               {
                 "name": "source",
+                "docs": [
+                  "Account debited by the SOL withdrawal."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "recipient",
+                "docs": [
+                  "Account receiving the withdrawn assets."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "amount",
+                "docs": [
+                  "SOL amount debited from the pinned source, in lamports."
+                ],
                 "type": "u64"
               }
             ]
@@ -4151,16 +5394,25 @@
             "fields": [
               {
                 "name": "pool",
+                "docs": [
+                  "Pool account targeted by this operation."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "token_amounts",
+                "docs": [
+                  "Withdrawal amounts in each mint's raw units, in pool slot order."
+                ],
                 "type": {
                   "vec": "u64"
                 }
               },
               {
                 "name": "recipients",
+                "docs": [
+                  "Destination token accounts in pool slot order."
+                ],
                 "type": {
                   "vec": "pubkey"
                 }
@@ -4172,10 +5424,16 @@
             "fields": [
               {
                 "name": "pool",
+                "docs": [
+                  "Pool account targeted by this operation."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "rate",
+                "docs": [
+                  "Proposed protocol fee share in basis points."
+                ],
                 "type": "u16"
               }
             ]
@@ -4185,6 +5443,9 @@
             "fields": [
               {
                 "name": "pool",
+                "docs": [
+                  "Pool account targeted by this operation."
+                ],
                 "type": "pubkey"
               }
             ]
@@ -4194,10 +5455,16 @@
             "fields": [
               {
                 "name": "pool",
+                "docs": [
+                  "Pool account targeted by this operation."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "token_index",
+                "docs": [
+                  "Zero-based token slot in the relevant registry or pool."
+                ],
                 "type": "u8"
               }
             ]
@@ -4207,6 +5474,9 @@
             "fields": [
               {
                 "name": "pools",
+                "docs": [
+                  "Ordered pool addresses affected by the operation."
+                ],
                 "type": {
                   "vec": "pubkey"
                 }
@@ -4218,10 +5488,16 @@
             "fields": [
               {
                 "name": "config",
+                "docs": [
+                  "Pool configuration account identifying the protocol authority."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "new_admin",
+                "docs": [
+                  "Administrator receiving the authority."
+                ],
                 "type": "pubkey"
               }
             ]
@@ -4231,10 +5507,16 @@
             "fields": [
               {
                 "name": "program",
+                "docs": [
+                  "Upgradeable program targeted by the loader operation."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "buffer",
+                "docs": [
+                  "Loader buffer containing the proposed program image."
+                ],
                 "type": "pubkey"
               }
             ]
@@ -4244,14 +5526,23 @@
             "fields": [
               {
                 "name": "op",
+                "docs": [
+                  "Loader action: 0 transfer authority, 1 freeze, 2 close."
+                ],
                 "type": "u8"
               },
               {
                 "name": "program",
+                "docs": [
+                  "Upgradeable program targeted by the loader operation."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "target",
+                "docs": [
+                  "Incoming authority for transfer, rent recipient for close; unused for freeze."
+                ],
                 "type": "pubkey"
               }
             ]
@@ -4261,11 +5552,29 @@
             "fields": [
               {
                 "name": "pool",
+                "docs": [
+                  "Pool account targeted by this operation."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "multiplier",
+                "docs": [
+                  "Integer factor applied equally to every virtual balance."
+                ],
                 "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "PoolEnableRangeManager",
+            "fields": [
+              {
+                "name": "pool",
+                "docs": [
+                  "Pool account targeted by this operation."
+                ],
+                "type": "pubkey"
               }
             ]
           }
@@ -4284,30 +5593,51 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
+            "docs": [
+              "Account receiving the withdrawn assets."
+            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
+            "docs": [
+              "SOL amount debited from the source, in lamports."
+            ],
             "type": "u64"
           },
           {
             "name": "treasury_lamports_before",
+            "docs": [
+              "Treasury SOL balance before withdrawal, in lamports."
+            ],
             "type": "u64"
           },
           {
             "name": "treasury_lamports_after",
+            "docs": [
+              "Treasury SOL balance after withdrawal, in lamports."
+            ],
             "type": "u64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4325,26 +5655,44 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "source",
+            "docs": [
+              "Account debited by the SOL withdrawal."
+            ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
+            "docs": [
+              "Account receiving the withdrawn assets."
+            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
+            "docs": [
+              "SOL amount debited from the source, in lamports."
+            ],
             "type": "u64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4361,22 +5709,37 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_supervisor",
+            "docs": [
+              "Circuit-breaker authority before the change."
+            ],
             "type": "pubkey"
           },
           {
             "name": "new_supervisor",
+            "docs": [
+              "New circuit-breaker authority; default revokes the role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4394,34 +5757,58 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "mint",
+            "docs": [
+              "Mint identifying the token and its vault."
+            ],
             "type": "pubkey"
           },
           {
             "name": "vault",
+            "docs": [
+              "Treasury token vault for this mint."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_index",
+            "docs": [
+              "Zero-based token slot in the relevant registry or pool."
+            ],
             "type": "u8"
           },
           {
             "name": "token_count_before",
+            "docs": [
+              "Registered token count before the operation."
+            ],
             "type": "u8"
           },
           {
             "name": "token_count_after",
+            "docs": [
+              "Registered token count after the operation."
+            ],
             "type": "u8"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4444,7 +5831,8 @@
         "v3 (1624 bytes, v6.1 T3): same + the cooldown block appended after",
         "`supervisor` (`delay_secs`, `admin_epoch`, `pending_admin_eta`, twelve",
         "typed `pending_*` slots, `reserved_v61[125]`; T22 carved the 48-byte",
-        "kind-13 slot from the reserve's front → `reserved_v61[77]`, `LEN`",
+        "kind-13 slot from the reserve's front, then S-05 adds the 40-byte",
+        "range-manager restoration slot → `reserved_v61[37]`, `LEN`",
         "unchanged). Existing v1 / v2",
         "accounts are grown in place by the admin-paid",
         "`migrate_treasury_layout_v61` instruction (zero tail ⇒ delay 0, epoch",
@@ -4471,7 +5859,8 @@
         "| 11 UpgradeProgram | `pending_upgrade_program` | `program, buffer: Pubkey` | 1354 | 72 |",
         "| 12 ProgramOp | `pending_program_op` | `op: u8, program, target: Pubkey` | 1426 | 73 |",
         "| 13 PoolRescaleVirtualBalances (T22) | `pending_pool_rescale_virtual_balances` | `pool: Pubkey, multiplier: u64` | 1499 | 48 |",
-        "| | `reserved_v61` | | 1547 | 77 |"
+        "| 14 PoolEnableRangeManager (S-05) | `pending_pool_enable_range_manager` | `pool: Pubkey` | 1547 | 40 |",
+        "| | `reserved_v61` | | 1587 | 37 |"
       ],
       "type": {
         "kind": "struct",
@@ -4561,7 +5950,8 @@
               "`pool_set_token_active(…, false)`, `pool_disable_range_manager` and",
               "(v6.1 T3) `cancel_action`: it may restrict, never relax",
               "(`crate::authority`). Cannot transfer itself, has no claim flow —",
-              "admin sets it via `set_supervisor` (D-class since T3).",
+              "admin sets it via `set_supervisor` (appointments are D-class;",
+              "revocation to default is instant and clears the pending appointment).",
               "`Pubkey::default()` ⇒ no supervisor; only admin can freeze.",
               "Added in v2; reads as `Pubkey::default()` on migrated v1 accounts."
             ],
@@ -4741,6 +6131,17 @@
             }
           },
           {
+            "name": "pending_pool_enable_range_manager",
+            "docs": [
+              "kind 14 (S-05): restore the existing manager after a protocol restriction."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingPoolTarget"
+              }
+            }
+          },
+          {
             "name": "reserved_v61",
             "docs": [
               "v6.1 reserve (zero). Later tasks carve from its front; `LEN` stays."
@@ -4748,7 +6149,7 @@
             "type": {
               "array": [
                 "u8",
-                77
+                37
               ]
             }
           }
@@ -4766,22 +6167,37 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_delay_secs",
+            "docs": [
+              "Governance delay before the change, in seconds."
+            ],
             "type": "u32"
           },
           {
             "name": "new_delay_secs",
+            "docs": [
+              "Governance delay after the change, in seconds."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4798,18 +6214,30 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "payer",
+            "docs": [
+              "Signer funding account creation and rent."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4826,22 +6254,37 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_len",
+            "docs": [
+              "Account size before migration, in bytes including the discriminator."
+            ],
             "type": "u32"
           },
           {
             "name": "new_len",
+            "docs": [
+              "Account size after migration, in bytes including the discriminator."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4860,30 +6303,106 @@
         "fields": [
           {
             "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "program",
+            "docs": [
+              "Upgradeable program targeted by the loader operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "programdata",
+            "docs": [
+              "Canonical loader ProgramData account for the program."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_authority",
+            "docs": [
+              "Upgrade authority before the transfer."
+            ],
             "type": "pubkey"
           },
           {
             "name": "new_authority",
+            "docs": [
+              "Incoming upgrade authority, which must co-sign the transfer."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpgradeBufferClosed",
+      "docs": [
+        "`close_upgrade_buffer` (actor: `admin`, rc2): a loader buffer whose",
+        "authority was the Treasury PDA was closed and its `lamports` refunded to",
+        "`recipient`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "buffer",
+            "docs": [
+              "Loader buffer that was closed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "docs": [
+              "Account that received the refunded lamports."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "lamports",
+            "docs": [
+              "Lamports refunded."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]

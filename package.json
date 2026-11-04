@@ -1,6 +1,6 @@
 {
   "name": "@coffer_so/sdk-v6",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publishConfig": {
     "access": "public"
   },
@@ -9,7 +9,9 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "src"
+    "src",
+    "docs",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "env:mainnet": "cp .env.mainnet .env && echo 'Active env: MAINNET'",
@@ -26,7 +28,7 @@
     "abi:check": "node scripts/check-contract-abi.cjs --contracts-dir ../contracts-v6.1 --idl-dir idl --ignore-address",
     "fixtures:events": "node scripts/generate-event-fixtures.cjs",
     "fixtures:events:check": "node scripts/generate-event-fixtures.cjs --check",
-    "fixtures:rust": "python3 tests/math/generate-rust-reference.py ../contracts"
+    "fixtures:rust": "python3 tests/math/generate-rust-reference.py ../contracts-v6.1"
   },
   "repository": {
     "type": "git",

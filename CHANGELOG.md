@@ -3,6 +3,58 @@
 Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 `cubic_pool`); they were not rewritten.
 
+## 0.4.0 — v6.1-rc2
+
+Targets `contracts-v6.1` at the `v6.1-rc2` ABI. The vendored IDLs are the
+exact `anchor build` output (sha256 `f031d8b1…` / `c797bba6…` / `413ea7da…`,
+see `docs/CONTRACT_COMPATIBILITY.md`): 51 + 55 + 4 instructions, 41 + 38 + 2
+events (110 / 81).
+
+### Breaking
+
+- The never-deployed "N10 batch" route is gone from the contracts and the SDK:
+  `batch_single_token_planned_v1` / `deposit_single_token_batch_planned_v1`,
+  `BatchFinancialReceiptV1` / `BatchSingleTokenDepositV1`, the 25 STLD error
+  codes that had been mirrored into coffer_pool, `BatchPlannedZapV1Client`,
+  `buildBatchPlannedZapV1Ix`, `parseBatchPlannedZapV1Receipt`, the compact
+  receipt codec and the batch docs / fixtures / support-matrix tooling.
+- `leverage` / `Leverage` / `LEVERAGE` names are `concentrationFactor` /
+  `ConcentrationFactor` / `CONCENTRATION_FACTOR` everywhere (IDL wire
+  fields `concentration_factor`; `PoolTokenInfo.concentrationFactor`). No
+  old-name aliases. Wire discriminators, offsets, integer types, error numbers
+  and economic formulas are unchanged.
+
+### Added
+
+- `close_upgrade_buffer` (`AdminClient.closeUpgradeBufferIx(admin, buffer,
+  recipient)`) and the `UpgradeBufferClosed` event (`treasury`, `admin`,
+  `buffer`, `recipient`, `lamports`, `timestamp`): instant admin-only rent
+  recovery of a Treasury-owned loader buffer after a cancelled or superseded
+  upgrade proposal.
+- Errors 6107 `WithdrawFeeNotLockable`, 6108 `RangeManagerKeyRequired`,
+  6109 `FullExitRequiredBelowFloor` in `describeProgramError`.
+- Pool `safety_flags` bit 13 `SAFETY_FLAG_RANGE_MANAGER_WAS_ENABLED`
+  (`PoolInfo.protocolRangeManagerWasEnabled`); `SAFETY_FLAG_*` /
+  `SAFETY_FLAGS_KNOWN_MASK` constants; the decoder accepts bits 0–13.
+
+### Changed
+
+- `migrate_pool_layout_v61` semantics: the migration writes no protocol
+  restriction bits; `SAFETY_FLAG_SEEDED` is set only when some slot has
+  `actual_balance > 0` or `protocol_fees_owed > 0`.
+- Planned zap accepts the exact contract LP metadata extension pair, and
+  separates native `hookAccounts` from `token2022Accounts`; ambiguous
+  arrays are rejected. Exit tails and quotes share the reserve / surge /
+  withdraw-fee payout calculation. Atomic deploy validates epoch-selected net
+  seed credits and mint snapshots and includes Token-2022 extras in the
+  packet / ALT cost; external hooks need a caller-supplied trace budget.
+  `applyRescale` reports its projection scope.
+
+## Historical 0.3.0 record (pre-rename)
+
+The following entry records the names, pins and counts used at that time;
+its “final” wording and counts do not describe the current source epoch.
+
 ## 0.3.0 — v6.1 final ABI: T11 re-cut events, T22 leverage invariant, T9 sync
 
 Targets `contracts` `v6.1-t11` at `409067d` (T9 hooks, T22 leverage

@@ -142,8 +142,8 @@ function encode(value: any, type: any): Buffer {
 // recorded fixtures were produced from exactly these bytes.
 const v5Fields = (name: string) => { const all = fields(name); return all.slice(0, all.findIndex((f) => f.name === "reserved") + 1); };
 const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...v5Fields("CofferPool").map((f) => encode((state as any)[f.name], f.type))]);
-function plainMint(decimals: number, supply: bigint): Buffer {
-  const b = Buffer.alloc(82); b[44] = decimals; b[45] = 1; b.writeBigUInt64LE(supply, 36); return b;
+function plainMint(decimals: number, supply: bigint, authority?: PublicKey): Buffer {
+  const b = Buffer.alloc(82); b[44] = decimals; b[45] = 1; b.writeBigUInt64LE(supply, 36); if (authority) { b.writeUInt32LE(1, 0); authority.toBuffer().copy(b, 4); } return b;
 }
 function feeMint(decimals: number, bps: number, maxFee: bigint): Buffer {
   const base = plainMint(decimals, 0n);
@@ -163,7 +163,7 @@ function syntheticPool(cfg: ReturnType<typeof getConfig>, address: PublicKey, n:
     pool_enabled: true, swaps_enabled: true, pool_admin: key(3), pending_pool_admin: PublicKey.default, range_manager: PublicKey.default,
     range_manager_enabled: false, range_manager_max_vb_change_pct: 0, range_manager_max_weight_change_pct: 0, range_manager_min_update_interval_secs: 0,
     range_manager_last_updated: bn(0), tokens: Array.from({ length: 10 }, (_, i) => (i < n ? slot(i) : empty())),
-    lookup_table: PublicKey.default, _deprecated_banned_extensions: bn(0), range_manager_max_leverage_bps: 0, range_manager_min_leverage_bps: 0,
+    lookup_table: PublicKey.default, _deprecated_banned_extensions: bn(0), range_manager_max_concentration_factor_bps: 0, range_manager_min_concentration_factor_bps: 0,
     reserved: [0x56, 0x35, 0x4d, 0x31, ...Array(12).fill(0)],
   } as unknown as State;
 }
@@ -176,10 +176,10 @@ function mockClient(n: number, feeIndices: number[] = []) {
   const [lpMint] = deriveLpMint(cfg.programs.cofferPool, address);
   const infos = new Map<string, { data: Buffer; owner: PublicKey; executable: boolean; lamports: number }>();
   infos.set(address.toBase58(), { data: poolBytes(state), owner: cfg.programs.cofferPool, executable: false, lamports: 1 });
-  infos.set(lpMint.toBase58(), { data: plainMint(9, 1_000_000_000n), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
+  infos.set(lpMint.toBase58(), { data: plainMint(9, 1_000_000_000n, address), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
   for (let i = 0; i < n; i++) infos.set(key(100 + i).toBase58(), { data: feeIndices.includes(i) ? feeMint(6, 100, 10_000n) : plainMint(6, 0n), owner: programs[i], executable: false, lamports: 1 });
   const clock = Buffer.alloc(40); clock.writeBigUInt64LE(445_105_299n, 0); clock.writeBigUInt64LE(1030n, 16); clock.writeBigInt64LE(1_788_799_999n, 32);
-  infos.set(SYSVAR_CLOCK_PUBKEY.toBase58(), { data: clock, owner: key(55), executable: false, lamports: 1 });
+  infos.set(SYSVAR_CLOCK_PUBKEY.toBase58(), { data: clock, owner: new PublicKey("Sysvar1111111111111111111111111111111111111"), executable: false, lamports: 1 });
   const calls: string[] = [];
   const rpc = new RpcClient({ endpoint: "http://127.0.0.1:8899", connectionFactory: () => ({
     getAccountInfo: async (k: PublicKey) => { calls.push("getAccountInfo"); return infos.get(k.toBase58()) ?? null; },
@@ -236,12 +236,12 @@ describe("PlannedZapClient.quote", () => {
     m.infos.set(deriveAta(m.address, key(101), TOKEN_2022_PROGRAM_ID).toBase58(), tokenAccount(key(101), m.address));
     const tail = await m.client.resolveExtraAccounts(q, key(9));
     if (!tail.ok) throw new Error(tail.error.humanMessage);
-    expect(tail.data).toEqual([]);
+    expect(tail.data).toEqual({ hookAccounts: [], token2022Accounts: [] });
     // The user's output ATA may not exist yet (first zap into this mint): ensureUserTokenAccountIxs creates it in the same tx, so the tail still resolves.
     m.infos.delete(deriveAta(key(9), key(101), TOKEN_2022_PROGRAM_ID).toBase58());
     const firstTime = await m.client.resolveExtraAccounts(q, key(9));
     if (!firstTime.ok) throw new Error(firstTime.error.humanMessage);
-    expect(firstTime.data).toEqual([]);
+    expect(firstTime.data).toEqual({ hookAccounts: [], token2022Accounts: [] });
     m.infos.set(deriveAta(key(9), key(101), TOKEN_2022_PROGRAM_ID).toBase58(), tokenAccount(key(101), key(9)));
     // Without a Token-2022 destination (here the fee mint's vault) the resolver reports a build failure rather than guessing.
     m.infos.delete(deriveAta(m.address, key(101), TOKEN_2022_PROGRAM_ID).toBase58());
@@ -267,7 +267,7 @@ describe("PlannedZapClient.quote", () => {
     disabled.infos.set(disabled.address.toBase58(), { data: poolBytes(disabled.state), owner: disabled.cfg.programs.cofferPool, executable: false, lamports: 1 });
     const d = await disabled.client.quote(0, 1_000n);
     expect(!d.ok && d.error.code).toBe("pool_disabled");
-    const unseeded = mockClient(2); unseeded.infos.set(unseeded.lpMint.toBase58(), { data: plainMint(9, 0n), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
+    const unseeded = mockClient(2); unseeded.infos.set(unseeded.lpMint.toBase58(), { data: plainMint(9, 0n, unseeded.address), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
     expect((await unseeded.client.quote(0, 1_000n)).ok).toBe(false);
     const extLp = mockClient(2); extLp.infos.set(extLp.lpMint.toBase58(), { data: feeMint(9, 0, 0n), owner: TOKEN_2022_PROGRAM_ID, executable: false, lamports: 1 });
     const e = await extLp.client.quote(0, 1_000n);
@@ -300,4 +300,88 @@ describe("transaction budget", () => {
     expect(prep.instructionBatches).toHaveLength(1);
     expect(prep.instructionBatches[0].every((i) => i.programId.equals(AddressLookupTableProgram.programId))).toBe(true);
   });
+});
+
+describe("current source native + Token-2022 planned tails", () => {
+  test("native slice is required, ordered before transfer extras, rejects ambiguity/duplicates/privileges; disabled slice is absent", async () => {
+    const m = mockClient(2);
+    const res = await m.client.quote(0, 50_000_000n);
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const q = res.data;
+    const { POOL_LAYOUT } = await import("../src/parsers/layout");
+    const { hookCallerPda } = await import("../src/utils/hooks");
+    const full = Buffer.alloc(2304); Buffer.from(q.snapshots.pool.data).copy(full); full[1683] = 1;
+    const native = key(200), caller = hookCallerPda(m.cfg.programs.cofferPool)[0], dataAccount = key(201);
+    native.toBuffer().copy(full, POOL_LAYOUT.HOOK_PROGRAM.offset); full[POOL_LAYOUT.HOOK_ACCOUNTS_LEN.offset] = 3;
+    q.snapshots.pool.data = full;
+    const hookAccounts = [{ pubkey: native, isSigner: false, isWritable: false }, { pubkey: caller, isSigner: false, isWritable: false }, { pubkey: dataAccount, isSigner: false, isWritable: true }];
+    const transferAccounts = [{ pubkey: key(202), isSigner: false, isWritable: false }];
+    expect(() => m.client.buildIx(q, key(9))).toThrow(/active hook/);
+    expect(() => m.client.buildIx(q, key(9), [] as any)).toThrow(/Ambiguous/);
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts: hookAccounts.slice(0,2) })).toThrow(/length/);
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts: [{...hookAccounts[0], isWritable: true}, ...hookAccounts.slice(1)] })).toThrow(/read-only/);
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts, token2022Accounts: [hookAccounts[2]] })).toThrow(/duplicate/);
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts, token2022Accounts: [{ ...transferAccounts[0], isSigner: true }] })).toThrow(/signers/);
+    const ix = m.client.buildIx(q, key(9), { hookAccounts, token2022Accounts: transferAccounts });
+    expect(ix.keys.slice(-4)).toEqual([...hookAccounts, ...transferAccounts]);
+    m.infos.set(native.toBase58(), { owner: key(210), data: Buffer.alloc(0), executable: true, lamports: 1 });
+    m.infos.set(dataAccount.toBase58(), { owner: native, data: Buffer.from([7,8]), executable: false, lamports: 1 });
+    const resolved = await m.client.resolveExtraAccounts(q, key(9), { hookAccounts });
+    expect(resolved.ok && resolved.data.hookAccounts).toEqual(hookAccounts);
+    m.infos.set(dataAccount.toBase58(), { owner: key(211), data: Buffer.alloc(0), executable: false, lamports: 1 });
+    const foreign = await m.client.resolveExtraAccounts(q, key(9), { hookAccounts });
+    expect(!foreign.ok && foreign.error.code).toBe("tx_build_failed");
+    full[POOL_LAYOUT.HOOK_DISABLED.offset] = 1;
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts })).toThrow(/no active hook/);
+    expect(m.client.buildIx(q, key(9), { token2022Accounts: transferAccounts }).keys.slice(-1)).toEqual(transferAccounts);
+  });
+});
+
+test("quote accepts immutable metadata LPs and rejects a foreign pointer with the same snapshot layout", async () => {
+  const m = mockClient(2);
+  const { pack } = await import("@solana/spl-token-metadata");
+  const pointer = Buffer.alloc(64); m.lpMint.toBuffer().copy(pointer,32);
+  const metadata = Buffer.from(pack({ mint: m.lpMint, name: "Pool LP", symbol: "LP", uri: "https://x", additionalMetadata: [] }));
+  const h = (type: number, body: Buffer) => { const b = Buffer.alloc(4); b.writeUInt16LE(type); b.writeUInt16LE(body.length,2); return Buffer.concat([b,body]); };
+  const data = Buffer.concat([plainMint(9, 1_000_000_000n, m.address), Buffer.alloc(83), Buffer.from([1]), h(18,pointer), h(19,metadata)]);
+  m.infos.set(m.lpMint.toBase58(), { data, owner: TOKEN_2022_PROGRAM_ID, executable: false, lamports: 1 });
+  const positive = await m.client.quote(0, 50_000_000n); expect(positive.ok).toBe(true);
+  if (positive.ok) expect(positive.data.layout.lpTokenProgram).toEqual(TOKEN_2022_PROGRAM_ID);
+  key(222).toBuffer().copy(data,170+32);
+  const negative = await m.client.quote(0, 50_000_000n); expect(!negative.ok && negative.error.code).toBe("unsupported_token_extension");
+});
+
+test("combined native + real Token-2022 amount-seeded route resolves every gross swap/join amount after the exact native boundary", async () => {
+  const m = mockClient(2, [1]);
+  const { POOL_LAYOUT } = await import("../src/parsers/layout");
+  const { hookCallerPda } = await import("../src/utils/hooks");
+  const { getExtraAccountMetaAddress } = await import("@solana/spl-token");
+  const native = key(210), transferHook = key(211), dynamicData = key(212), user = key(9);
+  const originalPool = m.infos.get(m.address.toBase58())!;
+  const full = Buffer.alloc(2304); originalPool.data.copy(full); full[1683] = 1;
+  native.toBuffer().copy(full, POOL_LAYOUT.HOOK_PROGRAM.offset); full.writeUInt16LE(5, POOL_LAYOUT.HOOK_FLAGS.offset); full[POOL_LAYOUT.HOOK_ACCOUNTS_LEN.offset] = 3;
+  m.infos.set(m.address.toBase58(), { ...originalPool, data: full });
+  const originalMint = feeMint(6,100,10_000n).subarray(0,-8);
+  const hookBody = Buffer.alloc(68); hookBody.writeUInt16LE(14); hookBody.writeUInt16LE(64,2); transferHook.toBuffer().copy(hookBody,36);
+  m.infos.set(key(101).toBase58(), { owner: TOKEN_2022_PROGRAM_ID, data: Buffer.concat([originalMint,hookBody]), executable: false, lamports: 1 });
+  for (const program of [native,transferHook]) m.infos.set(program.toBase58(), { owner: key(240), data: Buffer.alloc(0), executable: true, lamports: 1 });
+  m.infos.set(dynamicData.toBase58(), { owner: native, data: Buffer.from([1,2,3]), executable: false, lamports: 1 });
+  const registry = Buffer.alloc(51); Buffer.from([105,37,101,197,75,251,102,26]).copy(registry); registry.writeUInt32LE(39,8); registry.writeUInt32LE(1,12); registry[16] = 1; registry[17] = 2; registry[18] = 8; registry[19] = 8;
+  m.infos.set(getExtraAccountMetaAddress(key(101),transferHook).toBase58(), { owner: transferHook, data: registry, executable: false, lamports: 1 });
+  const vault = deriveAta(m.address,key(101),TOKEN_2022_PROGRAM_ID), token = Buffer.alloc(165); key(101).toBuffer().copy(token); m.address.toBuffer().copy(token,32); token[108] = 1;
+  m.infos.set(vault.toBase58(), { owner: TOKEN_2022_PROGRAM_ID, data: token, executable: false, lamports: 1 });
+  const res = await m.client.quote(0, 50_000_000n); if (!res.ok) throw new Error(res.error.humanMessage);
+  const q = res.data;
+  const hookAccounts = [{ pubkey: native, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(m.cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: dynamicData, isSigner: false, isWritable: true }];
+  const resolved = await m.client.resolveExtraAccounts(q,user,{hookAccounts}); if (!resolved.ok) throw new Error(resolved.error.humanMessage);
+  const amounts = q.economics.swaps.flatMap(s => s.output === 1 ? [s.grossOutput] : s.input === 1 ? [s.grossInput] : []);
+  if (q.economics.depositedGross[1] > 0n) amounts.push(q.economics.depositedGross[1]);
+  expect(amounts.length).toBeGreaterThan(1);
+  for (const amount of amounts) {
+    const bytes = Buffer.alloc(8); bytes.writeBigUInt64LE(amount);
+    const expected = PublicKey.findProgramAddressSync([bytes],transferHook)[0];
+    expect(resolved.data.token2022Accounts!.some(m => m.pubkey.equals(expected))).toBe(true);
+  }
+  const ix = m.client.buildIx(q,user,resolved.data);
+  expect(ix.keys.slice(6 + 3*2 + 1)).toEqual([...hookAccounts,...resolved.data.token2022Accounts!]);
 });

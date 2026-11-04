@@ -12,6 +12,8 @@ import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js"
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { CofferConfig } from "../../config";
 import { PoolInfo } from "../../types/pool";
+import { requireHookSlice } from "../../utils/hooks";
+import type { PlannedZapExtraAccounts } from "./PlannedZapClient";
 import { deriveAta } from "../../utils/pda";
 
 /** Anchor discriminator of `deposit_single_token_planned`, pinned against the v6 IDL. */
@@ -21,7 +23,7 @@ if (DISCRIMINATOR.toString("hex") !== PLANNED_ZAP_DISCRIMINATOR_HEX) {
   throw new Error("deposit_single_token_planned discriminator drifted from the pinned v6 value");
 }
 
-/** Suggested compute-unit limit for a planned zap (N=10 with surge fees stays well below). */
+/** Runtime maximum requested by a planned zap. Simulate the exact route: N10 surge/hooks/guards can exceed this budget. */
 export const PLANNED_ZAP_CU_LIMIT = 1_400_000;
 export const PLANNED_ZAP_MIN_TOKENS = 2;
 export const PLANNED_ZAP_MAX_TOKENS = 10;
@@ -78,7 +80,9 @@ export interface PlannedZapAccounts {
 }
 
 /** Derive the account set for `user` from a synced pool (ATAs for every slot and the LP mint). */
-export function plannedZapAccounts(cfg: CofferConfig, pool: PoolInfo, user: PublicKey, extraAccounts?: AccountMeta[]): PlannedZapAccounts {
+export function plannedZapAccounts(cfg: CofferConfig, pool: PoolInfo, user: PublicKey, tails: PlannedZapExtraAccounts = {}): PlannedZapAccounts {
+  if (Array.isArray(tails)) throw new Error("Ambiguous extraAccounts: pass explicit hookAccounts / token2022Accounts");
+  const native = requireHookSlice(cfg, pool, tails.hookAccounts, "deposit_single_token_planned");
   const lpTokenProgram = pool.lpTokenProgram ?? TOKEN_PROGRAM_ID;
   return {
     pool: pool.address,
@@ -91,7 +95,7 @@ export function plannedZapAccounts(cfg: CofferConfig, pool: PoolInfo, user: Publ
     userTokenAccounts: pool.tokens.map((t) => deriveAta(user, t.mint, t.tokenProgram)),
     vaults: pool.tokens.map((t) => t.vault),
     tokenPrograms: pool.tokens.map((t) => t.tokenProgram),
-    extraAccounts,
+    extraAccounts: [...native, ...(tails.token2022Accounts ?? [])],
   };
 }
 

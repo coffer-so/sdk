@@ -43,10 +43,10 @@ export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
  * Instruction methods return a `TransactionInstruction` (or a Promise of it). Compose into a tx
  * with `@solana/web3.js` and sign with the admin wallet.
  *
- * The deployed audit-fixes-excluded-SF contract allows the supervisor to
- * freeze AND unfreeze pools and to deactivate AND reactivate tokens. Other
- * administrative operations require treasury.admin. This is not a freeze-only
- * supervisor model.
+ * Current source restricts the supervisor to circuit-breaker actions:
+ * freeze, deactivate, disable the range manager and veto queued actions.
+ * Unfreeze, reactivation and other governance operations require admin.
+ * Program configuration alone does not verify a deployed revision.
 
  */
 export class AdminClient {
@@ -357,8 +357,7 @@ export class AdminClient {
    * Batch-freeze pools. `pairs` are `[config, pool]` tuples passed via
    * remaining_accounts.
    *
-   * Authority: treasury.admin or treasury.supervisor. Both directions are
-   * permitted by the deployed audit-fixes-excluded-SF contract.
+   * Authority: treasury.admin or treasury.supervisor (restrictive direction).
    */
   freezePoolsIx(authority: PublicKey, pairs: Array<{ config: PublicKey; pool: PublicKey }>) {
     return (this.program.methods as any)
@@ -375,7 +374,7 @@ export class AdminClient {
   /**
    * Batch-unfreeze pools — mirror of {@link freezePoolsIx}.
    *
-   * The deployed contract permits either treasury.admin or treasury.supervisor.
+   * Current source requires treasury.admin; cooldown applies when configured.
    */
   unfreezePoolsIx(admin: PublicKey, pairs: Array<{ config: PublicKey; pool: PublicKey }>) {
     return (this.program.methods as any)
@@ -392,7 +391,7 @@ export class AdminClient {
   /**
    * Flip a token's input kill switch on a pool.
    *
-   * Both admin and supervisor may set either value in the deployed build.
+   * Admin may set either value; supervisor may deactivate only. Reactivation is queued when cooldown is configured.
    */
   setTokenActiveIx(
     authority: PublicKey,
@@ -417,8 +416,7 @@ export class AdminClient {
    * Set or revoke the supervisor pubkey. Admin only. Pass
    * `PublicKey.default` to revoke.
    *
-   * The supervisor may freeze/unfreeze pools and set token activity in either
-   * direction. Setting or revoking a supervisor remains admin-only.
+   * Supervisor authority is restrictive only. Setting or revoking it is admin-only and follows the configured cooldown.
    */
   setSupervisorIx(admin: PublicKey, newSupervisor: PublicKey) {
     return (this.program.methods as any)
@@ -495,6 +493,18 @@ export class AdminClient {
     return buildContractInstruction(this.config, "protocolAdmin", "close_pool_program", {}, {
       treasury: this.treasuryPda, admin, programdata: this.deriveProgramData(program),
       program_to_close: program, recipient, bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /**
+   * rc2 `close_upgrade_buffer`: close a loader `Buffer` whose authority is the
+   * Treasury PDA and refund its rent to `recipient` (recovery after a cancelled
+   * or superseded upgrade proposal). Instant, admin-only; the buffer of the
+   * pending proposal is refused until that proposal is cancelled.
+   */
+  closeUpgradeBufferIx(admin: PublicKey, buffer: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "close_upgrade_buffer", {}, {
+      treasury: this.treasuryPda, admin, buffer, recipient, bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
     });
   }
 
@@ -588,6 +598,19 @@ export class AdminClient {
   /** T22: `execute_pool_rescale_virtual_balances` for a ready kind-13 slot (the stored `{ pool, multiplier }` is applied). */
   executePoolRescaleVirtualBalancesIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
     return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_rescale_virtual_balances", {}, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** Restore a range manager disabled by the protocol (delayed when a Treasury cooldown is set). */
+  poolEnableRangeManagerIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_enable_range_manager", {}, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  executePoolEnableRangeManagerIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_enable_range_manager", {}, {
       treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
     });
   }

@@ -13,7 +13,7 @@
  * LP supply, a mint or the epoch makes it `AllocationPlanStale`).
  */
 import { AccountMeta, AddressLookupTableAccount, Commitment, ComputeBudgetProgram, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction } from "@solana/web3.js";
-import { createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { createAssociatedTokenAccountIdempotentInstruction, getExtraAccountMetaAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import { CofferConfig } from "../../config";
 import { SdkResult, err, ok } from "../../types/result";
@@ -21,21 +21,21 @@ import { BuiltTx, PlannedZapQuoteOptions, SwapFeeSource } from "../../types/tx";
 import { HOOK_FLAGS, MAX_SWAP_FEE_RATE } from "../../config";
 import { RpcClient } from "../RpcClient";
 import { decodePoolAccount, RawPoolAccount } from "../../parsers/poolAccount";
-import { decodeMintAccount } from "../../parsers/mintAccount";
+import { validateTransferMintSnapshot, validatePlannedZapLpMint } from "../../parsers/mintAccount";
 import { deriveAta, deriveLpMint } from "../../utils/pda";
+import { requireHookSlice } from "../../utils/hooks";
 import { tokenTransferBlockers, unsupportedMintExtensions } from "../../utils/extensions";
 import { selectEpochFee } from "../../math/transferFee";
 import { applySlippage } from "../../math/slippage";
 import { MathError } from "../../math/fixedPoint";
 import { quoteZap, replay, QuotePool, SimError, ZapQuote } from "../../math/planner";
-import { leverageViolations } from "../../math/leverage";
+import { concentrationFactorViolations } from "../../math/concentrationFactor";
 import { SwapLeg } from "../../math/swapSim";
 import { resolveTransferExtraAccounts, TransferLeg, UnsupportedTransferProfileError } from "../../utils/transferProfile";
 import { MAX_VALID_FOR_SLOTS, SnapshotAccount, stateCommitment } from "./stateCommitment";
 import { AllocationPlan, buildPlannedZapIx, PlannedZapAccounts, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS } from "./instruction";
 import { AltConnection, buildWalletLookupPreparation, compilePlannedZapTransaction, CompiledPlannedZap, resolveWalletLookupTable, waitForWalletLookupTable, WalletLookupPreparation } from "./walletAlt";
 
-const MINT_LEN = 82;
 const DEFAULT_VALID_FOR_SLOTS = 120;
 const bn = (v: bigint): BN => new BN(v.toString());
 
@@ -91,6 +91,12 @@ export interface PlannedZapQuote {
   layout: Omit<PlannedZapAccounts, "user" | "userTokenAccounts" | "userLpAccount" | "extraAccounts">;
   /** The planner's pool snapshot (for callers that want to re-run `replay`). */
   quotePool: QuotePool;
+}
+
+/** Explicit boundary: native pool-hook slice precedes Token-2022 transfer extras. */
+export interface PlannedZapExtraAccounts {
+  hookAccounts?: AccountMeta[];
+  token2022Accounts?: AccountMeta[];
 }
 
 export class PlannedZapClient {
@@ -155,7 +161,7 @@ export class PlannedZapClient {
     }
     const snapshots = { pool: accounts[0], lpMint: accounts[1], mints: accounts.slice(2, -1) };
     const clock = Buffer.from(accounts[accounts.length - 1].data);
-    if (clock.length !== 40) return err("parse_failure", "Invalid Clock sysvar layout");
+    if (!accounts[accounts.length - 1].owner.equals(new PublicKey("Sysvar1111111111111111111111111111111111111")) || clock.length !== 40) return err("parse_failure", "Invalid Clock sysvar owner/layout");
     const chainSlot = clock.readBigUInt64LE(0), chainEpoch = clock.readBigUInt64LE(16), chainTimestamp = clock.readBigInt64LE(32);
 
     // Decode the snapshot into the planner's pool.
@@ -163,14 +169,15 @@ export class PlannedZapClient {
     let raw: RawPoolAccount;
     try { raw = decodePoolAccount(Buffer.from(snapshots.pool.data)); } catch (e) { return err("parse_failure", "Could not decode pool account", e); }
     const n = raw.tokenCount;
+    if (snapshots.mints.length !== n) return err("parse_failure", "Pool mint count changed during snapshot discovery");
     if (n < PLANNED_ZAP_MIN_TOKENS || n > PLANNED_ZAP_MAX_TOKENS) return err("unsupported_pool_state", `Planned zap supports 2..${PLANNED_ZAP_MAX_TOKENS} tokens`);
     if (!raw.poolEnabled) return err("pool_disabled", "Pool is disabled");
     if (!raw.swapsEnabled) return err("swaps_disabled", "Swaps are disabled");
     if (!Number.isInteger(tokenInIndex) || tokenInIndex < 0 || tokenInIndex >= n) return err("invalid_input", "Invalid tokenInIndex");
     if (raw.actualBalances[tokenInIndex].isZero()) return err("invalid_input", "Input token is sidelined (zero actual balance)");
-    if (snapshots.lpMint.data.length !== MINT_LEN) return err("unsupported_token_extension", "The LP mint carries extensions; the planned zap requires a plain mint (ZapTokenExtensionsUnsupported)");
     let lpSupply: bigint;
-    try { lpSupply = BigInt(decodeMintAccount(Buffer.from(snapshots.lpMint.data)).supply.toString()); } catch (e) { return err("parse_failure", "Could not decode the LP mint", e); }
+    try { lpSupply = BigInt(validatePlannedZapLpMint(lpMint, snapshots.lpMint.owner, Buffer.from(snapshots.lpMint.data), this.poolAddress).supply.toString()); }
+    catch (e) { return err("unsupported_token_extension", e instanceof Error ? e.message : "Invalid LP mint", e); }
     if (lpSupply === 0n) return err("invalid_input", "PoolNotSeeded");
     const tokens: SwapLeg[] = [];
     const tokenPrograms: PublicKey[] = [];
@@ -180,7 +187,7 @@ export class PlannedZapClient {
       if (!snapshot.owner.equals(raw.tokenPrograms[i])) return err("parse_failure", `Mint token program mismatch at index ${i}`);
       if (snapshot.key.equals(lpMint)) return err("unsupported_pool_state", "A pool mint equals the LP mint");
       let mint;
-      try { mint = decodeMintAccount(Buffer.from(snapshot.data)); } catch (e) { return err("parse_failure", `Could not decode mint ${snapshot.key.toBase58()}`, e); }
+      try { mint = validateTransferMintSnapshot(snapshot.key, snapshot.owner, Buffer.from(snapshot.data)); } catch (e) { return err("parse_failure", `Could not decode mint ${snapshot.key.toBase58()}`, e); }
       const blockers = tokenTransferBlockers({ index: i, mint: snapshot.key, tokenProgram: snapshot.owner, unsupportedExtensions: unsupportedMintExtensions(mint.extensions), paused: mint.pausableConfig?.paused ?? false });
       if (blockers.length) return err("unsupported_token_extension", `token[${i}] ${snapshot.key.toBase58()}: ${blockers.join("; ")}`);
       tokens.push({
@@ -220,9 +227,9 @@ export class PlannedZapClient {
     };
 
     // v6.1 (T22): `QuotePool::from_pool` refuses a pool that already violates
-    // the strict leverage invariant (every swap / join CPI would revert).
-    const violating = leverageViolations(tokens.map((t) => t.virtualBalance), tokens.map((t) => t.actualBalance));
-    if (violating.length) return err("leverage_invariant", `VirtualBalanceNotAboveActual: slot${violating.length > 1 ? "s" : ""} ${violating.join(", ")} at virtual ≤ actual; the pool cannot trade until the protocol admin runs rescale_virtual_balances`);
+    // the strict concentrationFactor invariant (every swap / join CPI would revert).
+    const violating = concentrationFactorViolations(tokens.map((t) => t.virtualBalance), tokens.map((t) => t.actualBalance));
+    if (violating.length) return err("concentration_factor_invariant", `VirtualBalanceNotAboveActual: slot${violating.length > 1 ? "s" : ""} ${violating.join(", ")} at virtual ≤ actual; the pool cannot trade until the protocol admin runs rescale_virtual_balances`);
     let economics: ZapQuote;
     try {
       economics = quoteZap(quotePool, tokenInIndex, amount);
@@ -285,15 +292,45 @@ export class PlannedZapClient {
     }
   }
 
+  private assembleTail(quote: PlannedZapQuote, tails: PlannedZapExtraAccounts, validateTransfers = true): AccountMeta[] {
+    if (Array.isArray(tails)) throw new Error("Ambiguous extraAccounts: pass { hookAccounts, token2022Accounts }");
+    const raw = decodePoolAccount(Buffer.from(quote.snapshots.pool.data));
+    const active = !raw.hookProgram.equals(PublicKey.default) && raw.hookDisabled === 0;
+    const native = requireHookSlice(this.config, { address: this.poolAddress, hook: {
+      program: raw.hookProgram, active, disabled: raw.hookDisabled !== 0, accountsLen: raw.hookAccountsLen,
+    } as any }, tails.hookAccounts, "deposit_single_token_planned");
+    const tail = [...native, ...(tails.token2022Accounts ?? [])];
+    const seen = new Set<string>();
+    for (const m of tail) {
+      if (m.isSigner) throw new Error("Planned zap tail cannot contain signers");
+      const key = m.pubkey.toBase58();
+      if (seen.has(key)) throw new Error("duplicate native/Token-2022 extra account");
+      seen.add(key);
+    }
+    const moved = new Set<number>();
+    for (const swap of quote.economics.swaps) { if (swap.grossInput > 0n) moved.add(swap.input); if (swap.grossOutput > 0n) moved.add(swap.output); }
+    quote.economics.depositedGross.forEach((amount, i) => { if (amount > 0n) moved.add(i); });
+    for (const i of validateTransfers ? moved : []) {
+      const snapshot = quote.snapshots.mints[i];
+      const hook = validateTransferMintSnapshot(snapshot.key, snapshot.owner, Buffer.from(snapshot.data)).transferHook?.programId;
+      if (!hook || hook.equals(PublicKey.default)) continue;
+      for (const key of [hook, getExtraAccountMetaAddress(snapshot.key, hook)]) {
+        const meta = tails.token2022Accounts?.find(m => m.pubkey.equals(key));
+        if (!meta || meta.isSigner || meta.isWritable) throw new Error("Missing/invalid Token-2022 hook program or registry in explicit transfer tail");
+      }
+    }
+    return tail;
+  }
+
   /** Full account set for `user` (ATAs for every slot and the LP mint). */
-  accountsFor(quote: PlannedZapQuote, user: PublicKey, extraAccounts?: AccountMeta[]): PlannedZapAccounts {
+  accountsFor(quote: PlannedZapQuote, user: PublicKey, tails?: PlannedZapExtraAccounts): PlannedZapAccounts {
     const { layout } = quote;
     return {
       ...layout,
       user,
       userLpAccount: deriveAta(user, layout.lpMint, layout.lpTokenProgram),
       userTokenAccounts: layout.mints.map((mint, i) => deriveAta(user, mint, layout.tokenPrograms[i])),
-      extraAccounts,
+      extraAccounts: tails ? this.assembleTail(quote, tails) : undefined,
     };
   }
 
@@ -317,20 +354,29 @@ export class PlannedZapClient {
    * both directions and the join debits), resolved against the quote's own
    * mint snapshots. `[]` for pools without Token-2022 mints.
    */
-  async resolveExtraAccounts(quote: PlannedZapQuote, user: PublicKey): Promise<SdkResult<AccountMeta[]>> {
+  async resolveExtraAccounts(quote: PlannedZapQuote, user: PublicKey, native: Pick<PlannedZapExtraAccounts, "hookAccounts"> = {}): Promise<SdkResult<PlannedZapExtraAccounts>> {
     const accounts = this.accountsFor(quote, user);
     const legs: TransferLeg[] = [];
     for (const swap of quote.economics.swaps) {
       legs.push({ mint: accounts.mints[swap.input], tokenProgram: accounts.tokenPrograms[swap.input], source: accounts.userTokenAccounts[swap.input], destination: accounts.vaults[swap.input], authority: user, amount: swap.grossInput });
       // `ensureUserTokenAccountIxs` creates the user's output ATA in the same transaction; it may not exist yet.
-      legs.push({ mint: accounts.mints[swap.output], tokenProgram: accounts.tokenPrograms[swap.output], source: accounts.vaults[swap.output], destination: accounts.userTokenAccounts[swap.output], authority: accounts.pool, amount: swap.grossOutput, destinationCreatedInTx: true });
+      legs.push({ mint: accounts.mints[swap.output], tokenProgram: accounts.tokenPrograms[swap.output], source: accounts.vaults[swap.output], destination: accounts.userTokenAccounts[swap.output], authority: accounts.pool, amount: swap.grossOutput, destinationCreatedInTx: true, destinationOwner: user });
     }
     quote.economics.depositedGross.forEach((gross, i) => {
       if (gross > 0n) legs.push({ mint: accounts.mints[i], tokenProgram: accounts.tokenPrograms[i], source: accounts.userTokenAccounts[i], destination: accounts.vaults[i], authority: user, amount: gross });
     });
     try {
       const mints = quote.snapshots.mints.map((m) => ({ address: m.key, owner: m.owner, data: m.data }));
-      return ok(await resolveTransferExtraAccounts(this.rpc.connection, legs, mints, [user, accounts.pool, accounts.lpMint, accounts.userLpAccount]));
+      const hookAccounts = this.assembleTail(quote, native, false);
+      if (hookAccounts.length) {
+        const infos = await this.rpc.connection.getMultipleAccountsInfo(hookAccounts.map(m => m.pubkey), "confirmed");
+        if (!infos[0]?.executable) throw new Error("Native hook program must be executable");
+        hookAccounts.slice(2).forEach((meta, i) => {
+          if (meta.isWritable && !infos[i + 2]?.owner.equals(hookAccounts[0].pubkey)) throw new Error("Writable native hook extras must be hook-owned");
+        });
+      }
+      const token2022Accounts = await resolveTransferExtraAccounts(this.rpc.connection, legs, mints, [user, accounts.pool, accounts.lpMint, accounts.userLpAccount, ...hookAccounts.map(m => m.pubkey)]);
+      return ok({ hookAccounts, token2022Accounts });
     } catch (e) {
       if (e instanceof UnsupportedTransferProfileError) return err("unsupported_token_extension", e.message, e);
       return err("tx_build_failed", `Could not resolve the transfer-hook/memo tail: ${e instanceof Error ? e.message : String(e)}`, e);
@@ -338,8 +384,8 @@ export class PlannedZapClient {
   }
 
   /** The `deposit_single_token_planned` instruction for `user`. */
-  buildIx(quote: PlannedZapQuote, user: PublicKey, extraAccounts: AccountMeta[] = []): TransactionInstruction {
-    return buildPlannedZapIx(this.config, this.accountsFor(quote, user, extraAccounts), {
+  buildIx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): TransactionInstruction {
+    return buildPlannedZapIx(this.config, this.accountsFor(quote, user, tails), {
       amountIn: BigInt(quote.amountIn.toString()),
       tokenInIndex: quote.tokenInIndex,
       minimumLp: BigInt(quote.minimumLp.toString()),
@@ -348,10 +394,10 @@ export class PlannedZapClient {
   }
 
   /** Compute budget + the zap. ATA creates are NOT included (see `ensureUserTokenAccountIxs`). */
-  buildTx(quote: PlannedZapQuote, user: PublicKey, extraAccounts: AccountMeta[] = []): SdkResult<BuiltTx> {
+  buildTx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): SdkResult<BuiltTx> {
     try {
       return ok({
-        instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: PLANNED_ZAP_CU_LIMIT }), this.buildIx(quote, user, extraAccounts)],
+        instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: PLANNED_ZAP_CU_LIMIT }), this.buildIx(quote, user, tails)],
         suggestedCuLimit: PLANNED_ZAP_CU_LIMIT,
       });
     } catch (e) {
@@ -360,9 +406,9 @@ export class PlannedZapClient {
   }
 
   /** Addresses the pool's own ALT does not cover: the user's token accounts, LP account and the tail. */
-  walletLookupAddresses(quote: PlannedZapQuote, user: PublicKey, extraAccounts: AccountMeta[] = []): PublicKey[] {
+  walletLookupAddresses(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): PublicKey[] {
     const accounts = this.accountsFor(quote, user);
-    return [...accounts.userTokenAccounts, accounts.userLpAccount, ...extraAccounts.map((m) => m.pubkey)];
+    return [...accounts.userTokenAccounts, accounts.userLpAccount, ...this.assembleTail(quote, tails).map((m) => m.pubkey)];
   }
 
   /** Plan the wallet-owned ALT setup (create/extend batches); see `walletAlt.ts`. */

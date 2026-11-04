@@ -1,6 +1,6 @@
 # Exact decoded state mapping
 
-Target: `@coffer_so/sdk-v6` 0.3.0; contract source `contracts` v6.1 (`v6.1-t11` at `409067d`: L0/T1/T2/T3/T5/T6/T7/T8/T9/T10/T11/T12/T14/T15/T22).
+Target: `@coffer_so/sdk-v6` 0.3.0; contract source `contracts` v6.1 (rc2 source: L0/T1/T2/T3/T5/T6/T7/T8/T9/T10/T11/T12/T14/T15/T22 plus audit fixes).
 v6 added the `"V5M1"` migration marker in `CofferPool.reserved[0..4]` (`v5Migrated`); v6.1 (L0) grows
 `CofferPool` 1683 → **2304 bytes** by APPENDING a block after the frozen legacy `reserved[16]` — every
 pre-existing offset is unchanged — and `Treasury` 818 → **1624 bytes** (T3). The 1683-byte account is
@@ -45,8 +45,8 @@ Offsets include the 8-byte discriminator. `reserved` is ABI padding rather than 
 | `tokens` | `[TokenSlot; 10]` | 179 | Parallel arrays below (10 entries each) | `tokens` (first `tokenCount` entries) |
 | `lookup_table` | `pubkey` | 1619 | `lookupTable` | `lookupTable` |
 | `_deprecated_banned_extensions` | `u64` | 1651 | `deprecatedBannedExtensions` | Omitted (policy removed in v6.1/T19; never interpret) |
-| `range_manager_max_leverage_bps` | `u32` | 1659 | `rangeManagerMaxLeverageBps` | `rangeManagerMaxLeverageBps` |
-| `range_manager_min_leverage_bps` | `u32` | 1663 | `rangeManagerMinLeverageBps` | `rangeManagerMinLeverageBps` |
+| `range_manager_max_concentration_factor_bps` | `u32` | 1659 | `rangeManagerMaxConcentrationFactorBps` | `rangeManagerMaxConcentrationFactorBps` |
+| `range_manager_min_concentration_factor_bps` | `u32` | 1663 | `rangeManagerMinConcentrationFactorBps` | `rangeManagerMinConcentrationFactorBps` |
 | `reserved` | `[u8; 16]` | 1667 | `reserved: Buffer` | Omitted; use raw decoder |
 
 End of the v4/v5 prefix: **1683 bytes**. Reserved bytes are copied; changing the returned padding buffer does not mutate the input buffer.
@@ -85,7 +85,9 @@ Defaults on an unmigrated 1683-byte account: 0 / `[]` / `false` / `PublicKey.def
 | `hook_fee_min` / `hook_fee_max` | `u32` / `u32` | 2089 / 2093 | `hookFeeMin` / `hookFeeMax` | `hook.feeMin` / `hook.feeMax` | T9 |
 | `hook_max_cu` | `u32` | 2097 | `hookMaxCu` | `hook.maxCu` | T9 |
 | `hook_accounts_len` | `u8` | 2101 | `hookAccountsLen` | `hook.accountsLen` | T9 |
-| `reserved_v61` | `[u8; 202]` | 2102 | `reservedV61: Buffer` | Omitted (`layoutDrift` lists a non-zero reserve) | — |
+| `safety_flags` | `u16` | 2102 | `safetyFlags` | `seeded` (bit 0), `protocolRestrictedTokenMask` (bits 1–10), `protocolSwapsRestricted` (bit 11), `protocolRangeManagerRestricted` (bit 12), `protocolRangeManagerWasEnabled` (bit 13); `SAFETY_FLAG_*` constants | rc2 |
+| `range_manager_weight_anchors` | `[u16; 10]` | 2104 | `rangeManagerWeightAnchors` | `rangeManagerWeightAnchors` (first `tokenCount`) | rc2 |
+| `reserved_v61` | `[u8; 180]` | 2124 | `reservedV61: Buffer` | Omitted (`layoutDrift` lists a non-zero reserve) | — |
 
 Total size: **2304 bytes**. `pendingActionsMask` (bit `kind` ⇔ `eta != 0`) is derived; `pendingStatus(eta, chainNow)` classifies a slot as none / waiting / ready / expired against the Clock sysvar (14-day grace).
 
@@ -148,9 +150,10 @@ Use `decodeTreasuryAccount(data)` (raw offsets, accepts 786 / 818 / 1624 bytes) 
 | `pending_admin_eta` | `i64` | 826 |
 | `pending_set_delay` … `pending_program_op` (kinds 1..12) | typed slots, see `TREASURY_LAYOUT` | 834 … 1426 |
 | `pending_pool_rescale_virtual_balances` (v6.1 T22, kind 13) | `{ eta: i64, pool: pubkey, multiplier: u64 }` (48 B) | 1499 |
-| `reserved_v61` | `[u8; 77]` | 1547 |
+| `pending_pool_enable_range_manager` | `PendingPoolTarget` | 1547 |
+| `reserved_v61` | `[u8; 37]` | 1587 |
 
-Current account length: **1624 bytes** (v3) including discriminator; v2 = 818, v1 = 786 (no supervisor). T22 carved the kind-13 slot from the v3 reserve (125 → 77 B); `LEN` is unchanged. The v6.1 program refuses every typed Treasury instruction until the admin runs `migrate_treasury_layout_v61` (`treasuryNeedsLayoutMigration`).
+Current account length: **1624 bytes** (v3) including discriminator; v2 = 818, v1 = 786 (no supervisor). T22 carved the kind-13 slot from the v3 reserve (125 → 77 B; rc2 adds the kind-14 restoration slot, 77 → 37 B); `LEN` is unchanged. The v6.1 program refuses every typed Treasury instruction until the admin runs `migrate_treasury_layout_v61` (`treasuryNeedsLayoutMigration`).
 
 Bytes 74..90 of the config and 1651..1659 of the pool held the Token-2022 extension-policy bitmaps until v6.1. The policy was removed (T19): no code path reads them, existing accounts still carry their old values, fresh accounts write zero. They are exposed raw (`_deprecated_extension_policy`, `deprecatedBannedExtensions`) only so every later field keeps its byte offset; never interpret them.
 
@@ -182,4 +185,9 @@ The example assumes an existing pool client/config and `configAddress: PublicKey
 
 `tests/account-state.test.ts` compares the manual decoder and every operational `sync()` field against an independent IDL-driven Borsh fixture. It covers all ten token slots, nonzero padding, mixed token programs, negative i64, u64 values above `Number.MAX_SAFE_INTEGER`, malformed discriminators/booleans and precise numeric-conversion failures.
 
-`tests/contract-abi.test.ts` covers all complete config/Treasury/pool layouts, all 107 instructions and all 79 events. `tests/v61-decoder.test.ts` pins every v6.1 offset against the contracts' `tests/utils/v61-layout.ts` table (2304-byte and 1683-byte pools, Treasury v1/v2/v3, LP metadata). `scripts/check-contract-abi.cjs --contracts-dir ... --idl-dir idl --ignore-address` compares the bundled IDLs with a chosen checkout’s committed IDLs.
+`tests/contract-abi.test.ts` covers all complete config/Treasury/pool layouts, all 109 instructions and all 80 events. `tests/v61-decoder.test.ts` pins every v6.1 offset against the contracts' `tests/utils/v61-layout.ts` table (2304-byte and 1683-byte pools, Treasury v1/v2/v3, LP metadata). `scripts/check-contract-abi.cjs --contracts-dir ... --idl-dir idl --ignore-address` compares the bundled IDLs with a chosen checkout’s committed IDLs.
+
+`PoolTokenInfo.concentrationFactor` is the existing virtual/actual display ratio
+(formerly `concentration`); `rangeManagerMinConcentrationFactorBps` and
+`rangeManagerMaxConcentrationFactorBps` map the renamed wire fields at unchanged
+offsets. No account layout or economic formula changes with these API names.

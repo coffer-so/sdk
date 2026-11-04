@@ -1,4 +1,5 @@
-import { BorshAccountsCoder, BorshCoder, BorshEventCoder, Idl } from "@coral-xyz/anchor";
+import { BorshAccountsCoder, BorshEventCoder, Idl } from "@coral-xyz/anchor";
+import { IdlCoder } from "@coral-xyz/anchor/dist/cjs/coder/borsh/idl";
 import { IDLS } from "../idl";
 import { ContractAccountMap, ContractEventMap, ContractProgram } from "../types/contracts";
 
@@ -10,7 +11,7 @@ export type ContractEvent = {
 
 const accountCoders = new Map<ContractProgram, BorshAccountsCoder>();
 const eventCoders = new Map<ContractProgram, BorshEventCoder>();
-const typeCoders = new Map<ContractProgram, BorshCoder["types"]>();
+const eventLayouts = new Map<string, ReturnType<typeof IdlCoder.typeDefLayout>>();
 
 /** Decode any account in the current ABI, including Config and Treasury.
  * Fields retain IDL snake_case names; u64/i64 values remain BN without loss.
@@ -42,6 +43,7 @@ export function decodeContractAccount<P extends ContractProgram, A extends keyof
 export function decodeContractEvent(base64: string, program?: ContractProgram): ContractEvent | null {
   const programs = program ? [program] : Object.keys(IDLS) as ContractProgram[];
   const raw = Buffer.from(base64, "base64");
+  if (raw.length < 8 || raw.length > 32768) return null;
   for (const candidate of programs) {
     let coder = eventCoders.get(candidate);
     if (!coder) {
@@ -51,13 +53,20 @@ export function decodeContractEvent(base64: string, program?: ContractProgram): 
     try {
       const result = coder.decode(base64);
       if (!result) continue;
-      let types = typeCoders.get(candidate);
-      if (!types) {
-        types = new BorshCoder(IDLS[candidate] as unknown as Idl).types;
-        typeCoders.set(candidate, types);
+      // Use the same installed Anchor source-IDL layout with a bounded buffer
+      // sized to the actual payload. BorshTypesCoder.encode hardcodes1000 bytes;
+      // valid N10 PoolInitializedV2 events are1135 bytes including discriminator.
+      const payload = raw.subarray(8), key = candidate + ":" + result.name;
+      let layout = eventLayouts.get(key);
+      if (!layout) {
+        const idl = IDLS[candidate] as unknown as Idl;
+        const typeDef = idl.types?.find(type => type.name === result.name);
+        if (!typeDef || !idl.types) return null;
+        layout = IdlCoder.typeDefLayout({ typeDef, types: idl.types });
+        eventLayouts.set(key, layout);
       }
-      const encoded = types.encode(result.name, result.data);
-      const payload = raw.subarray(8);
+      const scratch = Buffer.alloc(payload.length);
+      const encoded = scratch.subarray(0, layout.encode(result.data, scratch));
       if (encoded.length > payload.length || !encoded.equals(payload.subarray(0, encoded.length))) return null;
       return { program: candidate, kind: result.name, data: result.data } as ContractEvent;
     } catch { /* Try the other ABI, or report an undecodable event. */ }
@@ -65,7 +74,7 @@ export function decodeContractEvent(base64: string, program?: ContractProgram): 
   return null;
 }
 
-/** Parse all 79 known events; fields and names match the shipped contract IDLs.
+/** Parse every current event; fields and names match the shipped contract IDLs.
  * This is decoding, not proof of the emitting program's identity. Consumers
  * must verify transaction success and program provenance before indexing.
  */

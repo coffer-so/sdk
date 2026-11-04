@@ -53,7 +53,7 @@ function fixture(): State {
         current_selloff: wide.addn(90+i), window_start_timestamp: bn(-900-i), selloff_vb_snapshot: wide.addn(110+i)},
     })),
     lookup_table: key(30), _deprecated_banned_extensions: bn("9223372036854776320"),
-    range_manager_max_leverage_bps: 876543, range_manager_min_leverage_bps: 12345,
+    range_manager_max_concentration_factor_bps: 876543, range_manager_min_concentration_factor_bps: 12345,
     reserved: Array.from({length:16}, (_,i) => i+1),
     // ── v6.1 appended block (2304-byte layout) ──
     layout_version: 1,
@@ -70,11 +70,12 @@ function fixture(): State {
     pending_lock_liquidity_fees: { eta: bn(1700000005) },
     pending_lock_range_manager: { eta: bn(0) },
     pending_set_range_manager: { eta: bn(1700000007), manager: key(40), enabled: true },
-    pending_set_range_manager_config: { eta: bn(0), max_vb_change_pct: 0, max_weight_change_pct: 0, min_update_interval_secs: 0, max_leverage_bps: 0, min_leverage_bps: 0 },
+    pending_set_range_manager_config: { eta: bn(0), max_vb_change_pct: 0, max_weight_change_pct: 0, min_update_interval_secs: 0, max_concentration_factor_bps: 0, min_concentration_factor_bps: 0 },
     pending_set_max_selloff: { eta: bn(1700000009), params_hash: Array.from({length: 32}, (_, i) => 200 + i % 50) },
     pending_set_token_active: { eta: bn(-5), token_index: 2 },
     hook_program: key(41), hook_flags: 0b1110000, hook_disabled: 1, hook_fee_min: 100, hook_fee_max: 50000, hook_max_cu: 60000, hook_accounts_len: 4,
-    reserved_v61: Array.from({length: 202}, () => 0),
+    safety_flags: 1, range_manager_weight_anchors: Array.from({length: 10}, (_, i) => i < 2 ? 5_000 : 0),
+    reserved_v61: Array.from({length: 180}, () => 0),
   };
 }
 const poolMap = {
@@ -84,20 +85,20 @@ const poolMap = {
   range_manager_enabled: "rangeManagerEnabled", range_manager_max_vb_change_pct: "rangeManagerMaxVbChangePct",
   range_manager_max_weight_change_pct: "rangeManagerMaxWeightChangePct", range_manager_min_update_interval_secs: "rangeManagerMinUpdateIntervalSecs",
   range_manager_last_updated: "rangeManagerLastUpdated", lookup_table: "lookupTable", _deprecated_banned_extensions: "deprecatedBannedExtensions",
-  range_manager_max_leverage_bps: "rangeManagerMaxLeverageBps", range_manager_min_leverage_bps: "rangeManagerMinLeverageBps",
+  range_manager_max_concentration_factor_bps: "rangeManagerMaxConcentrationFactorBps", range_manager_min_concentration_factor_bps: "rangeManagerMinConcentrationFactorBps",
   // v6.1
   layout_version: "layoutVersion", token_decimals: "tokenDecimals", creator_fee_bps: "creatorFeeBps", creator_fees_owed: "creatorFeesOwed",
   surge_fees_owed: "surgeFeesOwed", deposit_fee_bps: "depositFeeBps", withdraw_fee_bps: "withdrawFeeBps", liquidity_fee_lock: "liquidityFeeLock",
   range_manager_locked: "rangeManagerLocked", pool_admin_delay_secs: "poolAdminDelaySecs", pool_admin_epoch: "poolAdminEpoch",
   pending_pool_admin_eta: "pendingPoolAdminEta", hook_program: "hookProgram", hook_flags: "hookFlags", hook_disabled: "hookDisabled",
-  hook_fee_min: "hookFeeMin", hook_fee_max: "hookFeeMax", hook_max_cu: "hookMaxCu", hook_accounts_len: "hookAccountsLen", reserved_v61: "reservedV61",
+  hook_fee_min: "hookFeeMin", hook_fee_max: "hookFeeMax", hook_max_cu: "hookMaxCu", hook_accounts_len: "hookAccountsLen", safety_flags: "safetyFlags", range_manager_weight_anchors: "rangeManagerWeightAnchors", reserved_v61: "reservedV61",
 } as const;
 /** v6.1 (T3) typed slots: wire field → (pendingActions kind, payload keys in wire order). */
 const pendingMap: Record<string, [number, string[]]> = {
   pending_set_delay: [1, ["secs"]], pending_set_swap_fee_rate: [2, ["rate"]], pending_set_creator_fee_bps: [3, ["bps"]],
   pending_set_liquidity_fees: [4, ["depositFeeBps", "withdrawFeeBps"]], pending_lock_liquidity_fees: [5, []], pending_lock_range_manager: [6, []],
   pending_set_range_manager: [7, ["manager", "enabled"]],
-  pending_set_range_manager_config: [8, ["maxVbChangePct", "maxWeightChangePct", "minUpdateIntervalSecs", "maxLeverageBps", "minLeverageBps"]],
+  pending_set_range_manager_config: [8, ["maxVbChangePct", "maxWeightChangePct", "minUpdateIntervalSecs", "maxConcentrationFactorBps", "minConcentrationFactorBps"]],
   pending_set_max_selloff: [9, ["paramsHash"]], pending_set_token_active: [10, ["tokenIndex"]],
 };
 const configMap = {
@@ -158,7 +159,7 @@ test("an unmigrated 1683-byte pool decodes read-only with layout_version 0 and v
   for (const [wire, name] of Object.entries(poolMap)) {
     if (["layout_version", "token_decimals", "creator_fee_bps", "creator_fees_owed", "surge_fees_owed", "deposit_fee_bps", "withdraw_fee_bps",
       "liquidity_fee_lock", "range_manager_locked", "pool_admin_delay_secs", "pool_admin_epoch", "pending_pool_admin_eta", "hook_program", "hook_flags",
-      "hook_disabled", "hook_fee_min", "hook_fee_max", "hook_max_cu", "hook_accounts_len", "reserved_v61"].includes(wire)) continue;
+      "hook_disabled", "hook_fee_min", "hook_fee_max", "hook_max_cu", "hook_accounts_len", "safety_flags", "range_manager_weight_anchors", "reserved_v61"].includes(wire)) continue;
     expect(normalize(raw[name])).toEqual(normalize((state as any)[wire]));
   }
   expect(raw.tokenDecimals).toEqual(Array(10).fill(0));
@@ -201,10 +202,10 @@ test("sync maps every operational field and token program with full-width balanc
   const info = result.data as any;
   const hookMap: Record<string, string> = { hook_program: "program", hook_flags: "flags", hook_fee_min: "feeMin", hook_fee_max: "feeMax", hook_max_cu: "maxCu", hook_accounts_len: "accountsLen" };
   for (const [wire,name] of Object.entries(poolMap)) {
-    if (wire === "_deprecated_banned_extensions" || wire === "reserved_v61") { expect(info[name]).toBeUndefined(); continue; }
+    if (wire === "_deprecated_banned_extensions" || wire === "reserved_v61" || wire === "safety_flags") { expect(info[name]).toBeUndefined(); continue; }
     if (hookMap[wire]) { expect(normalize(info.hook[hookMap[wire]])).toEqual(normalize((state as any)[wire])); continue; }
     if (wire === "hook_disabled") { expect(info.hook.disabled).toBe(true); expect(info.hook.active).toBe(false); continue; }
-    if (wire === "token_decimals" || wire === "creator_fees_owed" || wire === "surge_fees_owed") {
+    if (wire === "token_decimals" || wire === "creator_fees_owed" || wire === "surge_fees_owed" || wire === "range_manager_weight_anchors") {
       expect(normalize(info[name])).toEqual(normalize((state as any)[wire].slice(0, state.token_count)));
       continue;
     }

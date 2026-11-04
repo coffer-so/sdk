@@ -83,12 +83,13 @@ const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
 test("generated public types match all shipped IDLs", () => {
-  // v6.1 @ 409067d: coffer_pool 51 ix / 41 events, protocol_admin 52 / 36, STLD 4 / 2
+  // v6.1-rc2: coffer_pool 51 ix / 41 events, protocol_admin 55 / 38, STLD 4 / 2
   // (T19 removed 2 + 2; L0/T2/T10/T14/T6/T7/T3/T9/T22 appended the rest; T11
   // retired PoolStateLog / MaxSelloffWindowAdvanced / SingleTokenDeposit and
-  // re-cut 45 payloads under new names).
-  expect(instructions).toHaveLength(107);
-  expect(events).toHaveLength(79);
+  // re-cut 45 payloads under new names; rc2 added close_upgrade_buffer /
+  // UpgradeBufferClosed and dropped the never-deployed batch route).
+  expect(instructions).toHaveLength(110);
+  expect(events).toHaveLength(81);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
 
@@ -142,7 +143,7 @@ test("strict ABI rejects missing/extra fields, wrong widths and unsafe JS intege
   expect(() => build({ swap_fee_rate: 10, extra: 0 })).toThrow(/not in/);
   for (const invalid of [-1, 0x100000000, 1.5, NaN]) expect(() => build({ swap_fee_rate: invalid })).toThrow();
   expect(() => build({ swap_fee_rate: 10 }, { ...accounts, wrong: pk() } as any)).toThrow(/not in/);
-  expect(() => buildSetRangeManagerConfigIx(cfg, pk(), { authority: pk(), maxVbChangePct: 65536, maxWeightChangePct: 1, minUpdateIntervalSecs: 1, maxLeverageBps: 1, minLeverageBps: 1 })).toThrow(/unsigned 16/);
+  expect(() => buildSetRangeManagerConfigIx(cfg, pk(), { authority: pk(), maxVbChangePct: 65536, maxWeightChangePct: 1, minUpdateIntervalSecs: 1, maxConcentrationFactorBps: 1, minConcentrationFactorBps: 1 })).toThrow(/unsigned 16/);
   const amountAccounts = { treasury: pk(), admin: pk(), recipient: pk() };
   expect(() => (buildContractInstruction as any)(cfg, "protocolAdmin", "withdraw_sol", { amount: new BN(-1) }, amountAccounts)).toThrow(/outside u64/);
   expect(() => (buildContractInstruction as any)(cfg, "protocolAdmin", "withdraw_sol", { amount: 100 }, amountAccounts)).toThrow(/BN/);
@@ -154,7 +155,7 @@ function poolFixture(): PoolInfo {
     lpTotalSupply: new BN(100000), swapFeeRate: 0, protocolFeeRate: 0, poolEnabled: true, swapsEnabled: true, createdAt: 0,
     lookupTable: PublicKey.default, syncedAt: 0, unsupportedTokenIndices: [],
     tokens: [0, 1].map(index => ({ index, mint: pk(), tokenProgram: TOKEN_2022_PROGRAM_ID, decimals: 9, weightBps: 5000,
-      virtualBalance: new BN(100000), actualBalance: new BN(100000), protocolFeesOwed: new BN(0), vault: pk(), concentration: 1,
+      virtualBalance: new BN(100000), actualBalance: new BN(100000), protocolFeesOwed: new BN(0), vault: pk(), concentrationFactor: 1,
       isActive: true, maxSelloffPct: 0, extensions: [], unsupportedExtensions: [] })),
   };
 }
@@ -209,6 +210,7 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     transfer_upgrade_authority: () => client.transferUpgradeAuthorityIx(a, cfg.programs.cofferPool, other),
     freeze_pool_program: () => client.freezePoolProgramIx(a, cfg.programs.cofferPool),
     close_pool_program: () => client.closePoolProgramIx(a, cfg.programs.cofferPool, recipient),
+    close_upgrade_buffer: () => client.closeUpgradeBufferIx(a, other, recipient),
     upgrade_pool_program: () => client.upgradePoolProgramIx(a, cfg.programs.cofferPool, other, recipient),
     pool_initialize_config: () => client.poolInitializeConfigIx(a, config, 300),
     pool_set_protocol_fee_rate: () => client.setProtocolFeeRateIx(a, config, pool, 300),
@@ -229,6 +231,8 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     pool_accept_protocol_admin_transfer: () => client.poolAcceptProtocolAdminTransferIx(a, config),
     pool_cancel_protocol_admin_transfer: () => client.poolCancelProtocolAdminTransferIx(a, config),
     // v6.1
+    pool_enable_range_manager: () => client.poolEnableRangeManagerIx(a, config, pool),
+    execute_pool_enable_range_manager: () => client.executePoolEnableRangeManagerIx(a, config, pool),
     pool_disable_range_manager: () => client.poolDisableRangeManagerIx(a, config, pool),
     pool_set_hook_disabled: () => client.setHookDisabledIx(a, config, pool, true),
     pool_rescale_virtual_balances: () => client.poolRescaleVirtualBalancesIx(a, config, pool, new BN(1_000_000_000)),

@@ -94,7 +94,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
    * permanent rejection.
    */
   RangeManagerStaleValue: "invalid_input",
-  RangeManagerLeverageBandExceeded: "invalid_input",
+  RangeManagerConcentrationFactorBandExceeded: "invalid_input",
   RangeManagerOverrideMustDisable: "auth_failed",
   /** An array argument's length != the pool's `token_count`. */
   InvalidArrayLength: "invalid_input",
@@ -105,7 +105,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   /** Pool holds no liquidity yet; the pool admin must seed it first. */
   PoolNotSeeded: "unsupported_pool_state",
 
-  // ── coffer-pool 6070–6106, v6.1 ───────────────────────────────────────
+  // ── coffer-pool 6070–6109, v6.1 ───────────────────────────────────────
   /** L0: the pool is still 1683 bytes; prepend / run `migrate_pool_layout_v61`. */
   LayoutVersionMismatch: "pool_layout_outdated",
   /** L0 / T3: the account is already at the v6.1 size (idempotent no-op from the caller's view). */
@@ -156,10 +156,16 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   HookPaused: "hook_rejected",
   HookRegisterRejected: "hook_rejected",
   HookFlagsMismatch: "hook_rejected",
-  /** T22: strict leverage invariant (6104–6106). */
-  VirtualBalanceNotAboveActual: "leverage_invariant",
-  VirtualBalanceBelowFloor: "leverage_invariant",
+  /** T22: strict concentrationFactor invariant (6104–6106). */
+  VirtualBalanceNotAboveActual: "concentration_factor_invariant",
+  VirtualBalanceBelowFloor: "concentration_factor_invariant",
   InvalidVirtualRescale: "invalid_input",
+  /** rc2 (6107): `lock_liquidity_fees` / `disable_pool_admin` with a withdraw fee above the lockable cap — lower it first. */
+  WithdrawFeeNotLockable: "invalid_input",
+  /** rc2 (6108): `set_range_manager(enabled = true)` with the default (all-zero) manager key. */
+  RangeManagerKeyRequired: "invalid_input",
+  /** rc2 (6109): LP supply at or below the floor — redeem the whole LP balance in one exit. */
+  FullExitRequiredBelowFloor: "invalid_input",
 
   // ── protocol-admin ───────────────────────────────────────────────────
   /** New admin cannot be the all-zero pubkey. */

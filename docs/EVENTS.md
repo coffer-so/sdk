@@ -1,6 +1,6 @@
 # Events — v6.1 wire (T11) and the backend mapping
 
-Target: `contracts` v6.1 at `409067d` (T11 events overhaul); source of truth
+Target: `contracts` v6.1 rc2 (T11 events plus `PoolRangeManagerEnabled`); source of truth
 `programs/*/src/events.rs`, pinned by `idl/abi-pins.json` and mirrored here in
 `src/parsers/eventPins.ts`. The contracts' own reference is
 `docs/EVENTS-V61.md` (full field semantics per event); this page is the SDK
@@ -43,7 +43,7 @@ side: what the decoders return and how `backend-v2` maps it.
 | `parseTransactionEvents(logs, programIds?)` | `AttributedEvent[]` — the same events plus `programId` (top of the invoke stack), `depth`, `lineIndex`; with `programIds` a line is decoded with THAT program's table only | CPI-aware indexing (a planned zap logs coffer-pool events at depth 2) |
 | `parseContractEvents(logs, program?)` / `decodeContractEvent` | `{ program, kind, data }` with exact IDL names and `BN` | exact wire view, admin indexer |
 | `decodeEventLine(base64, only?)` | one line, `{ event, program }` | custom pipelines |
-| `EVENT_TABLES`, `eventProgramOf(hex)` | discriminator → name per program (41 / 36 / 2, no collisions) | table generation |
+| `EVENT_TABLES`, `eventProgramOf(hex)` | discriminator → name per program (41 / 38 / 2, no collisions) | table generation |
 | `RECUT_EVENTS`, `RETIRED_EVENTS`, `LEGACY_EVENT_DISCRIMINATORS` | the pins | version switch for v6 history |
 | `logTruncated(logs)` | `true` on `Log truncated` | flag `needs_rpc_replay` |
 
@@ -92,7 +92,7 @@ exposed as `actionKind`. The full per-event field tables are in the contracts'
 
 1. **Decoder table** (`parsers/events.ts`): replace the v6 discriminators with
    `EVENT_TABLES` (= `events ∪ addedEvents ∪ recutEvents[*].discriminator`
-   of `abi-pins.json`, 79 events: 41 / 36 / 2). Keep the v6 table behind a
+   of `abi-pins.json`, 81 events: 41 / 38 / 2). Keep the v6 table behind a
    version switch for history — `LEGACY_EVENT_DISCRIMINATORS` tells a v6 log
    from garbage. Decode **by program id with the invoke stack**
    (`parseTransactionEvents(logs, { cofferPool, protocolAdmin, singleTokenLiquidity })`),
@@ -158,9 +158,9 @@ raised `--log-messages-bytes-limit` or replay through RPC on `Log truncated`
 
 `scripts/generate-event-fixtures.cjs` samples every event of the three IDLs
 deterministically, encodes it with an independent Borsh encoder and writes
-`tests/fixtures/events/*.json` (80 fixtures: `Option` fields get a `some` and
+`tests/fixtures/events/*.json` (82 fixtures for 81 events: `Option` fields get a `some` and
 a `none` variant). `tests/v61-events.test.ts` decodes each through both APIs,
 compares field by field, re-encodes the decoded value to the fixture bytes and
 checks the pins, the legacy / retired handling, truncation, bad tags and CPI
 attribution; `tests/contract-abi.test.ts` covers the raw IDL round trip of all
-79 events.
+81 events.

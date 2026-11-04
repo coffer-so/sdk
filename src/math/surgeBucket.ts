@@ -22,7 +22,7 @@
  * payout rounds DOWN; every fee rounds UP.
  */
 import { MathError, ONE, assertU64, assertU128, mulDivDown } from "./fixedPoint";
-import { calcDepositCredit } from "./poolMath";
+import { calcEffectiveLpBurn, calcTokensOutGivenLpIn, calcDepositCredit } from "./poolMath";
 import { applyWithdrawFee } from "./liquidityFee";
 
 /** `actual_balance + surge_fees_owed` for one slot (`MathOverflow` on a corrupted pair). */
@@ -104,4 +104,15 @@ export function splitExitPayout(actualGross: bigint, surgeGross: bigint, withdra
     feeTotal: a.fee + s.fee,
     grossTotal: actualGross + surgeGross,
   };
+}
+
+/** Canonical remove-liquidity payout, shared by quotes and amount-seeded tails. */
+export function calculateExitPayout(actual: bigint[], surge: bigint[], requested: bigint, supply: bigint, withdrawFeeBps: number) {
+  if (actual.length !== surge.length) throw new MathError("InvalidArrayLength");
+  const effective = calcEffectiveLpBurn(requested, supply);
+  const grossActual = calcTokensOutGivenLpIn(actual, effective, supply);
+  const grossSurge = calcTokensOutGivenLpIn(surge, effective, supply);
+  const legs = grossActual.map((g, i) => splitExitPayout(g, grossSurge[i], withdrawFeeBps));
+  if (legs.some(l => l.grossTotal > 0n) && legs.every(l => l.transferAmount === 0n)) throw new MathError("WithdrawFeeConsumesAll");
+  return { effective, grossActual, grossSurge, legs };
 }

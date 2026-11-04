@@ -1,16 +1,25 @@
 {
-  "contractBranch": "v6",
-  "contractCommit": "7d753b32e5cfcbbc42933261f22e72f70093b098",
+  "contractBranch": "v6.1",
+  "contractTreeDirty": false,
+  "contractCommit": "fca9bfca070b3c92ea0d04829ecf45819ef9db31",
   "sourceHashes": {
-    "programs/coffer-pool/src/math/log_exp_math.rs": "e165bff5e254c49b78d15980dd7d53947d3e468b0d9b1ea802636c3880beb720",
-    "programs/coffer-pool/src/math/fixed_point.rs": "7b4635e03c89ba9460a694690f94817495f62cfc501d02148d2e53235891f29d",
-    "programs/coffer-pool/src/math/pool_math.rs": "8a944f5a0c2166c4df59da38f4e511ab128ec3c3e63833abb04fa4b878bd947f",
-    "programs/coffer-pool/src/math/weighted_math.rs": "6281be567992136a080b1be1f36dde13456ac01144afab6330624d79fa414740",
-    "programs/coffer-pool/src/math/max_selloff.rs": "c6ef87f5ba45491695ead9c80effc5ebd48c960a605c033a7f787f1fecff74bc",
-    "programs/coffer-pool/src/math/surge_fee.rs": "3da7bf4f0e51fc64f223464bcf8edfcf3ee36553daff3533094b3725cd50a045",
-    "programs/single-token-liquidity/src/math.rs": "5ae7d8214cd26791130c36ae3df5cc78e811984c09f7aed898ee95a235c5d1d6",
-    "programs/coffer-pool/src/instructions/user/swap.rs": "b3c96111d6b47790264c3054ef0fec8bf70915b480b2ddb220cf27a200789c69"
+    "programs/coffer-pool/src/math/log_exp_math.rs": "954b6d3e3f0fd4498e94fb7c9bc2f618c5e617596fb240af86c1a4456065a632",
+    "programs/coffer-pool/src/math/fixed_point.rs": "d67245e5aacc26430587155f4a9ce911fcce8458be935497d34d9dbfb8a17bc2",
+    "programs/coffer-pool/src/math/fee_split.rs": "cbf2b627ddcd91b5a1e0cf91efbb50790aa468b6275cfea93737aa9c62be92eb",
+    "programs/coffer-pool/src/math/pool_math.rs": "66232c622507b7d002d1972b2d00fa94db9d9bef3bef95271c0cf9c642646583",
+    "programs/coffer-pool/src/math/max_selloff.rs": "eefa9cd626d0e8387e540da13d1faf29830d899c1f7f0abc67f7bd20036e11ad",
+    "programs/coffer-pool/src/math/surge_fee.rs": "2b7d02aef0832b8ef32be6d30ef8f5e3f76657b27e2728e2df9d3b338ee70624",
+    "programs/single-token-liquidity/src/math.rs": "a35124ebac0b0ca03666bc9e5b44a216ca02d9e1f3dacf68a2ffa28f71990347",
+    "programs/coffer-pool/src/instructions/user/swap.rs": "3d3181337dcceceeac52a416d7bc2798d000b23fdde1aacc30af3036ca01ce93"
   },
+  "generatorSha256": "b348c5613fb81481198918da3a3f5ef9a4ea2128508a10ab12de4fbac1d19e8e",
+  "rustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "referenceCompileFlags": [
+    "--edition=2021",
+    "-O",
+    "-C",
+    "overflow-checks=yes"
+  ],
   "vectors": [
     {
       "kind": "ln",
@@ -2498,6 +2507,3416 @@
       "amount": "18446744073709551615",
       "weight": 10000,
       "expected": "error:AmountOutExceedsBalance"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "223130160148429829",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551614",
+      "amount": "776869839851570171",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "17528334765347281475"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "416862019678508403",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551614",
+      "amount": "583137980321491597",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "15241180612199910546"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "687289278790972199",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551614",
+      "amount": "312710721209027801",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "17528334765347281475"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "882496902584595403",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551614",
+      "amount": "117503097415404597",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "11660566172440662662"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "882496902584595403",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551614",
+      "amount": "117503097415404597",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "15950248739700759142"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "437499999"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "8070450532247924957"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "1"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "36893484347"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "19703950"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "363473733831543892"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "173553719"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "3201501037585951313"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000000000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000000000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "19703950"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000000000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "363473733831543892"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000000000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000000000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "173553719"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000000000000",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "3201501037585951313"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "184467440737095516",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "184467440737095516",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "19703950"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "184467440737095516",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "363473733831543892"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1844674407370955161",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1844674407370955161",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "173553719"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1844674407370955161",
+      "weightIn": 200,
+      "weightOut": 100,
+      "expected": "3201501037585951313"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "578124999"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "10664523917613330635"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "2"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "55340228347"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "29409852"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "542516014424395277"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "248685199"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "4587432222688096362"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000000000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000000000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "29409852"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000000000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "542516014424395277"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000000000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000000000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "248685199"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000000000000",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "4587432222688096362"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "184467440737095516",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "184467440737095516",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "29409852"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "184467440737095516",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "542516014424395277"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1844674407370955161",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1844674407370955161",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "248685199"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1844674407370955161",
+      "weightIn": 300,
+      "weightOut": 100,
+      "expected": "4587432222688096362"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "899887084"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "16599986751510933799"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "7"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "147573948014"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "76516777"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "1411485412213754035"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "533492619"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "9841201822483879066"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000000000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000000000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "76516777"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000000000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "1411485412213754035"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000000000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000000000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "533492619"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000000000000",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "9841201822483879066"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "184467440737095516",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "184467440737095516",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "76516777"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "184467440737095516",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "1411485412213754035"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1844674407370955161",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1844674407370955161",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "533492619"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1844674407370955161",
+      "weightIn": 800,
+      "weightOut": 100,
+      "expected": "9841201822483879066"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "989977404"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "18261859814814511500"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "15"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "295147898538"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "147178737"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "2714968509171690010"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "782370864"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "14432195102806089401"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000000000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000000000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "147178737"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000000000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "2714968509171690010"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000000000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000000000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "782370864"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000000000000",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "14432195102806089401"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "184467440737095516",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "184467440737095516",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "147178737"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "184467440737095516",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "2714968509171690010"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1844674407370955161",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1844674407370955161",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "782370864"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1844674407370955161",
+      "weightIn": 1600,
+      "weightOut": 100,
+      "expected": "14432195102806089401"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "999899547"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "18444891053520696089"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "31"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "590295796044"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "272695894"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "5030351380013893737"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "952637559"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "17573061250584597060"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000000000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000000000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "272695894"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000000000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "5030351380013893737"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000000000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000000000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "952637559"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000000000000",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "17573061250584597060"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "184467440737095516",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "184467440737095516",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "272695894"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "184467440737095516",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "5030351380013893737"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1844674407370955161",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1844674407370955161",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "952637559"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1844674407370955161",
+      "weightIn": 3200,
+      "weightOut": 100,
+      "expected": "17573061250584597060"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "999999989"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "18446743887569175049"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "63"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "1180591576887"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "471028738"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "8688946589654516098"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "997756799"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "18405364322769571679"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000000000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000000000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "471028738"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000000000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "8688946589654516098"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000000000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000000000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "997756799"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000000000000",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "18405364322769571679"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "184467440737095516",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "184467440737095516",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "471028738"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "184467440737095516",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "8688946589654516098"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1844674407370955161",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1844674407370955161",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "997756799"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1844674407370955161",
+      "weightIn": 6400,
+      "weightOut": 100,
+      "expected": "18405364322769571679"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "999999999"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "18446744073701659618"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "3",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "98"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "1826227565566"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "626591675"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "11558576277543227229"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "999920177"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "18445271612400811759"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "10000000000000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "10000000000000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "626591675"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "10000000000000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "11558576277543227229"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "100000000000000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "100000000000000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "999920177"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "1000000000000000000",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "100000000000000000",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "18445271612400811759"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "0",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "184467440737095516",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "184467440737095516",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "626591675"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "184467440737095516",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "11558576277543227229"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1",
+      "actualOut": "1",
+      "amount": "1844674407370955161",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "0"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "1000000000",
+      "actualOut": "1000000000",
+      "amount": "1844674407370955161",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "999920177"
+    },
+    {
+      "kind": "swapUnequalWeights",
+      "vbIn": "18446744073709551615",
+      "vbOut": "18446744073709551615",
+      "actualOut": "18446744073709551615",
+      "amount": "1844674407370955161",
+      "weightIn": 9900,
+      "weightOut": 100,
+      "expected": "18445271612400811759"
     },
     {
       "kind": "allocation",
@@ -7235,7 +10654,7 @@
       "payout": "9",
       "burned": "1",
       "supply": "1000",
-      "expected": "1"
+      "expected": "2"
     },
     {
       "kind": "vbAfterWithdrawal",
@@ -7262,7 +10681,7 @@
       "payout": "0",
       "burned": "1000",
       "supply": "1000",
-      "expected": "error:InvalidLpAmount"
+      "expected": "1"
     },
     {
       "kind": "vbAfterWithdrawal",
@@ -7298,7 +10717,7 @@
       "payout": "1",
       "burned": "1",
       "supply": "2",
-      "expected": "18446744073709551614"
+      "expected": "18446744073709551615"
     },
     {
       "kind": "vbAfterWithdrawal",
@@ -7307,7 +10726,7 @@
       "payout": "18446744073709551614",
       "burned": "1",
       "supply": "2",
-      "expected": "1"
+      "expected": "2"
     },
     {
       "kind": "vbAfterWithdrawal",
@@ -7325,13 +10744,13 @@
       "payout": "2",
       "burned": "1",
       "supply": "2",
-      "expected": "2"
+      "expected": "6"
     },
     {
       "kind": "effectiveBurn",
       "requested": "1",
       "supply": "1000",
-      "expected": "error:InvalidLpAmount"
+      "expected": "1"
     },
     {
       "kind": "effectiveBurn",
@@ -7379,13 +10798,13 @@
       "kind": "effectiveBurn",
       "requested": "1000",
       "supply": "1000",
-      "expected": "error:InvalidLpAmount"
+      "expected": "1000"
     },
     {
       "kind": "effectiveBurn",
       "requested": "999",
       "supply": "1000",
-      "expected": "error:InvalidLpAmount"
+      "expected": "999"
     },
     {
       "kind": "swapFee",
@@ -7508,59 +10927,39 @@
       "expected": "333300"
     },
     {
-      "kind": "invariant",
-      "decimals": 0,
-      "expected": "1414213562373095"
-    },
-    {
-      "kind": "invariant",
-      "decimals": 6,
-      "expected": "1414213562"
-    },
-    {
-      "kind": "invariant",
-      "decimals": 9,
-      "expected": "1414213"
-    },
-    {
-      "kind": "invariant",
-      "decimals": 18,
-      "expected": "0"
-    },
-    {
       "kind": "joinRounding",
       "round": 0,
-      "supply": "2999999",
+      "supply": "3000000000",
       "expected": [
         "333333333333333333",
-        "999999",
+        "999999999",
         "1"
       ]
     },
     {
       "kind": "joinRounding",
       "round": 1,
-      "supply": "3999998",
+      "supply": "3999999999",
       "expected": [
         "333333333333333333",
-        "1333332",
+        "1333333332",
         "1"
       ]
     },
     {
       "kind": "joinRounding",
       "round": 2,
-      "supply": "5333330",
+      "supply": "5333333331",
       "expected": [
         "333333333333333333",
-        "1777776",
+        "1777777776",
         "1"
       ]
     },
     {
       "kind": "joinRoundingExit",
-      "supply": "7111106",
-      "acquired": "4111107",
+      "supply": "7111111107",
+      "acquired": "4111111107",
       "expected": [
         "1",
         "1"
@@ -7688,7 +11087,7 @@
         "7000000000",
         "1",
         "4",
-        "3"
+        "1000000001"
       ]
     }
   ]

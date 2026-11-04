@@ -68,7 +68,7 @@ export function mockPool(o: MockPoolOptions = {}): PoolInfo {
     return {
       index, mint, tokenProgram: programs[index], decimals: decimals[index], weightBps: weights[index],
       virtualBalance: bn(balances[index][1]), actualBalance: bn(balances[index][0]), protocolFeesOwed: bn(protocolOwed[index]),
-      vault: deriveAta(address, mint, programs[index]), concentration: 1, isActive: true, maxSelloffPct: 0,
+      vault: deriveAta(address, mint, programs[index]), concentrationFactor: 1, isActive: true, maxSelloffPct: 0,
       maxSelloffPeriodLength: 0, variableFeeThresholdPct: 0, variableFeeSlopeLowPct: 0, variableFeeSlopeHighPct: 0,
       previousSelloff: bn(0), currentSelloff: bn(0), windowStartTimestamp: bn(0), selloffVbSnapshot: bn(0), variableFeeSlopeMidPct: 0, variableFeeKinkPct: 0,
       extensions: [], unsupportedExtensions: [], transferFee: null, transferHookProgram: null, paused: false,
@@ -97,6 +97,6 @@ export function mockPool(o: MockPoolOptions = {}): PoolInfo {
     rangeManagerLocked: o.rangeManagerLocked ?? false, poolAdminDelaySecs: o.poolAdminDelaySecs ?? 0, poolAdminEpoch: o.poolAdminEpoch ?? 0,
     pendingPoolAdminEta: bn(etas[0] ?? 0), pendingActions, pendingActionsMask: etas.reduce((m, e, i) => (e ? m | (1 << i) : m), 0),
     hook, layoutDrift: [], lpMetadata: null,
-    leverageViolations: balances.flatMap(([a, v], i) => (v > a ? [] : [i])),
+    concentrationFactorViolations: balances.flatMap(([a, v], i) => (v > a ? [] : [i])),
   };
 }

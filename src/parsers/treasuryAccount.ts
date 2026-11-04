@@ -51,11 +51,11 @@ export interface RawTreasuryAccount {
   adminEpoch: number;
   /** v6.1 (T3): eta of the pending admin transfer (kind 0; nominee = `pendingAdmin`); 0 = none. */
   pendingAdminEta: BN;
-  /** v6.1 (T3 + T22): the fourteen typed slots in kind order (empty array on v1/v2). */
+  /** v6.1 (T3 + T22): the fifteen typed slots in kind order (empty array on v1/v2). */
   pendingActions: RawPendingProtocolAction[];
   /** v6.1 (T3): bit `kind` set ⇔ that slot is live. */
   pendingActionsMask: number;
-  /** `reserved_v61` @1499 not all zero (drift) — v3 only. */
+  /** `reserved_v61` @1587 not all zero (drift) — v3 only. */
   reservedV61NonZero: boolean;
 }
 
@@ -103,7 +103,7 @@ export function decodeTreasuryAccount(data: Buffer): RawTreasuryAccount {
   };
 }
 
-/** v6.1 (T3 + T22): decode the Treasury cooldown block @818..1547 of a 1624-byte account. */
+/** v6.1 (T3 + T22): decode the Treasury cooldown block @818..1587 of a 1624-byte account. */
 export function decodeTreasuryCooldownBlock(data: Buffer): Pick<RawTreasuryAccount, "delaySecs" | "adminEpoch" | "pendingAdminEta" | "pendingActions" | "pendingActionsMask" | "reservedV61NonZero"> {
   if (data.length !== TREASURY_LEN_V3) throw new Error(`decodeTreasuryCooldownBlock: needs a ${TREASURY_LEN_V3}-byte account`);
   const slot = (kind: number, off: number, payload: RawPendingProtocolAction["payload"]): RawPendingProtocolAction =>
@@ -145,6 +145,9 @@ export function decodeTreasuryCooldownBlock(data: Buffer): Pick<RawTreasuryAccou
     // v6.1 (T22)
     slot(13, o.PENDING_POOL_RESCALE_VIRTUAL_BALANCES.offset, {
       pool: pk(data, o.PENDING_POOL_RESCALE_VIRTUAL_BALANCES.offset + 8), multiplier: u64(data, o.PENDING_POOL_RESCALE_VIRTUAL_BALANCES.offset + 40),
+    }),
+    slot(14, o.PENDING_POOL_ENABLE_RANGE_MANAGER.offset, {
+      pool: pk(data, o.PENDING_POOL_ENABLE_RANGE_MANAGER.offset + 8),
     }),
   ];
   const reserved = data.subarray(o.RESERVED_V61.offset, o.RESERVED_V61.offset + o.RESERVED_V61.size);

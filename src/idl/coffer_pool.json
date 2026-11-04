@@ -1,11 +1,14 @@
 {
-  "address": "6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9",
+  "address": "8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu",
   "metadata": {
     "name": "coffer_pool",
     "version": "0.5.1",
     "spec": "0.1.0",
-    "description": "Coffer Pool DEX - Multi-pool DEX with virtual liquidity and leverage logic"
+    "description": "Coffer Pool DEX - Multi-pool DEX with virtual liquidity and concentration_factor logic"
   },
+  "docs": [
+    "On-chain pool instruction entrypoints and their Anchor dispatch interface."
+  ],
   "instructions": [
     {
       "name": "accept_pool_admin_transfer",
@@ -25,10 +28,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "new_admin",
+          "docs": [
+            "Pending administrator who signs to accept the nominated authority."
+          ],
           "signer": true
         }
       ],
@@ -52,10 +61,16 @@
       "accounts": [
         {
           "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ],
           "writable": true
         },
         {
           "name": "new_admin",
+          "docs": [
+            "Pending administrator who signs to accept the nominated authority."
+          ],
           "signer": true
         }
       ],
@@ -87,18 +102,30 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "lp_mint",
+          "docs": [
+            "Pool LP mint whose supply prices proportional liquidity."
+          ],
           "writable": true
         },
         {
           "name": "user_lp_account",
+          "docs": [
+            "User-owned destination for newly minted LP tokens."
+          ],
           "writable": true
         },
         {
           "name": "user",
+          "docs": [
+            "User signer authorizing the gross input debit and LP destination."
+          ],
           "signer": true
         },
         {
@@ -145,10 +172,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -177,10 +210,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -204,10 +243,16 @@
       "accounts": [
         {
           "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -244,10 +289,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -281,14 +332,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -334,14 +394,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -376,10 +445,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -403,10 +478,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -431,10 +512,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -458,10 +545,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -489,10 +582,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -517,10 +616,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -546,10 +651,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -585,10 +696,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -612,10 +729,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -639,10 +762,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -667,10 +796,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -707,6 +842,9 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
@@ -779,7 +917,10 @@
       ],
       "accounts": [
         {
-          "name": "pool"
+          "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ]
         }
       ],
       "args": []
@@ -815,6 +956,9 @@
       "accounts": [
         {
           "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ],
           "writable": true,
           "signer": true
         },
@@ -844,7 +988,10 @@
           "signer": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": [
@@ -941,6 +1088,9 @@
         },
         {
           "name": "payer",
+          "docs": [
+            "Signer funding account creation and rent."
+          ],
           "writable": true,
           "signer": true
         },
@@ -953,10 +1103,16 @@
           ]
         },
         {
-          "name": "associated_token_program"
+          "name": "associated_token_program",
+          "docs": [
+            "Associated Token program used to create the LP destination."
+          ]
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": [
@@ -1037,8 +1193,8 @@
         "if `pool.lookup_table != Pubkey::default()`.",
         "",
         "# Used by",
-        "`scripts/cli/initialize-pool-alts.ts` (one-shot bootstrap for",
-        "existing prod pools), and `sdk` after `initialize_pool` on",
+        "`scripts/devnet/init-pool-alts.ts` / `verify-pool-alts.ts` (one-shot",
+        "bootstrap for existing pools), and the SDK after `initialize_pool` on",
         "fresh pools."
       ],
       "discriminator": [
@@ -1101,7 +1257,10 @@
           "writable": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         },
         {
           "name": "alt_program",
@@ -1135,10 +1294,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1167,10 +1332,16 @@
       "accounts": [
         {
           "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1206,10 +1377,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1246,10 +1423,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1309,7 +1492,10 @@
           "signer": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": []
@@ -1351,6 +1537,9 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
@@ -1361,10 +1550,16 @@
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "docs": [
+            "System program used for account creation or lamport transfers."
+          ]
         }
       ],
       "args": [
@@ -1399,10 +1594,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1457,6 +1658,9 @@
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1516,22 +1720,37 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "lp_mint",
+          "docs": [
+            "Pool LP mint whose supply prices proportional liquidity."
+          ],
           "writable": true
         },
         {
           "name": "user_lp_account",
+          "docs": [
+            "User-owned LP token account debited when the redeemed LP tokens are burned."
+          ],
           "writable": true
         },
         {
           "name": "user",
+          "docs": [
+            "Owner of the LP account authorizing its proportional redemption."
+          ],
           "signer": true
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "SPL Token or Token-2022 program owning the LP mint and LP token account."
+          ]
         }
       ],
       "args": [
@@ -1575,22 +1794,37 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "lp_mint",
+          "docs": [
+            "Pool LP mint whose supply prices proportional liquidity."
+          ],
           "writable": true
         },
         {
           "name": "user_lp_account",
+          "docs": [
+            "User-owned LP token account debited when the redeemed LP tokens are burned."
+          ],
           "writable": true
         },
         {
           "name": "user",
+          "docs": [
+            "Owner of the LP account authorizing its proportional redemption."
+          ],
           "signer": true
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "SPL Token or Token-2022 program owning the LP mint and LP token account."
+          ]
         }
       ],
       "args": [
@@ -1610,12 +1844,12 @@
       "name": "rescale_virtual_balances",
       "docs": [
         "v6.1 (T22): price-neutral repair of a pool that violates the strict",
-        "leverage invariant (`virtual_balance > actual_balance` on every slot,",
+        "concentration_factor invariant (`virtual_balance > actual_balance` on every slot,",
         "e.g. a migrated legacy pool at `V == A`): multiply EVERY slot's",
         "virtual balance by `multiplier` (`>= 2`, checked `u64`), rescale the",
         "sell-off windows, then require the invariant and the per-slot floor",
         "(`min_virtual_balance`) on the result. Pair prices `V_i : V_j` are",
-        "unchanged; only depth / leverage grows. Allowed on a disabled pool so",
+        "unchanged; only depth / concentration_factor grows. Allowed on a disabled pool so",
         "the repair can precede the unfreeze.",
         "",
         "# Authority",
@@ -1639,14 +1873,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1690,14 +1933,23 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "lp_mint",
+          "docs": [
+            "Pool LP mint whose supply prices proportional liquidity."
+          ],
           "writable": true
         },
         {
           "name": "user_lp_account",
+          "docs": [
+            "User-owned destination for newly minted LP tokens."
+          ],
           "writable": true
         },
         {
@@ -1763,10 +2015,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1806,14 +2064,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1853,10 +2120,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1900,10 +2173,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1949,10 +2228,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -1987,14 +2272,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -2036,14 +2330,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -2079,14 +2382,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -2114,12 +2426,12 @@
         "* `max_weight_change_pct`    — ≤ 10_000.",
         "* `min_update_interval_secs` — rate-limit between successive",
         "`range_manager_update` calls.",
-        "* `max_leverage_bps`         — absolute band on",
+        "* `max_concentration_factor_bps`         — absolute band on",
         "`virtual_balance / actual_balance` the manager must leave every",
         "live token inside (10_000 = 1.0×; `0` disables that side). The",
         "percentage caps above bound how FAST the manager may move; this",
         "bounds how FAR.",
-        "* `min_leverage_bps` — the FLOOR of the same envelope, and the side",
+        "* `min_concentration_factor_bps` — the FLOOR of the same envelope, and the side",
         "that actually protects capital. Output is priced off virtual",
         "balances, so depressing one makes the pool believe it holds less than",
         "it does and sells the other side's real reserves at a fabricated",
@@ -2139,10 +2451,16 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -2160,11 +2478,11 @@
           "type": "u32"
         },
         {
-          "name": "max_leverage_bps",
+          "name": "max_concentration_factor_bps",
           "type": "u32"
         },
         {
-          "name": "min_leverage_bps",
+          "name": "min_concentration_factor_bps",
           "type": "u32"
         }
       ]
@@ -2208,6 +2526,9 @@
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -2247,14 +2568,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -2289,14 +2619,23 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -2338,13 +2677,22 @@
       "accounts": [
         {
           "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
           "writable": true
         },
         {
-          "name": "token_mint_in"
+          "name": "token_mint_in",
+          "docs": [
+            "Mint of the token debited by the swap."
+          ]
         },
         {
-          "name": "token_mint_out"
+          "name": "token_mint_out",
+          "docs": [
+            "Mint of the token received from the swap."
+          ]
         },
         {
           "name": "user_token_account_in",
@@ -2355,6 +2703,9 @@
         },
         {
           "name": "user_token_account_out",
+          "docs": [
+            "User-owned destination for output tokens."
+          ],
           "writable": true
         },
         {
@@ -2367,17 +2718,29 @@
         },
         {
           "name": "vault_out",
+          "docs": [
+            "Pool vault debited for output tokens."
+          ],
           "writable": true
         },
         {
           "name": "user",
+          "docs": [
+            "User signer authorizing the input debit and output destination."
+          ],
           "signer": true
         },
         {
-          "name": "token_program_in"
+          "name": "token_program_in",
+          "docs": [
+            "Token program owning the input mint and token accounts."
+          ]
         },
         {
-          "name": "token_program_out"
+          "name": "token_program_out",
+          "docs": [
+            "Token program owning the output mint and token accounts."
+          ]
         }
       ],
       "args": [
@@ -2427,7 +2790,10 @@
       ],
       "accounts": [
         {
-          "name": "config"
+          "name": "config",
+          "docs": [
+            "Pool configuration account identifying the protocol authority."
+          ]
         },
         {
           "name": "source",
@@ -2439,6 +2805,9 @@
         },
         {
           "name": "authority",
+          "docs": [
+            "Operation signer; account constraints and the handler determine the permitted role."
+          ],
           "signer": true
         }
       ],
@@ -3326,13 +3695,13 @@
     },
     {
       "code": 6062,
-      "name": "RangeManagerLeverageBandExceeded",
-      "msg": "Range manager update exceeds the configured leverage band"
+      "name": "RangeManagerConcentrationFactorBandExceeded",
+      "msg": "Range manager update exceeds the configured concentration_factor band"
     },
     {
       "code": 6063,
       "name": "RangeManagerOverrideMustDisable",
-      "msg": "Protocol-admin range-manager override may only disable, not appoint"
+      "msg": "Protocol-admin range-manager override may only suspend, or release its own restriction"
     },
     {
       "code": 6064,
@@ -3382,7 +3751,7 @@
     {
       "code": 6073,
       "name": "PoolAlreadySeeded",
-      "msg": "Pool already seeded: LP supply is non-zero"
+      "msg": "Pool already seeded: LP supply, seeded flag or booked reserves are non-zero"
     },
     {
       "code": 6074,
@@ -3547,14 +3916,29 @@
     {
       "code": 6106,
       "name": "InvalidVirtualRescale",
-      "msg": "Invalid virtual rescale multiplier (must be >= 2)"
+      "msg": "Invalid virtual rescale multiplier (must be within 2..=1e12)"
+    },
+    {
+      "code": 6107,
+      "name": "WithdrawFeeNotLockable",
+      "msg": "Withdraw fee above the lockable maximum: lower it before locking or renouncing"
+    },
+    {
+      "code": 6108,
+      "name": "RangeManagerKeyRequired",
+      "msg": "Enabling the range manager requires a non-default manager key"
+    },
+    {
+      "code": 6109,
+      "name": "FullExitRequiredBelowFloor",
+      "msg": "LP supply at or below the floor: redeem the whole LP balance in one exit"
     }
   ],
   "types": [
     {
       "name": "AssetConfig",
       "docs": [
-        "`CofferPool` v4 — per-pool state for a weighted AMM with virtual liquidity.",
+        "`CofferPool` v6.1 — per-pool state for a weighted AMM with virtual liquidity.",
         "",
         "Storage layout: **Array-of-Structs (AoS)**. Per-token data lives in",
         "`tokens: [TokenSlot; MAX_TOKENS]`. Each `TokenSlot` carries TWO nested",
@@ -3598,16 +3982,12 @@
         "| T6   | `range_manager_locked: bool`                                 |   1   | 1861 | carved |",
         "| T3   | `pool_admin_delay_secs: u32` @1862, `pool_admin_epoch: u32` @1866, `pending_pool_admin_eta: i64` @1870, 10 typed pending slots (`eta: i64` + absolute payload) @1878..2054 — see `COOLDOWN_BLOCK_LEN` | 192 | 1862..2054 | carved |",
         "| T9   | `hook_program: Pubkey` @2054, `hook_flags: u16` @2086, `hook_disabled: u8` @2088, `hook_fee_min: u32` @2089, `hook_fee_max: u32` @2093, `hook_max_cu: u32` @2097, `hook_accounts_len: u8` @2101 — see `HOOK_BLOCK_LEN` | 48 | 2054..2102 | carved (AFTER T3) |",
-        "| T2/T10 | `seeded: bool` + pad                                       |   2   | | |",
-        "| total carved (estimate)                                             | ≈ 410 | | 408 done (82 T14 + 80 T12 + 5 T7 + 1 T6 + 192 T3 + 48 T9, all real fields) |",
-        "| left in `reserved_v61` after all of the above                       | ≈ 200 (≥ 200 required) | | 202 now |",
+        "| audit S-04/S-05/S-08 | seed/restriction flags (2 B) and immutable weight anchors (20 B) | 22 | 2102..2124 | carved |",
+        "| left in `reserved_v61` | 180 | 2124..2304 | |",
         "",
-        "The T9 hook block (48 B) sits AFTER the T3 block @2054..2102 (the T9",
-        "branch carved it @1862 on a T3-less base and it was relocated at the",
-        "merge), leaving 202 B (T2/T10's 2 B ⇒ exactly the 200 B floor). Nothing",
-        "else may be carved without packing the T3 slots (e.g.",
-        "`PendingSetRangeManagerConfig` 24 → 22, `PendingSetTokenActive` eta as",
-        "`u32`).",
+        "The security fixes intentionally consume 22 B of the original 202 B",
+        "reserve, superseding the earlier 200 B planning target. Account length",
+        "and every pre-existing field offset remain unchanged.",
         "",
         "T3 slot order inside the cooldown block (all `eta` fields are `i64`,",
         "`0` = empty; the pool-admin transfer reuses `pending_pool_admin` for its",
@@ -3629,7 +4009,8 @@
         "| 9 SetMaxSelloff | `pending_set_max_selloff` | `params_hash: [u8; 32]` | 2005 | 40 |",
         "| 10 SetTokenActive | `pending_set_token_active` | `token_index: u8` (always `true`) | 2045 | 9 |",
         "| | T9 hook block (`HOOK_BLOCK_LEN`) | | 2054 | 48 |",
-        "| | `reserved_v61` | | 2102 | 202 |",
+        "| | `safety_flags` / `range_manager_weight_anchors` | | 2102 / 2104 | 2 / 20 |",
+        "| | `reserved_v61` | | 2124 | 180 |",
         "",
         "The absolute offsets above are the contract between branches: the T12",
         "block (80 B @1776) was held by a same-sized placeholder on the T7 / T6",
@@ -3718,8 +4099,8 @@
             "docs": [
               "Variable sell-off **surge fee** curve (per token, `PERCENT_SCALE`",
               "units; 10_000 = 100%). The fee rises as the token's max-selloff",
-              "window fills and is charged on `amount_out`, routed 100% to the",
-              "protocol bucket (`protocol_fees_owed`), never to LPs. See",
+              "window fills. Output-denominated fees follow the configured protocol,",
+              "creator and claimable LP-bucket cascade. See",
               "`math::surge_fee`. The fee is active only when `max_selloff_pct > 0`",
               "(it reads the window fill ratio) AND `fee_slope_high_pct > 0`.",
               "",
@@ -3791,6 +4172,9 @@
     },
     {
       "name": "AssetDynamics",
+      "docs": [
+        "Raw reserves, accrued protocol fees and rolling selloff-window state for one mint."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -4007,10 +4391,16 @@
           },
           {
             "name": "range_manager_min_update_interval_secs",
+            "docs": [
+              "Minimum seconds between manager updates."
+            ],
             "type": "u32"
           },
           {
             "name": "range_manager_last_updated",
+            "docs": [
+              "Last range-manager update time in Unix seconds."
+            ],
             "type": "i64"
           },
           {
@@ -4055,7 +4445,7 @@
               "(`util::token::validate_mint_for_admission`).",
               "",
               "Not trailing (it sits between `lookup_table` and",
-              "`range_manager_max_leverage_bps`), so it cannot be folded into",
+              "`range_manager_max_concentration_factor_bps`), so it cannot be folded into",
               "`reserved`. Existing pools still carry their old bitmap here; fresh",
               "pools write `0`. No code path reads it. `migrate_to_v5` keeps its",
               "`== 0` precondition on these bytes as part of the \"untouched legacy",
@@ -4066,7 +4456,7 @@
             "type": "u64"
           },
           {
-            "name": "range_manager_max_leverage_bps",
+            "name": "range_manager_max_concentration_factor_bps",
             "docs": [
               "Absolute ceiling on `virtual_balance / actual_balance` that the range",
               "manager may leave a token at, in basis points (10_000 = 1.0×). `0`",
@@ -4092,7 +4482,7 @@
             "type": "u32"
           },
           {
-            "name": "range_manager_min_leverage_bps",
+            "name": "range_manager_min_concentration_factor_bps",
             "docs": [
               "Lower half of the range manager's absolute envelope: the SMALLEST",
               "`virtual_balance / actual_balance` ratio it may leave a token at, in",
@@ -4117,8 +4507,8 @@
             "name": "reserved",
             "docs": [
               "LEGACY padding block (bytes 1667..1683 of the account). Shrank 24 → 20",
-              "when `range_manager_max_leverage_bps` was carved out of it, then",
-              "20 → 16 for `range_manager_min_leverage_bps`. Since v6.1 it is FROZEN:",
+              "when `range_manager_max_concentration_factor_bps` was carved out of it, then",
+              "20 → 16 for `range_manager_min_concentration_factor_bps`. Since v6.1 it is FROZEN:",
               "`reserved[..4]` holds the one-shot `V5M1` migration marker and the",
               "remaining 12 bytes are part of the `migrate_to_v5` \"untouched legacy",
               "layout\" proof (I-11). Nothing new is ever carved from here; new",
@@ -4478,6 +4868,29 @@
             "type": "u8"
           },
           {
+            "name": "safety_flags",
+            "docs": [
+              "Audit S-05/S-08: bit 0 records that liquidity has ever been seeded;",
+              "bits 1..=10 record protocol token restrictions, bit 11 swaps, bit 12",
+              "range manager. Pool-admin actions never clear protocol restrictions."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "range_manager_weight_anchors",
+            "docs": [
+              "Audit S-04: the initial weights, in basis points. Range-manager",
+              "updates cannot compound weight changes past the configured distance",
+              "from these immutable anchors. Legacy migration pins the existing weights."
+            ],
+            "type": {
+              "array": [
+                "u16",
+                10
+              ]
+            }
+          },
+          {
             "name": "reserved_v61",
             "docs": [
               "v6.1 reserve. See the struct doc for the carve-out order and the byte",
@@ -4488,7 +4901,7 @@
             "type": {
               "array": [
                 "u8",
-                202
+                180
               ]
             }
           }
@@ -4497,6 +4910,9 @@
     },
     {
       "name": "CofferPoolConfig",
+      "docs": [
+        "Protocol authority and default fee settings; initialized by the authorized bootstrap path."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -4587,14 +5003,23 @@
         "fields": [
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "protocol_admin",
+            "docs": [
+              "Authority permitted to administer the pool configuration."
+            ],
             "type": "pubkey"
           },
           {
             "name": "payer",
+            "docs": [
+              "Signer funding account creation and rent."
+            ],
             "type": "pubkey"
           },
           {
@@ -4606,6 +5031,9 @@
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4622,22 +5050,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_bps",
+            "docs": [
+              "Fee share before the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "new_bps",
+            "docs": [
+              "Fee share after the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4655,26 +5098,41 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_amounts",
+            "docs": [
+              "Withdrawal amounts in each mint's raw units, in pool slot order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "recipients",
+            "docs": [
+              "Destination token accounts in pool slot order."
+            ],
             "type": {
               "vec": "pubkey"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4695,38 +5153,59 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_amounts",
+            "docs": [
+              "Withdrawal amounts in each mint's raw units, in pool slot order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "recipients",
+            "docs": [
+              "Destination token accounts in pool slot order."
+            ],
             "type": {
               "vec": "pubkey"
             }
           },
           {
             "name": "vault_balances_before",
+            "docs": [
+              "Raw vault balances before collection, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "vault_balances_after",
+            "docs": [
+              "Raw vault balances after collection, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4768,6 +5247,9 @@
           },
           {
             "name": "fee_max",
+            "docs": [
+              "Upper fee-override clamp in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
@@ -4797,6 +5279,9 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
@@ -4808,10 +5293,16 @@
           },
           {
             "name": "old_disabled",
+            "docs": [
+              "Hook emergency-disable state before the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "new_disabled",
+            "docs": [
+              "Hook emergency-disable state after the operation."
+            ],
             "type": "bool"
           },
           {
@@ -4823,6 +5314,9 @@
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4846,34 +5340,58 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "hook_program",
+            "docs": [
+              "Immutable native-hook program configured for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "callback",
+            "docs": [
+              "Native-hook callback tag from the hook-interface `Callback` enum."
+            ],
             "type": "u8"
           },
           {
             "name": "verdict",
+            "docs": [
+              "Hook verdict tag: allow or deny."
+            ],
             "type": "u8"
           },
           {
             "name": "has_fee_override",
+            "docs": [
+              "Whether the callback returned a swap-fee override."
+            ],
             "type": "bool"
           },
           {
             "name": "fee_override",
+            "docs": [
+              "Returned swap fee in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
             "name": "cu_used",
+            "docs": [
+              "Compute units consumed by this callback."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -4904,14 +5422,23 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "user",
+            "docs": [
+              "User authorizing the deposit or swap."
+            ],
             "type": "pubkey"
           },
           {
             "name": "is_seed",
+            "docs": [
+              "Whether this is initial seeding rather than a proportional join."
+            ],
             "type": "bool"
           },
           {
@@ -4965,50 +5492,77 @@
           },
           {
             "name": "lp_supply_before",
+            "docs": [
+              "LP mint supply before the join, in raw LP units."
+            ],
             "type": "u64"
           },
           {
             "name": "lp_supply_after",
+            "docs": [
+              "LP mint supply after the join, in raw LP units."
+            ],
             "type": "u64"
           },
           {
             "name": "virtual_balances_before",
+            "docs": [
+              "Raw virtual reserves before the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "virtual_balances_after",
+            "docs": [
+              "Raw virtual reserves after the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "actual_balances_before",
+            "docs": [
+              "Raw spendable reserves before the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "actual_balances_after",
+            "docs": [
+              "Raw spendable reserves after the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "surge_fees_owed_before",
+            "docs": [
+              "Raw LP surge buckets before the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "surge_fees_owed_after",
+            "docs": [
+              "Raw LP surge buckets after the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5026,22 +5580,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "deposit_fee_bps",
+            "docs": [
+              "LP mint haircut on deposits, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "withdraw_fee_bps",
+            "docs": [
+              "LP-equivalent exit fee, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5058,30 +5627,51 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_deposit_fee_bps",
+            "docs": [
+              "Deposit LP haircut before the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "old_withdraw_fee_bps",
+            "docs": [
+              "Exit fee before the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "new_deposit_fee_bps",
+            "docs": [
+              "Deposit LP haircut after the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "new_withdraw_fee_bps",
+            "docs": [
+              "Exit fee after the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5109,10 +5699,16 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "user",
+            "docs": [
+              "User authorizing the deposit or swap."
+            ],
             "type": "pubkey"
           },
           {
@@ -5181,50 +5777,77 @@
           },
           {
             "name": "lp_supply_before",
+            "docs": [
+              "LP mint supply before the join, in raw LP units."
+            ],
             "type": "u64"
           },
           {
             "name": "lp_supply_after",
+            "docs": [
+              "LP mint supply after the join, in raw LP units."
+            ],
             "type": "u64"
           },
           {
             "name": "virtual_balances_before",
+            "docs": [
+              "Raw virtual reserves before the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "virtual_balances_after",
+            "docs": [
+              "Raw virtual reserves after the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "actual_balances_before",
+            "docs": [
+              "Raw spendable reserves before the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "actual_balances_after",
+            "docs": [
+              "Raw spendable reserves after the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "surge_fees_owed_before",
+            "docs": [
+              "Raw LP surge buckets before the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "surge_fees_owed_after",
+            "docs": [
+              "Raw LP surge buckets after the operation, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5281,14 +5904,23 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_params",
+            "docs": [
+              "Selloff policies before the change, in pool slot order."
+            ],
             "type": {
               "vec": {
                 "defined": {
@@ -5299,6 +5931,9 @@
           },
           {
             "name": "new_params",
+            "docs": [
+              "Selloff policies after the change, in pool slot order."
+            ],
             "type": {
               "vec": {
                 "defined": {
@@ -5309,6 +5944,9 @@
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5324,6 +5962,9 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           }
         ]
@@ -5339,10 +5980,16 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "bps",
+            "docs": [
+              "Proposed pool-admin fee share in basis points."
+            ],
             "type": "u16"
           }
         ]
@@ -5358,10 +6005,16 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "secs",
+            "docs": [
+              "Proposed governance delay in seconds."
+            ],
             "type": "u32"
           }
         ]
@@ -5377,14 +6030,23 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "deposit_fee_bps",
+            "docs": [
+              "LP mint haircut on deposits, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "withdraw_fee_bps",
+            "docs": [
+              "LP-equivalent exit fee, in basis points."
+            ],
             "type": "u16"
           }
         ]
@@ -5403,10 +6065,16 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "params_hash",
+            "docs": [
+              "SHA-256 commitment to the pool, ordered amounts and recipients."
+            ],
             "type": {
               "array": [
                 "u8",
@@ -5429,14 +6097,23 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "manager",
+            "docs": [
+              "Range-manager authority retained or appointed for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "enabled",
+            "docs": [
+              "Whether the proposed range manager may act."
+            ],
             "type": "bool"
           }
         ]
@@ -5452,26 +6129,44 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "max_vb_change_pct",
+            "docs": [
+              "Maximum virtual-balance change per update, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "max_weight_change_pct",
+            "docs": [
+              "Maximum weight change relative to its anchor, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "min_update_interval_secs",
+            "docs": [
+              "Minimum seconds between range-manager updates."
+            ],
             "type": "u32"
           },
           {
-            "name": "max_leverage_bps",
+            "name": "max_concentration_factor_bps",
+            "docs": [
+              "Maximum virtual-to-actual concentration factor in basis points."
+            ],
             "type": "u32"
           },
           {
-            "name": "min_leverage_bps",
+            "name": "min_concentration_factor_bps",
+            "docs": [
+              "Minimum virtual-to-actual concentration factor in basis points."
+            ],
             "type": "u32"
           }
         ]
@@ -5487,10 +6182,16 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "rate",
+            "docs": [
+              "Proposed swap fee in hundredths of a basis point."
+            ],
             "type": "u32"
           }
         ]
@@ -5508,10 +6209,16 @@
         "fields": [
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
             "type": "i64"
           },
           {
             "name": "token_index",
+            "docs": [
+              "Zero-based token slot in the relevant registry or pool."
+            ],
             "type": "u8"
           }
         ]
@@ -5532,6 +6239,9 @@
             "fields": [
               {
                 "name": "secs",
+                "docs": [
+                  "Proposed governance delay in seconds."
+                ],
                 "type": "u32"
               }
             ]
@@ -5541,6 +6251,9 @@
             "fields": [
               {
                 "name": "rate",
+                "docs": [
+                  "Proposed swap fee in hundredths of a basis point."
+                ],
                 "type": "u32"
               }
             ]
@@ -5550,6 +6263,9 @@
             "fields": [
               {
                 "name": "bps",
+                "docs": [
+                  "Proposed pool-admin fee share in basis points."
+                ],
                 "type": "u16"
               }
             ]
@@ -5559,10 +6275,16 @@
             "fields": [
               {
                 "name": "deposit_fee_bps",
+                "docs": [
+                  "LP mint haircut on deposits, in basis points."
+                ],
                 "type": "u16"
               },
               {
                 "name": "withdraw_fee_bps",
+                "docs": [
+                  "LP-equivalent exit fee, in basis points."
+                ],
                 "type": "u16"
               }
             ]
@@ -5578,10 +6300,16 @@
             "fields": [
               {
                 "name": "manager",
+                "docs": [
+                  "Range-manager authority retained or appointed for the pool."
+                ],
                 "type": "pubkey"
               },
               {
                 "name": "enabled",
+                "docs": [
+                  "Whether the proposed range manager may act."
+                ],
                 "type": "bool"
               }
             ]
@@ -5591,22 +6319,37 @@
             "fields": [
               {
                 "name": "max_vb_change_pct",
+                "docs": [
+                  "Maximum virtual-balance change per update, in basis points."
+                ],
                 "type": "u16"
               },
               {
                 "name": "max_weight_change_pct",
+                "docs": [
+                  "Maximum weight change relative to its anchor, in basis points."
+                ],
                 "type": "u16"
               },
               {
                 "name": "min_update_interval_secs",
+                "docs": [
+                  "Minimum seconds between range-manager updates."
+                ],
                 "type": "u32"
               },
               {
-                "name": "max_leverage_bps",
+                "name": "max_concentration_factor_bps",
+                "docs": [
+                  "Maximum virtual-to-actual concentration factor in basis points."
+                ],
                 "type": "u32"
               },
               {
-                "name": "min_leverage_bps",
+                "name": "min_concentration_factor_bps",
+                "docs": [
+                  "Minimum virtual-to-actual concentration factor in basis points."
+                ],
                 "type": "u32"
               }
             ]
@@ -5616,6 +6359,9 @@
             "fields": [
               {
                 "name": "params",
+                "docs": [
+                  "Complete selloff policies committed by this proposal, in pool order."
+                ],
                 "type": {
                   "vec": {
                     "defined": {
@@ -5631,6 +6377,9 @@
             "fields": [
               {
                 "name": "token_index",
+                "docs": [
+                  "Zero-based token slot in the relevant registry or pool."
+                ],
                 "type": "u8"
               }
             ]
@@ -5649,22 +6398,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "kind",
+            "docs": [
+              "Pending-action discriminant; see the corresponding action-kind enum."
+            ],
             "type": "u8"
           },
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time of the reported proposal, in Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5681,14 +6445,23 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "kind",
+            "docs": [
+              "Pending-action discriminant; see the corresponding action-kind enum."
+            ],
             "type": "u8"
           },
           {
@@ -5700,10 +6473,16 @@
           },
           {
             "name": "epoch",
+            "docs": [
+              "Governance epoch to which this proposal belongs."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5721,10 +6500,16 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
@@ -5736,10 +6521,16 @@
           },
           {
             "name": "payload",
+            "docs": [
+              "Borsh-encoded absolute action arguments, including the variant tag."
+            ],
             "type": "bytes"
           },
           {
             "name": "eta",
+            "docs": [
+              "Earliest execution time of the reported proposal, in Unix seconds."
+            ],
             "type": "i64"
           },
           {
@@ -5751,6 +6542,9 @@
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5768,22 +6562,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_delay_secs",
+            "docs": [
+              "Governance delay before the change, in seconds."
+            ],
             "type": "u32"
           },
           {
             "name": "new_delay_secs",
+            "docs": [
+              "Governance delay after the change, in seconds."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5801,30 +6610,51 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_admin",
+            "docs": [
+              "Administrator before the accepted transfer."
+            ],
             "type": "pubkey"
           },
           {
             "name": "cancelled_pending",
+            "docs": [
+              "Nominee cleared by cancellation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_epoch",
+            "docs": [
+              "Governance epoch before the transfer."
+            ],
             "type": "u32"
           },
           {
             "name": "new_epoch",
+            "docs": [
+              "Governance epoch after the transfer invalidates older proposals."
+            ],
             "type": "u32"
           },
           {
             "name": "old_creator_fee_bps",
+            "docs": [
+              "Pool-admin fee share before renunciation, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5841,18 +6671,30 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "cancelled_pending",
+            "docs": [
+              "Nominee cleared by cancellation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5870,10 +6712,16 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "current_admin",
+            "docs": [
+              "Administrator nominating the successor."
+            ],
             "type": "pubkey"
           },
           {
@@ -5885,6 +6733,9 @@
           },
           {
             "name": "pending_admin",
+            "docs": [
+              "Nominated administrator awaiting acceptance."
+            ],
             "type": "pubkey"
           },
           {
@@ -5896,6 +6747,9 @@
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5914,26 +6768,44 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_admin",
+            "docs": [
+              "Administrator before the accepted transfer."
+            ],
             "type": "pubkey"
           },
           {
             "name": "new_admin",
+            "docs": [
+              "Administrator receiving the authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_epoch",
+            "docs": [
+              "Governance epoch before the transfer."
+            ],
             "type": "u32"
           },
           {
             "name": "new_epoch",
+            "docs": [
+              "Governance epoch after the transfer invalidates older proposals."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5950,22 +6822,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "lookup_table",
+            "docs": [
+              "Address lookup table provisioned for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "address_count",
+            "docs": [
+              "Number of addresses stored in the pool lookup table."
+            ],
             "type": "u8"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -5981,22 +6868,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_value",
+            "docs": [
+              "Flag value before the change."
+            ],
             "type": "bool"
           },
           {
             "name": "new_value",
+            "docs": [
+              "Flag value after the change."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6014,106 +6916,169 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool_id",
+            "docs": [
+              "Configuration-local identifier used in the pool PDA seeds."
+            ],
             "type": "u64"
           },
           {
             "name": "layout_version",
+            "docs": [
+              "Version marker for the serialized pool account layout."
+            ],
             "type": "u8"
           },
           {
             "name": "pool_admin",
+            "docs": [
+              "Pool management authority; default denotes irreversible renunciation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pending_pool_admin",
+            "docs": [
+              "Nominated pool administrator; default means no transfer."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pending_pool_admin_eta",
+            "docs": [
+              "Earliest pool-admin acceptance time in Unix seconds; zero means none."
+            ],
             "type": "i64"
           },
           {
             "name": "lp_mint",
+            "docs": [
+              "Pool LP mint whose supply prices proportional liquidity."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_count",
+            "docs": [
+              "Number of populated token slots."
+            ],
             "type": "u8"
           },
           {
             "name": "tokens",
+            "docs": [
+              "Token mint addresses in pool slot order."
+            ],
             "type": {
               "vec": "pubkey"
             }
           },
           {
             "name": "token_vaults",
+            "docs": [
+              "Vault addresses corresponding to each mint in pool order."
+            ],
             "type": {
               "vec": "pubkey"
             }
           },
           {
             "name": "token_programs",
+            "docs": [
+              "Token program IDs corresponding to each mint in pool order."
+            ],
             "type": {
               "vec": "pubkey"
             }
           },
           {
             "name": "decimals",
+            "docs": [
+              "Mint decimal counts in pool slot order."
+            ],
             "type": "bytes"
           },
           {
             "name": "normalized_weights",
+            "docs": [
+              "Pool weights in basis points, summing to 10,000."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "virtual_balances",
+            "docs": [
+              "Raw virtual reserves in pool slot order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "actual_balances",
+            "docs": [
+              "Raw spendable reserves in pool slot order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "protocol_fees_owed",
+            "docs": [
+              "Accrued protocol fee bucket in each mint's raw units and pool slot order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "creator_fees_owed",
+            "docs": [
+              "Accrued pool-admin fee bucket in each mint's raw units and pool slot order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "surge_fees_owed",
+            "docs": [
+              "Accrued LP surge bucket outside the curve, in each mint's raw units and pool slot order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "is_active",
+            "docs": [
+              "Per-token input permissions in pool slot order."
+            ],
             "type": {
               "vec": "bool"
             }
           },
           {
             "name": "selloff_policy",
+            "docs": [
+              "Selloff caps and window configuration in pool slot order."
+            ],
             "type": {
               "vec": {
                 "defined": {
@@ -6124,124 +7089,214 @@
           },
           {
             "name": "swap_fee_rate",
+            "docs": [
+              "Base swap fee in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
             "name": "protocol_fee_rate",
+            "docs": [
+              "Protocol share of collected fees in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "creator_fee_bps",
+            "docs": [
+              "Pool-admin share of fees in basis points after the protocol share."
+            ],
             "type": "u16"
           },
           {
             "name": "deposit_fee_bps",
+            "docs": [
+              "LP mint haircut on deposits, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "withdraw_fee_bps",
+            "docs": [
+              "LP-equivalent exit fee, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "liquidity_fee_lock",
+            "docs": [
+              "Irreversible lock state for liquidity fees."
+            ],
             "type": "u8"
           },
           {
             "name": "pool_enabled",
+            "docs": [
+              "Whether swaps and liquidity operations are permitted."
+            ],
             "type": "bool"
           },
           {
             "name": "swaps_enabled",
+            "docs": [
+              "Whether swaps are permitted independently of liquidity operations."
+            ],
             "type": "bool"
           },
           {
             "name": "range_manager",
+            "docs": [
+              "Authority permitted to update bounded virtual reserves and weights."
+            ],
             "type": "pubkey"
           },
           {
             "name": "range_manager_enabled",
+            "docs": [
+              "Whether the configured range manager may update the pool."
+            ],
             "type": "bool"
           },
           {
             "name": "range_manager_locked",
+            "docs": [
+              "Whether range management has been irreversibly disabled."
+            ],
             "type": "bool"
           },
           {
             "name": "range_manager_max_vb_change_pct",
+            "docs": [
+              "Per-update virtual-balance cap in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "range_manager_max_weight_change_pct",
+            "docs": [
+              "Anchor-relative weight cap in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "range_manager_min_update_interval_secs",
+            "docs": [
+              "Minimum seconds between manager updates."
+            ],
             "type": "u32"
           },
           {
-            "name": "range_manager_max_leverage_bps",
+            "name": "range_manager_max_concentration_factor_bps",
+            "docs": [
+              "Upper virtual-to-actual concentration bound in basis points."
+            ],
             "type": "u32"
           },
           {
-            "name": "range_manager_min_leverage_bps",
+            "name": "range_manager_min_concentration_factor_bps",
+            "docs": [
+              "Lower virtual-to-actual concentration bound in basis points."
+            ],
             "type": "u32"
           },
           {
             "name": "range_manager_last_updated",
+            "docs": [
+              "Last range-manager update time in Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "lookup_table",
+            "docs": [
+              "Address lookup table provisioned for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool_admin_delay_secs",
+            "docs": [
+              "Delay before queued pool-admin actions may execute, in seconds."
+            ],
             "type": "u32"
           },
           {
             "name": "pool_admin_epoch",
+            "docs": [
+              "Pool-admin generation that invalidates proposals after a transfer."
+            ],
             "type": "u32"
           },
           {
             "name": "pending_actions_mask",
+            "docs": [
+              "Bitmap of occupied action slots, indexed by action kind."
+            ],
             "type": "u16"
           },
           {
             "name": "pending_etas",
+            "docs": [
+              "Earliest execution times in Unix seconds, indexed by action kind."
+            ],
             "type": {
               "vec": "i64"
             }
           },
           {
             "name": "hook_program",
+            "docs": [
+              "Immutable native-hook program configured for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "hook_flags",
+            "docs": [
+              "Native-hook callback and policy bitmap from the hook interface."
+            ],
             "type": "u16"
           },
           {
             "name": "hook_disabled",
+            "docs": [
+              "Emergency-disable byte: zero enables the configured hook."
+            ],
             "type": "u8"
           },
           {
             "name": "hook_fee_min",
+            "docs": [
+              "Minimum hook fee override in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
             "name": "hook_fee_max",
+            "docs": [
+              "Maximum hook fee override in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
             "name": "hook_max_cu",
+            "docs": [
+              "Maximum compute units permitted for each hook callback."
+            ],
             "type": "u32"
           },
           {
             "name": "hook_accounts_len",
+            "docs": [
+              "Number of accounts in the native-hook tail, including program and caller."
+            ],
             "type": "u8"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6262,22 +7317,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pool_id",
+            "docs": [
+              "Configuration-local identifier used in the pool PDA seeds."
+            ],
             "type": "u64"
           },
           {
             "name": "pool_admin",
+            "docs": [
+              "Pool management authority; default denotes irreversible renunciation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "lp_mint",
+            "docs": [
+              "Pool LP mint whose supply prices proportional liquidity."
+            ],
             "type": "pubkey"
           },
           {
@@ -6289,6 +7359,9 @@
           },
           {
             "name": "token_count",
+            "docs": [
+              "Number of populated token slots."
+            ],
             "type": "u8"
           },
           {
@@ -6302,6 +7375,9 @@
           },
           {
             "name": "token_programs",
+            "docs": [
+              "Token program IDs corresponding to each mint in pool order."
+            ],
             "type": {
               "vec": "pubkey"
             }
@@ -6315,6 +7391,9 @@
           },
           {
             "name": "normalized_weights",
+            "docs": [
+              "Pool weights in basis points, summing to 10,000."
+            ],
             "type": {
               "vec": "u64"
             }
@@ -6330,6 +7409,9 @@
           },
           {
             "name": "swap_fee_rate",
+            "docs": [
+              "Base swap fee in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
@@ -6341,14 +7423,23 @@
           },
           {
             "name": "creator_fee_bps",
+            "docs": [
+              "Pool-admin share of fees in basis points after the protocol share."
+            ],
             "type": "u16"
           },
           {
             "name": "deposit_fee_bps",
+            "docs": [
+              "LP mint haircut on deposits, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "withdraw_fee_bps",
+            "docs": [
+              "LP-equivalent exit fee, in basis points."
+            ],
             "type": "u16"
           },
           {
@@ -6360,10 +7451,16 @@
           },
           {
             "name": "lp_symbol",
+            "docs": [
+              "Metadata symbol assigned to the LP mint."
+            ],
             "type": "string"
           },
           {
             "name": "lp_uri",
+            "docs": [
+              "Metadata URI assigned to the LP mint."
+            ],
             "type": "string"
           },
           {
@@ -6376,26 +7473,44 @@
           },
           {
             "name": "hook_flags",
+            "docs": [
+              "Native-hook callback and policy bitmap from the hook interface."
+            ],
             "type": "u16"
           },
           {
             "name": "hook_fee_min",
+            "docs": [
+              "Minimum hook fee override in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
             "name": "hook_fee_max",
+            "docs": [
+              "Maximum hook fee override in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
             "name": "hook_max_cu",
+            "docs": [
+              "Maximum compute units permitted for each hook callback."
+            ],
             "type": "u32"
           },
           {
             "name": "hook_accounts_len",
+            "docs": [
+              "Number of accounts in the native-hook tail, including program and caller."
+            ],
             "type": "u8"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6412,26 +7527,44 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "payer",
+            "docs": [
+              "Signer funding account creation and rent."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_len",
+            "docs": [
+              "Account size before migration, in bytes including the discriminator."
+            ],
             "type": "u32"
           },
           {
             "name": "new_len",
+            "docs": [
+              "Account size after migration, in bytes including the discriminator."
+            ],
             "type": "u32"
           },
           {
             "name": "layout_version",
+            "docs": [
+              "Version marker for the serialized pool account layout."
+            ],
             "type": "u8"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6451,30 +7584,51 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
+            "docs": [
+              "Signer role encoded by the `actor_kind` constants."
+            ],
             "type": "u8"
           },
           {
             "name": "reactivate_tokens",
+            "docs": [
+              "Whether the legacy migration requests token reactivation."
+            ],
             "type": "bool"
           },
           {
             "name": "token_count",
+            "docs": [
+              "Number of populated token slots."
+            ],
             "type": "u8"
           },
           {
             "name": "reactivated",
+            "docs": [
+              "Number of token slots reactivated by migration."
+            ],
             "type": "u8"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6492,30 +7646,51 @@
         "fields": [
           {
             "name": "source",
+            "docs": [
+              "Account debited by the SOL withdrawal."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
+            "docs": [
+              "Account receiving the withdrawn assets."
+            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
+            "docs": [
+              "SOL amount debited from the source, in lamports."
+            ],
             "type": "u64"
           },
           {
             "name": "source_lamports_before",
+            "docs": [
+              "Source SOL balance before withdrawal, in lamports."
+            ],
             "type": "u64"
           },
           {
             "name": "source_lamports_after",
+            "docs": [
+              "Source SOL balance after withdrawal, in lamports."
+            ],
             "type": "u64"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6531,18 +7706,30 @@
         "fields": [
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "cancelled_pending",
+            "docs": [
+              "Nominee cleared by cancellation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6558,18 +7745,30 @@
         "fields": [
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "current_admin",
+            "docs": [
+              "Administrator nominating the successor."
+            ],
             "type": "pubkey"
           },
           {
             "name": "pending_admin",
+            "docs": [
+              "Nominated administrator awaiting acceptance."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6585,18 +7784,30 @@
         "fields": [
           {
             "name": "config",
+            "docs": [
+              "Pool configuration account identifying the protocol authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_admin",
+            "docs": [
+              "Administrator before the accepted transfer."
+            ],
             "type": "pubkey"
           },
           {
             "name": "new_admin",
+            "docs": [
+              "Administrator receiving the authority."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6612,22 +7823,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_rate",
+            "docs": [
+              "Fee rate before the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "new_rate",
+            "docs": [
+              "Fee rate after the change, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           }
         ]
@@ -6647,26 +7873,41 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_amounts",
+            "docs": [
+              "Withdrawal amounts in each mint's raw units, in pool slot order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "recipients",
+            "docs": [
+              "Destination token accounts in pool slot order."
+            ],
             "type": {
               "vec": "pubkey"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6683,54 +7924,93 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "max_vb_change_pct",
+            "docs": [
+              "Maximum virtual-balance change per update, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "max_weight_change_pct",
+            "docs": [
+              "Maximum weight change relative to its anchor, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "min_update_interval_secs",
+            "docs": [
+              "Minimum seconds between range-manager updates."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "old_max_vb_change_pct",
+            "docs": [
+              "Previous per-update virtual-balance cap, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "old_max_weight_change_pct",
+            "docs": [
+              "Previous anchor-relative weight cap, in basis points."
+            ],
             "type": "u16"
           },
           {
             "name": "old_min_update_interval_secs",
+            "docs": [
+              "Previous minimum seconds between manager updates."
+            ],
             "type": "u32"
           },
           {
-            "name": "old_max_leverage_bps",
+            "name": "old_max_concentration_factor_bps",
+            "docs": [
+              "Previous upper concentration-factor bound, in basis points."
+            ],
             "type": "u32"
           },
           {
-            "name": "new_max_leverage_bps",
+            "name": "new_max_concentration_factor_bps",
+            "docs": [
+              "New upper concentration-factor bound, in basis points."
+            ],
             "type": "u32"
           },
           {
-            "name": "old_min_leverage_bps",
+            "name": "old_min_concentration_factor_bps",
+            "docs": [
+              "Previous lower concentration-factor bound, in basis points."
+            ],
             "type": "u32"
           },
           {
-            "name": "new_min_leverage_bps",
+            "name": "new_min_concentration_factor_bps",
+            "docs": [
+              "New lower concentration-factor bound, in basis points."
+            ],
             "type": "u32"
           }
         ]
@@ -6748,14 +8028,23 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6773,34 +8062,58 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
+            "docs": [
+              "Signer role encoded by the `actor_kind` constants."
+            ],
             "type": "u8"
           },
           {
             "name": "old_manager",
+            "docs": [
+              "Range-manager key before the change."
+            ],
             "type": "pubkey"
           },
           {
             "name": "new_manager",
+            "docs": [
+              "Range-manager key after the change."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_enabled",
+            "docs": [
+              "Enabled state before the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "new_enabled",
+            "docs": [
+              "Enabled state after the operation."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6820,46 +8133,73 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "manager",
+            "docs": [
+              "Range-manager authority retained or appointed for the pool."
+            ],
             "type": "pubkey"
           },
           {
             "name": "vb_indices",
+            "docs": [
+              "Token slots whose virtual reserves changed."
+            ],
             "type": "bytes"
           },
           {
             "name": "vb_old_values",
+            "docs": [
+              "Raw virtual reserves before the update, matching `vb_indices`."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "vb_new_values",
+            "docs": [
+              "Raw virtual reserves after the update, matching `vb_indices`."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "weight_indices",
+            "docs": [
+              "Token slots whose weights changed."
+            ],
             "type": "bytes"
           },
           {
             "name": "weight_old_values",
+            "docs": [
+              "Weights before the update, in basis points and matching `weight_indices`."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "weight_new_values",
+            "docs": [
+              "Weights after the update, in basis points and matching `weight_indices`."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -6975,22 +8315,37 @@
           },
           {
             "name": "max_selloff_cap",
+            "docs": [
+              "Maximum raw-token selloff allowed by the current policy."
+            ],
             "type": "u64"
           },
           {
             "name": "vb_snapshot",
+            "docs": [
+              "Raw virtual balance anchoring the current selloff window."
+            ],
             "type": "u64"
           },
           {
             "name": "previous_selloff",
+            "docs": [
+              "Raw-token selloff accumulated in the previous window."
+            ],
             "type": "u64"
           },
           {
             "name": "current_selloff",
+            "docs": [
+              "Raw-token selloff accumulated in the current window."
+            ],
             "type": "u64"
           },
           {
             "name": "window_start_timestamp",
+            "docs": [
+              "Start of the current selloff window in Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -7009,14 +8364,23 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_index",
+            "docs": [
+              "Zero-based token slot in the relevant registry or pool."
+            ],
             "type": "u8"
           },
           {
@@ -7056,6 +8420,9 @@
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -7073,22 +8440,37 @@
         "fields": [
           {
             "name": "virtual_balance",
+            "docs": [
+              "Curve virtual reserve in raw token units."
+            ],
             "type": "u64"
           },
           {
             "name": "actual_balance",
+            "docs": [
+              "Spendable curve reserve in raw token units, excluding fee buckets."
+            ],
             "type": "u64"
           },
           {
             "name": "protocol_fees_owed",
+            "docs": [
+              "Accrued protocol fee bucket in the mint's raw units."
+            ],
             "type": "u64"
           },
           {
             "name": "creator_fees_owed",
+            "docs": [
+              "Accrued pool-admin fee bucket in the mint's raw units."
+            ],
             "type": "u64"
           },
           {
             "name": "surge_fees_owed",
+            "docs": [
+              "Accrued LP surge bucket outside the curve, in the mint's raw units."
+            ],
             "type": "u64"
           }
         ]
@@ -7105,22 +8487,37 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "old_rate",
+            "docs": [
+              "Fee rate before the change, in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
             "name": "new_rate",
+            "docs": [
+              "Fee rate after the change, in hundredths of a basis point."
+            ],
             "type": "u32"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           }
         ]
@@ -7160,18 +8557,30 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "user",
+            "docs": [
+              "User authorizing the deposit or swap."
+            ],
             "type": "pubkey"
           },
           {
             "name": "token_in_index",
+            "docs": [
+              "Zero-based input-token slot in pool order."
+            ],
             "type": "u8"
           },
           {
             "name": "token_out_index",
+            "docs": [
+              "Zero-based output-token slot in pool order."
+            ],
             "type": "u8"
           },
           {
@@ -7190,6 +8599,9 @@
           },
           {
             "name": "amount_in_net",
+            "docs": [
+              "Input credited by the vault after transfer fees, in raw input units."
+            ],
             "type": "u64"
           },
           {
@@ -7230,10 +8642,16 @@
           },
           {
             "name": "protocol_fee_amount",
+            "docs": [
+              "Protocol base-fee share in raw input-token units."
+            ],
             "type": "u64"
           },
           {
             "name": "creator_fee_amount",
+            "docs": [
+              "Pool-admin base-fee share in raw input-token units."
+            ],
             "type": "u64"
           },
           {
@@ -7252,10 +8670,16 @@
           },
           {
             "name": "surge_protocol_fee_amount",
+            "docs": [
+              "Protocol surge-fee share in raw output-token units."
+            ],
             "type": "u64"
           },
           {
             "name": "surge_creator_fee_amount",
+            "docs": [
+              "Pool-admin surge-fee share in raw output-token units."
+            ],
             "type": "u64"
           },
           {
@@ -7274,6 +8698,9 @@
           },
           {
             "name": "in_before",
+            "docs": [
+              "Input-slot reserves and fee buckets before the swap."
+            ],
             "type": {
               "defined": {
                 "name": "SlotState"
@@ -7282,6 +8709,9 @@
           },
           {
             "name": "in_after",
+            "docs": [
+              "Input-slot reserves and fee buckets after the swap."
+            ],
             "type": {
               "defined": {
                 "name": "SlotState"
@@ -7290,6 +8720,9 @@
           },
           {
             "name": "out_before",
+            "docs": [
+              "Output-slot reserves and fee buckets before the swap."
+            ],
             "type": {
               "defined": {
                 "name": "SlotState"
@@ -7298,6 +8731,9 @@
           },
           {
             "name": "out_after",
+            "docs": [
+              "Output-slot reserves and fee buckets after the swap."
+            ],
             "type": {
               "defined": {
                 "name": "SlotState"
@@ -7306,6 +8742,9 @@
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           },
           {
@@ -7337,10 +8776,16 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
@@ -7352,14 +8797,23 @@
           },
           {
             "name": "old_value",
+            "docs": [
+              "Flag value before the change."
+            ],
             "type": "bool"
           },
           {
             "name": "new_value",
+            "docs": [
+              "Flag value after the change."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -7376,30 +8830,51 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
+            "docs": [
+              "Signer role encoded by the `actor_kind` constants."
+            ],
             "type": "u8"
           },
           {
             "name": "token_index",
+            "docs": [
+              "Zero-based token slot in the relevant registry or pool."
+            ],
             "type": "u8"
           },
           {
             "name": "old_value",
+            "docs": [
+              "Flag value before the change."
+            ],
             "type": "bool"
           },
           {
             "name": "new_value",
+            "docs": [
+              "Flag value after the change."
+            ],
             "type": "bool"
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]
@@ -7425,14 +8900,23 @@
         "fields": [
           {
             "name": "index",
+            "docs": [
+              "Zero-based token slot targeted by the update."
+            ],
             "type": "u8"
           },
           {
             "name": "expected_current",
+            "docs": [
+              "Expected raw virtual reserve or basis-point weight; rejects a stale update."
+            ],
             "type": "u64"
           },
           {
             "name": "new_value",
+            "docs": [
+              "Flag value after the change."
+            ],
             "type": "u64"
           }
         ]
@@ -7440,11 +8924,17 @@
     },
     {
       "name": "TokenSlot",
+      "docs": [
+        "Asset configuration paired with mutable accounting and selloff state."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "config",
+            "docs": [
+              "Mint, owning token program, weight and input-permission configuration."
+            ],
             "type": {
               "defined": {
                 "name": "AssetConfig"
@@ -7453,6 +8943,9 @@
           },
           {
             "name": "dynamics",
+            "docs": [
+              "Mutable reserves, fee accrual and selloff-window state for this token."
+            ],
             "type": {
               "defined": {
                 "name": "AssetDynamics"
@@ -7474,30 +8967,48 @@
         "fields": [
           {
             "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
             "type": "pubkey"
           },
           {
             "name": "authority",
+            "docs": [
+              "Operation signer; account constraints and the handler determine the permitted role."
+            ],
             "type": "pubkey"
           },
           {
             "name": "multiplier",
+            "docs": [
+              "Integer factor applied equally to every virtual balance."
+            ],
             "type": "u64"
           },
           {
             "name": "old_virtual_balances",
+            "docs": [
+              "Raw virtual reserves before rescaling, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "new_virtual_balances",
+            "docs": [
+              "Raw virtual reserves after rescaling, in pool order."
+            ],
             "type": {
               "vec": "u64"
             }
           },
           {
             "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
             "type": "i64"
           }
         ]

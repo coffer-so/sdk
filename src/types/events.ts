@@ -36,7 +36,7 @@ export interface SlotState {
   surgeFeesOwed: BN;
 }
 
-/** `SelloffWindow`: the out-token's sell-off window after a swap (`SwapV2.selloffWindow`, only when the token is capped). */
+/** `SelloffWindow`: the input token's sell-off window after a swap (`SwapV2.selloffWindow`, only when the input token is capped). */
 export interface SelloffWindowState {
   /** Window fill before this swap. */
   effectiveSelloffBefore: BN;
@@ -109,7 +109,7 @@ export interface SwapV2Event {
   outBefore: SlotState;
   outAfter: SlotState;
   timestamp: number;
-  /** The out-token's window after the swap; `null` unless that token is capped. */
+  /** The input token's window after the swap; `null` unless the input token is capped. */
   selloffWindow: SelloffWindowState | null;
 }
 
@@ -246,8 +246,8 @@ export interface PoolInfoV2Event {
   rangeManagerMaxVbChangePct: number;
   rangeManagerMaxWeightChangePct: number;
   rangeManagerMinUpdateIntervalSecs: number;
-  rangeManagerMaxLeverageBps: number;
-  rangeManagerMinLeverageBps: number;
+  rangeManagerMaxConcentrationFactorBps: number;
+  rangeManagerMinConcentrationFactorBps: number;
   rangeManagerLastUpdated: BN;
   lookupTable: PublicKey;
   poolAdminDelaySecs: number;

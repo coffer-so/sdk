@@ -324,7 +324,7 @@ describe("remove_liquidity_bypass_hooks (T9)", () => {
   test("[N15] sidelined output slot refuses a swap; the remove tx skips its ATA", () => {
     const pool = mockPool({ balances: [[1_000_000n, 1_000_000n], [0n, 1_000_000n]] });
     expect(() => buildSwapTx(cfg, pool, { user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(1), minAmountOut: new BN(1) })).toThrow(/sidelined/);
-    const tx = buildRemoveLiquidityTx(cfg, pool, params);
+    const tx = buildRemoveLiquidityTx(cfg, pool, { ...params, lpAmount: new BN(1_000_000_000) });
     expect(tx.instructions.filter((ix) => ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).length).toBe(1);
   });
 });

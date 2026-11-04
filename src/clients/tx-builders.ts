@@ -48,9 +48,10 @@ import {
 import { deriveAta, deriveLpMint, derivePoolPda } from "../utils/pda";
 import { buildContractInstruction } from "./contract-instructions";
 import { calcTokensOutGivenLpIn, calcLpOutGivenExactTokensIn } from "../math/poolMath";
-import { checkFundLeverage, checkSeedLeverage, minVirtualBalance } from "../math/leverage";
+import { checkFundConcentrationFactor, checkSeedConcentrationFactor, minVirtualBalance } from "../math/concentrationFactor";
 import { MathError } from "../math/fixedPoint";
 import { netOfTransferFee } from "../math/transferFee";
+import { splitExitPayout } from "../math/surgeBucket";
 import { assertTokensSupported } from "../utils/extensions";
 import { encodeLpMetadataArgs, validateLpMetadata } from "../utils/lpMetadata";
 import { encodeOptionHookConfig, hookCuBudget, requireHookSlice, validateHookConfig } from "../utils/hooks";
@@ -468,14 +469,14 @@ export function buildSeedLiquidityRawIx(cfg: CofferConfig, p: SeedLiquidityRawPa
 }
 
 /**
- * v6.1 (T22) `check_seed_leverage`: the seed books `actual_i = net_i`
+ * v6.1 (T22) `check_seed_concentration_factor`: the seed books `actual_i = net_i`
  * against the untouched `virtual_i`, so every slot needs `net_i < virtual_i`
  * (Token-2022 transfer fees netted first; a zero slot passes for any `V > 0`).
  */
-function requireSeedLeverage(pool: PoolInfo, amounts: BN[], op: string): void {
+function requireSeedConcentrationFactor(pool: PoolInfo, amounts: BN[], op: string): void {
   const nets = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, BigInt(a.toString())));
   try {
-    checkSeedLeverage(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), nets);
+    checkSeedConcentrationFactor(pool.tokens.map((t) => BigInt(t.virtualBalance.toString())), nets);
   } catch (e) {
     if (!(e instanceof MathError)) throw e;
     const bad = nets.findIndex((net, i) => net >= BigInt(pool.tokens[i].virtualBalance.toString()));
@@ -507,9 +508,9 @@ export function buildSeedLiquidityIx(cfg: CofferConfig, pool: PoolInfo, params: 
     if (pool.poolAdmin.equals(PublicKey.default)) throw new Error("seed_liquidity: PoolAdminDisabled");
     if (!pool.poolAdmin.equals(params.user)) throw new Error("seed_liquidity: user must be the pool admin (SeedDepositNotPoolAdmin)");
   }
-  if (!pool.lpTotalSupply.isZero()) throw new Error("seed_liquidity: pool already seeded (PoolAlreadySeeded); use add_liquidity");
+  if (pool.seeded || !pool.lpTotalSupply.isZero() || pool.tokens.some(t => !t.actualBalance.isZero() || !t.protocolFeesOwed.isZero() || !(t.creatorFeesOwed ?? pool.creatorFeesOwed?.[t.index] ?? new BN(0)).isZero() || !(t.surgeFeesOwed ?? pool.surgeFeesOwed?.[t.index] ?? new BN(0)).isZero())) throw new Error("seed_liquidity: pool already seeded (PoolAlreadySeeded); use add_liquidity");
   assertTokensSupported(pool, params.tokenAmounts.flatMap((a, i) => (a.isZero() ? [] : [i])), "seed_liquidity");
-  requireSeedLeverage(pool, params.tokenAmounts, "seed_liquidity");
+  requireSeedConcentrationFactor(pool, params.tokenAmounts, "seed_liquidity");
   const slice = requireHookSlice(cfg, pool, params.hookAccounts, "seed_liquidity");
   return buildSeedLiquidityRawIx(cfg, {
     pool: pool.address,
@@ -565,10 +566,10 @@ export function buildFundSidelinedTokenIx(cfg: CofferConfig, pool: PoolInfo, par
   if (pool.poolAdmin && !pool.poolAdmin.equals(params.authority)) throw new Error("fund_sidelined_token: authority must be the pool admin (Unauthorized)");
   if (!BN.isBN(params.amount) || params.amount.isZero()) throw new Error("fund_sidelined_token: amount must be > 0 (ZeroAmount)");
   assertTokensSupported(pool, [params.tokenIndex], "fund_sidelined_token");
-  // v6.1 (T22) `check_fund_leverage`: the slot books `actual = net`, so `net < virtual`.
+  // v6.1 (T22) `check_fund_concentration_factor`: the slot books `actual = net`, so `net < virtual`.
   const net = netOfTransferFee(t.transferFee, BigInt(params.amount.toString()));
   try {
-    checkFundLeverage(BigInt(t.virtualBalance.toString()), net);
+    checkFundConcentrationFactor(BigInt(t.virtualBalance.toString()), net);
   } catch (e) {
     if (!(e instanceof MathError)) throw e;
     throw new Error(`fund_sidelined_token: net amount ${net} must stay below slot ${params.tokenIndex}'s virtual balance ${t.virtualBalance} (VirtualBalanceNotAboveActual, 6104) — a sidelined slot takes at most virtual − 1 raw units this way; rescale first for more depth`);
@@ -668,6 +669,19 @@ export function buildRemoveLiquidityBypassHooksIx(
   return buildRemoveLiquidityIxInner(cfg, pool, params, true);
 }
 
+/** Match the on-chain payout gate, including the separately rounded surge share and exit fee. */
+function removeLiquidityTransferAmounts(pool: PoolInfo, requested: BN): bigint[] {
+  const supply = pool.lpTotalSupply;
+  if (supply.isZero()) return pool.tokens.map(() => 0n);
+  const floor = new BN(MIN_LP_SUPPLY.toString());
+  const maxBurn = supply.gt(floor) ? supply.sub(floor) : supply;
+  const effectiveBurn = BigInt(BN.min(requested, maxBurn).toString());
+  const total = BigInt(supply.toString());
+  const actual = calcTokensOutGivenLpIn(pool.tokens.map(token => BigInt(token.actualBalance.toString())), effectiveBurn, total);
+  const surge = calcTokensOutGivenLpIn(pool.tokens.map(token => BigInt((token.surgeFeesOwed ?? pool.surgeFeesOwed?.[token.index] ?? new BN(0)).toString())), effectiveBurn, total);
+  return actual.map((amount, i) => splitExitPayout(amount, surge[i], pool.withdrawFeeBps ?? 0).transferAmount);
+}
+
 function buildRemoveLiquidityIxInner(
   cfg: CofferConfig,
   pool: PoolInfo,
@@ -675,13 +689,7 @@ function buildRemoveLiquidityIxInner(
   bypass: boolean,
 ): TransactionInstruction {
   const ixName = bypass ? "remove_liquidity_bypass_hooks" : "remove_liquidity";
-  const supply = pool.lpTotalSupply;
-  const maxBurn = BN.max(supply.sub(new BN(MIN_LP_SUPPLY.toString())), new BN(0));
-  const effectiveBurn = BN.min(params.lpAmount, maxBurn);
-  const transferred = supply.gt(new BN(0))
-    ? calcTokensOutGivenLpIn(pool.tokens.map(token => BigInt(token.actualBalance.toString())), BigInt(effectiveBurn.toString()), BigInt(supply.toString()))
-        .flatMap((amount, i) => amount > 0n ? [i] : [])
-    : [];
+  const transferred = removeLiquidityTransferAmounts(pool, params.lpAmount).flatMap((amount, i) => amount > 0n ? [i] : []);
   assertTokensSupported(pool, transferred, ixName);
   const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
   const mins = requireExplicitMinimums(params.minimumTokenAmounts, pool.tokenCount, ixName);
@@ -742,8 +750,9 @@ export function buildRemoveLiquidityTx(
   // idempotent creates so a proportional burn works even when the user never
   // held one of the receive tokens before. Sidelined slots (T10) pay
   // nothing and are skipped.
+  const transferAmounts = removeLiquidityTransferAmounts(pool, params.lpAmount);
   for (const t of pool.tokens) {
-    if (t.sidelined) continue;
+    if (transferAmounts[t.index] === 0n) continue;
     const userAta = deriveAta(params.user, t.mint, t.tokenProgram);
     ixs.push(
       createAssociatedTokenAccountIdempotentInstruction(
@@ -1167,7 +1176,7 @@ export function buildSetRangeManagerIx(
 /**
  * `set_range_manager_config` — the range manager's movement envelope.
  *
- * v5.1 appended `max_leverage_bps` and `min_leverage_bps` to the argument
+ * v5.1 appended `max_concentration_factor_bps` and `min_concentration_factor_bps` to the argument
  * list. Both are required; pass `0` to leave a bound disabled.
  */
 export function buildSetRangeManagerConfigIx(
@@ -1180,8 +1189,8 @@ export function buildSetRangeManagerConfigIx(
     encodeU16(params.maxVbChangePct),
     encodeU16(params.maxWeightChangePct),
     encodeU32(params.minUpdateIntervalSecs),
-    encodeU32(params.maxLeverageBps),
-    encodeU32(params.minLeverageBps),
+    encodeU32(params.maxConcentrationFactorBps),
+    encodeU32(params.minConcentrationFactorBps),
   ]);
   const keys: AccountMeta[] = [
     { pubkey: pool, isSigner: false, isWritable: true },

@@ -206,13 +206,13 @@ describe("TokenChange encoding (v5.1 compare-and-swap)", () => {
 });
 
 describe("CofferPool account layout (v5.1)", () => {
-  test("IDL legacy tail is leverage bounds then reserved[16], followed by the v6.1 block", () => {
+  test("IDL legacy tail is concentrationFactor bounds then reserved[16], followed by the v6.1 block", () => {
     const fields = idlFields(cofferPoolIdl as any, "CofferPool");
     const legacyEnd = fields.indexOf("reserved");
     expect(fields.slice(legacyEnd - 3, legacyEnd + 1)).toEqual([
       "_deprecated_banned_extensions",
-      "range_manager_max_leverage_bps",
-      "range_manager_min_leverage_bps",
+      "range_manager_max_concentration_factor_bps",
+      "range_manager_min_concentration_factor_bps",
       "reserved",
     ]);
     expect(fields[legacyEnd + 1]).toBe("layout_version");
@@ -299,8 +299,8 @@ describe("CofferPool account layout (v5.1)", () => {
       ...slots,
       PublicKey.default.toBuffer(), // lookup_table
       u64(6), // _deprecated_banned_extensions (policy removed in v6.1/T19; bytes kept)
-      u32(30_000), // range_manager_max_leverage_bps  ← new
-      u32(5_000), // range_manager_min_leverage_bps   ← new
+      u32(30_000), // range_manager_max_concentration_factor_bps  ← new
+      u32(5_000), // range_manager_min_concentration_factor_bps   ← new
       Buffer.alloc(16), // reserved[16] (was [24])
     ]);
 
@@ -322,8 +322,8 @@ describe("CofferPool account layout (v5.1)", () => {
     expect(raw.virtualBalances[0].toNumber()).toBe(111);
     expect(raw.actualBalances[0].toNumber()).toBe(222);
     expect(raw.deprecatedBannedExtensions.toNumber()).toBe(6);
-    expect(raw.rangeManagerMaxLeverageBps).toBe(30_000);
-    expect(raw.rangeManagerMinLeverageBps).toBe(5_000);
+    expect(raw.rangeManagerMaxConcentrationFactorBps).toBe(30_000);
+    expect(raw.rangeManagerMinConcentrationFactorBps).toBe(5_000);
   });
 });
 
@@ -384,13 +384,13 @@ describe("instruction signatures the SDK encodes by hand", () => {
     ]);
   });
 
-  test("set_range_manager_config appends the leverage band args", () => {
+  test("set_range_manager_config appends the concentrationFactor band args", () => {
     expect(ix("set_range_manager_config").args.map((a: any) => a.name)).toEqual([
       "max_vb_change_pct",
       "max_weight_change_pct",
       "min_update_interval_secs",
-      "max_leverage_bps",
-      "min_leverage_bps",
+      "max_concentration_factor_bps",
+      "min_concentration_factor_bps",
     ]);
   });
 });

@@ -26,6 +26,8 @@ import {
   MIN_LP_SUPPLY,
   MintExtension,
   NETWORK_PROGRAMS,
+  MAINNET_V51_FACTORY_PROGRAMS,
+  DEVNET_V61_CANDIDATE_PROGRAMS,
   POOL_SEED,
   POOL_V4_LEN,
   PROTOCOL_ADMIN_IDL,
@@ -80,7 +82,7 @@ function poolFixture(): PoolInfo {
   const tokens = [0, 1].map((index) => ({
     index, mint: pk(), tokenProgram: TOKEN_PROGRAM_ID, decimals: 9, weightBps: 5000,
     virtualBalance: new BN(2_000_000), actualBalance: new BN(1_000_000), protocolFeesOwed: new BN(0), vault: pk(),
-    concentration: 1, isActive: true, maxSelloffPct: 0, extensions: [], unsupportedExtensions: [], transferFee: null,
+    concentrationFactor: 1, isActive: true, maxSelloffPct: 0, extensions: [], unsupportedExtensions: [], transferFee: null,
   }));
   return {
     address: pk(), config: pk(), bump: 1, tokenCount: 2, poolId: new BN(1), lpMint: pk(), lpTokenProgram: TOKEN_PROGRAM_ID,
@@ -94,7 +96,7 @@ describe("T18 package surface", () => {
 
   test("package is @coffer_so/sdk-v6 at >= 0.2.0 (breaking rename, no aliases)", () => {
     expect(pkgJson.name).toBe("@coffer_so/sdk-v6");
-    expect(pkgJson.version).toBe("0.3.0");
+    expect(pkgJson.version).toBe("0.4.0");
   });
 
   test("renamed clients and helpers are exported from the package root", () => {
@@ -167,9 +169,16 @@ describe("T18 PDA seeds are the legacy byte strings", () => {
 });
 
 describe("T18 IDL: names renamed, discriminators pinned", () => {
-  test("coffer_pool IDL metadata carries the new program name and the v6 mainnet address", () => {
+  test("source-generated IDLs bind the canonical factory independently of network overrides", () => {
     expect((COFFER_POOL_IDL as any).metadata.name).toBe("coffer_pool");
-    expect((COFFER_POOL_IDL as any).address).toBe("6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9");
+    expect((COFFER_POOL_IDL as any).address).toBe(MAINNET_V51_FACTORY_PROGRAMS.cofferPool.toBase58());
+    expect((PROTOCOL_ADMIN_IDL as any).address).toBe(MAINNET_V51_FACTORY_PROGRAMS.protocolAdmin.toBase58());
+    expect((SINGLE_TOKEN_LIQUIDITY_IDL as any).address).toBe(MAINNET_V51_FACTORY_PROGRAMS.singleTokenLiquidity.toBase58());
+    const devnet = getConfig("devnet", { programs: DEVNET_V61_CANDIDATE_PROGRAMS });
+    expect(devnet.programs.cofferPool.toBase58()).toBe("CVKxMeQbkZKvqSh73BMPKY5Ezq9YRJyczHeZLZLBZ3zV");
+    expect(devnet.programs.protocolAdmin.toBase58()).toBe("HJEiC8TghRX3k1oXkhwhsBBmeP8yyc9XBAhvL6BqP9hU");
+    expect(devnet.programs.singleTokenLiquidity.toBase58()).toBe("7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2");
+    expect(NETWORK_PROGRAMS.devnet.cofferPool.equals(devnet.programs.cofferPool)).toBe(false);
   });
 
   test("CofferPool / CofferPoolConfig / Treasury keep the pre-rename account discriminators", () => {
@@ -254,19 +263,19 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(describeProgramError(6025)?.name).toBe("BannedExtension");
   });
 
-  test("ABI size after v6.1: 107 instructions and 79 events across the three programs (59 / 59 after T19)", () => {
+  test("ABI size after v6.1-rc2: 110 instructions and 81 events across the three programs (51+55+4 / 41+38+2)", () => {
     const programs = Object.values(IDLS) as any[];
-    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(107);
-    expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(79);
+    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(110);
+    expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(81);
   });
 });
 
 describe("T18/T19 account layouts", () => {
-  test("pool decoder keeps every byte offset: deprecated slot at 1651, leverage bounds at 1659/1663", () => {
+  test("pool decoder keeps every byte offset: deprecated slot at 1651, concentrationFactor bounds at 1659/1663", () => {
     const raw = decodePoolAccount(poolBytes({ deprecated: new BN("104890890"), maxLev: 30_000, minLev: 5_000 }));
     expect(raw.deprecatedBannedExtensions.toString()).toBe("104890890");
-    expect(raw.rangeManagerMaxLeverageBps).toBe(30_000);
-    expect(raw.rangeManagerMinLeverageBps).toBe(5_000);
+    expect(raw.rangeManagerMaxConcentrationFactorBps).toBe(30_000);
+    expect(raw.rangeManagerMinConcentrationFactorBps).toBe(5_000);
     expect(raw.reserved).toHaveLength(16);
   });
 
@@ -299,7 +308,7 @@ describe("T18/T19 account layouts", () => {
     const buf = Buffer.alloc(2304); poolBytes({ deprecated: new BN(6), maxLev: 1, minLev: 2 }).copy(buf); buf[1683] = 1;
     const decoded = decodeContractAccount("cofferPool", "CofferPool", buf) as any;
     expect(decoded._deprecated_banned_extensions.toNumber()).toBe(6);
-    expect(decoded.range_manager_max_leverage_bps).toBe(1);
+    expect(decoded.range_manager_max_concentration_factor_bps).toBe(1);
     expect(decodePoolAccount(buf).deprecatedBannedExtensions.toNumber()).toBe(6);
   });
 });

@@ -65,6 +65,17 @@ export const MAINNET_V51_FACTORY_PROGRAMS: NetworkPrograms = {
   protocolAdmin: new PublicKey("3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81"),
 };
 
+/**
+ * Public IDs compiled into the owner-devnet v6.1 candidate (2026-11-02).
+ * Deployment, authority and live behavior remain unverified. Select explicitly:
+ * getConfig("devnet", { programs: DEVNET_V61_CANDIDATE_PROGRAMS }).
+ */
+export const DEVNET_V61_CANDIDATE_PROGRAMS: NetworkPrograms = {
+  cofferPool: new PublicKey("CVKxMeQbkZKvqSh73BMPKY5Ezq9YRJyczHeZLZLBZ3zV"),
+  singleTokenLiquidity: new PublicKey("7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2"),
+  protocolAdmin: new PublicKey("HJEiC8TghRX3k1oXkhwhsBBmeP8yyc9XBAhvL6BqP9hU"),
+};
+
 export const DEFAULT_RPC_ENDPOINT: Record<Network, string> = {
   mainnet: "https://solana.drpc.org",
   devnet: "https://api.devnet.solana.com",

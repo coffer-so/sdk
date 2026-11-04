@@ -29,7 +29,7 @@ describe("PoolAction payloads and kinds", () => {
     const all = [
       PoolActions.setDelay(1), PoolActions.setSwapFeeRate(2), PoolActions.setCreatorFeeBps(3), PoolActions.setLiquidityFees(4, 5),
       PoolActions.lockLiquidityFees(), PoolActions.lockRangeManager(), PoolActions.setRangeManager(pk(), true),
-      PoolActions.setRangeManagerConfig({ maxVbChangePct: 1, maxWeightChangePct: 2, minUpdateIntervalSecs: 3, maxLeverageBps: 4, minLeverageBps: 5 }),
+      PoolActions.setRangeManagerConfig({ maxVbChangePct: 1, maxWeightChangePct: 2, minUpdateIntervalSecs: 3, maxConcentrationFactorBps: 4, minConcentrationFactorBps: 5 }),
       PoolActions.setMaxSelloff([{ maxSelloffPct: 1, periodLength: 2, feeThresholdPct: 3, feeSlopeLowPct: 4, feeSlopeHighPct: 5, feeSlopeMidPct: 6, feeKinkPct: 7 }]),
       PoolActions.setTokenActive(1),
     ];
@@ -109,15 +109,15 @@ describe("PoolAction payloads and kinds", () => {
 
 describe("ProtocolAction payloads and kinds", () => {
   test("[P07] every constructor maps to kind 1..13 and the tag is kind − 1", () => {
-    expect(PROTOCOL_ACTION_KINDS.length).toBe(14); expect(PROTOCOL_ACTION_KINDS[0]).toBe("TransferAdmin"); expect(PROTOCOL_ACTION_KINDS[13]).toBe("PoolRescaleVirtualBalances");
+    expect(PROTOCOL_ACTION_KINDS.length).toBe(15); expect(PROTOCOL_ACTION_KINDS[0]).toBe("TransferAdmin"); expect(PROTOCOL_ACTION_KINDS[13]).toBe("PoolRescaleVirtualBalances");
     const all = [
       ProtocolActions.setDelay(1), ProtocolActions.setSupervisor(pk()), ProtocolActions.withdraw(pk(), pk(), new BN(1)),
       ProtocolActions.withdrawSol(1, pk(), pk(), new BN(2)), ProtocolActions.poolDebugWithdraw(pk(), [new BN(1), new BN(2)], [pk(), pk()]),
       ProtocolActions.poolSetProtocolFeeRate(pk(), 1000), ProtocolActions.poolSetPoolEnabled(pk()), ProtocolActions.poolSetTokenActive(pk(), 1),
       ProtocolActions.unfreezePools([pk()]), ProtocolActions.poolProtocolAdminTransfer(pk(), pk()), ProtocolActions.upgradeProgram(pk(), pk()),
-      ProtocolActions.programOp(2, pk(), pk()), ProtocolActions.poolRescaleVirtualBalances(pk(), 1_000_000_000n),
+      ProtocolActions.programOp(2, pk(), pk()), ProtocolActions.poolRescaleVirtualBalances(pk(), 1_000_000_000n), ProtocolActions.poolEnableRangeManager(pk()),
     ];
-    expect(all.map(protocolActionKindOf)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(all.map(protocolActionKindOf)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     all.forEach((a, i) => {
       expect(adminCoder.types.encode("ProtocolAction", a)[0]).toBe(i);
       expect(PROTOCOL_ACTION_KIND[Object.keys(a)[0] as keyof typeof PROTOCOL_ACTION_KIND]).toBe(i + 1);
@@ -128,7 +128,7 @@ describe("ProtocolAction payloads and kinds", () => {
       expect((protocolAdminIdl.instructions as any[]).some((i) => i.name === ix)).toBe(true);
     }
     expect(PROTOCOL_EXECUTE_INSTRUCTIONS.WithdrawSol.length).toBe(3); expect(PROTOCOL_EXECUTE_INSTRUCTIONS.ProgramOp.length).toBe(3);
-    for (let k = 0; k < 14; k++) expect(protocolActionKindName(k)).toBe(PROTOCOL_ACTION_KINDS[k]);
+    for (let k = 0; k < 15; k++) expect(protocolActionKindName(k)).toBe(PROTOCOL_ACTION_KINDS[k]);
     expect(PROTOCOL_EXECUTE_INSTRUCTIONS.PoolRescaleVirtualBalances).toEqual(["execute_pool_rescale_virtual_balances"]);
   });
   test("[P09] UpgradeProgram needs the buffer as remaining account 0; others none", () => {
@@ -139,7 +139,7 @@ describe("ProtocolAction payloads and kinds", () => {
   test("[N04] malformed protocol actions", () => {
     expect(() => protocolActionKindOf({ TransferAdmin: {} } as any)).toThrow(/not a ProtocolAction/);
     expect(() => protocolActionKindOf([] as any)).toThrow(/exactly one variant/);
-    expect(() => protocolActionKindName(14)).toThrow(/out of range/);
+    expect(() => protocolActionKindName(15)).toThrow(/out of range/);
     expect(() => ProtocolActions.poolRescaleVirtualBalances(pk(), 1)).toThrow(/InvalidVirtualRescale/);
     expect(() => ProtocolActions.poolRescaleVirtualBalances(pk(), -2)).toThrow(/unsigned/);
     expect(() => protocolActionKindName("Nope" as any)).toThrow(/unknown/);
@@ -188,7 +188,7 @@ describe("pending slots and pendingStatus", () => {
     b.writeBigInt64LE(BigInt(now), TREASURY_LAYOUT.PENDING_SET_DELAY.offset); b.writeUInt32LE(600, TREASURY_LAYOUT.PENDING_SET_DELAY.offset + 8);
     const blk = decodeTreasuryCooldownBlock(b);
     expect(blk.delaySecs).toBe(86_400); expect(blk.adminEpoch).toBe(2);
-    expect(blk.pendingActions.length).toBe(14); expect(blk.pendingActions[1].payload).toEqual({ secs: 600 });
+    expect(blk.pendingActions.length).toBe(15); expect(blk.pendingActions[1].payload).toEqual({ secs: 600 });
     expect(blk.pendingActionsMask).toBe(1 << 1);
     expect(treasuryNeedsLayoutMigration({ length: 818 })).toBe(true); expect(treasuryNeedsLayoutMigration(Buffer.alloc(1624))).toBe(false);
   });

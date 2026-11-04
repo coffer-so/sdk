@@ -12,6 +12,7 @@ import {
   TOKEN_SLOT_LEN,
   PoolActionKindName,
 } from "./layout";
+import { SAFETY_FLAGS_KNOWN_MASK } from "../config";
 
 /**
  * Raw binary layout of `CofferPool` (see
@@ -63,9 +64,9 @@ export interface RawPoolAccount {
    * manager may leave a token at, in basis points (10_000 = 1.0×).
    * `0` ⇒ band disabled. Pools written before v5.1 read `0`.
    */
-  rangeManagerMaxLeverageBps: number;
+  rangeManagerMaxConcentrationFactorBps: number;
   /** Absolute LOWER bound on `virtual_balance / actual_balance`, same units. */
-  rangeManagerMinLeverageBps: number;
+  rangeManagerMinConcentrationFactorBps: number;
 
   // Per-token (length 10 each; values past `tokenCount` are zeroed).
   tokenMints: PublicKey[];
@@ -156,7 +157,10 @@ export interface RawPoolAccount {
   hookMaxCu: number;
   /** v6.1 (T9): length of the hook account slice `[hook_program, hook_caller, extras..]`. */
   hookAccountsLen: number;
-  /** v6.1: `reserved_v61` @2102 (202 bytes, zero); empty on an unmigrated account. */
+  /** rc2: seed history and protocol-imposed restrictions (bit 0 seed, 1..10 tokens, 11 swaps, 12 range manager). */
+  safetyFlags: number;
+  rangeManagerWeightAnchors: number[];
+  /** rc2: `reserved_v61` @2124 (180 bytes, zero); empty on an unmigrated account. */
   reservedV61: Buffer;
   /**
    * Non-empty when a 2304-byte account carries bytes the v6.1 layout does
@@ -352,9 +356,9 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
   off += 8;
 
   // v5.1: two u32s carved out of the trailing reserved blob.
-  const rangeManagerMaxLeverageBps = data.readUInt32LE(off);
+  const rangeManagerMaxConcentrationFactorBps = data.readUInt32LE(off);
   off += 4;
-  const rangeManagerMinLeverageBps = data.readUInt32LE(off);
+  const rangeManagerMinConcentrationFactorBps = data.readUInt32LE(off);
   off += 4;
 
   // Preserve the legacy trailing block after checking its exact offset.
@@ -386,8 +390,8 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
     rangeManagerMaxWeightChangePct,
     rangeManagerMinUpdateIntervalSecs,
     rangeManagerLastUpdated,
-    rangeManagerMaxLeverageBps,
-    rangeManagerMinLeverageBps,
+    rangeManagerMaxConcentrationFactorBps,
+    rangeManagerMinConcentrationFactorBps,
     tokenMints,
     tokenPrograms,
     normalizedWeights,
@@ -428,6 +432,7 @@ function v61Defaults(): Pick<RawPoolAccount,
   | "withdrawFeeBps" | "liquidityFeeLock" | "rangeManagerLocked" | "poolAdminDelaySecs" | "poolAdminEpoch"
   | "pendingPoolAdminEta" | "pendingActions" | "pendingActionsMask" | "hookProgram" | "hookFlags" | "hookDisabled"
   | "hookFeeMin" | "hookFeeMax" | "hookMaxCu" | "hookAccountsLen" | "reservedV61" | "layoutDrift"
+  | "safetyFlags" | "rangeManagerWeightAnchors"
 > {
   const zeros = () => Array.from({ length: MAX_TOKENS }, () => new BN(0));
   return {
@@ -452,6 +457,8 @@ function v61Defaults(): Pick<RawPoolAccount,
     hookFeeMax: 0,
     hookMaxCu: 0,
     hookAccountsLen: 0,
+    safetyFlags: 0,
+    rangeManagerWeightAnchors: Array(MAX_TOKENS).fill(0),
     reservedV61: Buffer.alloc(0),
     layoutDrift: [],
   };
@@ -496,6 +503,9 @@ function decodeV61Block(data: Buffer, tokenCount: number): ReturnType<typeof v61
   }
 
   const reservedV61 = Buffer.from(data.subarray(L.RESERVED_V61.offset, L.RESERVED_V61.offset + L.RESERVED_V61.size));
+  const safetyFlags = data.readUInt16LE(L.SAFETY_FLAGS.offset);
+  const rangeManagerWeightAnchors = Array.from({ length: MAX_TOKENS }, (_, i) => data.readUInt16LE(L.RANGE_MANAGER_WEIGHT_ANCHORS.offset + 2 * i));
+  if ((safetyFlags & ~SAFETY_FLAGS_KNOWN_MASK) !== 0) drift.push("unknown safety_flags bits");
   if (reservedV61.some((b) => b !== 0)) drift.push("reserved_v61 is not all zero");
   if (L.RESERVED_V61.offset + L.RESERVED_V61.size !== POOL_LEN_V61) {
     throw new Error("decodePoolAccount: reserved_v61 does not end at the account size — regenerate this decoder");
@@ -519,6 +529,8 @@ function decodeV61Block(data: Buffer, tokenCount: number): ReturnType<typeof v61
     hookFeeMax,
     hookMaxCu,
     hookAccountsLen,
+    safetyFlags,
+    rangeManagerWeightAnchors,
     reservedV61,
     layoutDrift: drift,
   };
@@ -545,7 +557,7 @@ export function decodePoolCooldownBlock(data: Buffer): Pick<RawPoolAccount, "poo
     slot(7, rm, { manager: readPubkey(data, rm + 8), enabled: data.readUInt8(rm + 40) !== 0 }),
     slot(8, cfg, {
       maxVbChangePct: data.readUInt16LE(cfg + 8), maxWeightChangePct: data.readUInt16LE(cfg + 10),
-      minUpdateIntervalSecs: data.readUInt32LE(cfg + 12), maxLeverageBps: data.readUInt32LE(cfg + 16), minLeverageBps: data.readUInt32LE(cfg + 20),
+      minUpdateIntervalSecs: data.readUInt32LE(cfg + 12), maxConcentrationFactorBps: data.readUInt32LE(cfg + 16), minConcentrationFactorBps: data.readUInt32LE(cfg + 20),
     }),
     slot(9, L.PENDING_SET_MAX_SELLOFF.offset, { paramsHash: data.subarray(L.PENDING_SET_MAX_SELLOFF.offset + 8, L.PENDING_SET_MAX_SELLOFF.offset + 40).toString("hex") }),
     slot(10, L.PENDING_SET_TOKEN_ACTIVE.offset, { tokenIndex: data.readUInt8(L.PENDING_SET_TOKEN_ACTIVE.offset + 8) }),

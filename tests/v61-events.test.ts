@@ -3,7 +3,7 @@
  * `actor_kind`, `SwapV2` with `SlotState` pairs + `Option<SelloffWindow>`),
  * the retired / legacy discriminators (→ `Unknown`), decoder round-trips
  * against the IDL-generated fixtures, CPI attribution, and the error map
- * (coffer_pool 6070–6106, protocol_admin 6010–6018).
+ * (coffer_pool 6070–6109, protocol_admin 6010–6018).
  */
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
@@ -83,10 +83,10 @@ describe("event pins (idl/abi-pins.json @ 409067d)", () => {
       }
     }
   });
-  test("[P02] the tables hold 41 / 36 / 2 events, no discriminator is shared and every one is sha256(event:<Name>)", () => {
-    expect(EVENT_TABLES.cofferPool.size).toBe(41); expect(EVENT_TABLES.protocolAdmin.size).toBe(36); expect(EVENT_TABLES.singleTokenLiquidity.size).toBe(2);
+  test("[P02] the tables hold 41 / 38 / 2 events, no discriminator is shared and every one is sha256(event:<Name>)", () => {
+    expect(EVENT_TABLES.cofferPool.size).toBe(41); expect(EVENT_TABLES.protocolAdmin.size).toBe(38); expect(EVENT_TABLES.singleTokenLiquidity.size).toBe(2);
     const all = [...EVENT_TABLES.cofferPool.keys(), ...EVENT_TABLES.protocolAdmin.keys(), ...EVENT_TABLES.singleTokenLiquidity.keys()];
-    expect(new Set(all).size).toBe(79);
+    expect(new Set(all).size).toBe(81);
     expect(LEGACY_EVENT_DISCRIMINATORS.size).toBe(19 + 24 + 2 + 3);
     for (const hex of all) expect(LEGACY_EVENT_DISCRIMINATORS.has(hex)).toBe(false);
     expect(eventProgramOf(disc("SwapV2"))).toEqual({ program: "cofferPool", name: "SwapV2" });
@@ -132,9 +132,9 @@ describe("decoder round trips against the IDL-generated fixtures", () => {
     // attribution: the flat lookup names the right program
     expect(decodeEventLine(f.base64).program).toBe(program);
   });
-  test("[P06] every program's whole event set is fixtured (41 + 36 + 2 names)", () => {
+  test("[P06] every program's whole event set is fixtured (41 + 38 + 2 names)", () => {
     const names = (p: ContractProgram) => new Set(FIXTURES.filter(([x]) => x === p).map(([, , f]) => f.name));
-    expect(names("cofferPool").size).toBe(41); expect(names("protocolAdmin").size).toBe(36); expect(names("singleTokenLiquidity").size).toBe(2);
+    expect(names("cofferPool").size).toBe(41); expect(names("protocolAdmin").size).toBe(38); expect(names("singleTokenLiquidity").size).toBe(2);
   });
 });
 
@@ -241,14 +241,14 @@ describe("LiquidityAddedV2 / LiquidityRemovedV2 / receipts", () => {
       virtual_balances: [bn(2), bn(4)], actual_balances: [bn(1), bn(3)], protocol_fees_owed: [bn(5), bn(6)], creator_fees_owed: [bn(7), bn(8)], surge_fees_owed: [bn(9), bn(10)],
       is_active: [true, false], selloff_policy: [policy, { ...policy, fee_kinkPct: undefined, fee_kink_pct: 0 }], swap_fee_rate: 3000, protocol_fee_rate: 1000, creator_fee_bps: 2500,
       deposit_fee_bps: 5, withdraw_fee_bps: 7, liquidity_fee_lock: 1, pool_enabled: true, swaps_enabled: false, range_manager: key(50), range_manager_enabled: true, range_manager_locked: false,
-      range_manager_max_vb_change_pct: 500, range_manager_max_weight_change_pct: 600, range_manager_min_update_interval_secs: 60, range_manager_max_leverage_bps: 30_000,
-      range_manager_min_leverage_bps: 11_000, range_manager_last_updated: bn(1_699_999_999), lookup_table: key(60), pool_admin_delay_secs: 86_400, pool_admin_epoch: 3,
+      range_manager_max_vb_change_pct: 500, range_manager_max_weight_change_pct: 600, range_manager_min_update_interval_secs: 60, range_manager_max_concentration_factor_bps: 30_000,
+      range_manager_min_concentration_factor_bps: 11_000, range_manager_last_updated: bn(1_699_999_999), lookup_table: key(60), pool_admin_delay_secs: 86_400, pool_admin_epoch: 3,
       pending_actions_mask: 0b11, pending_etas: [bn(1), bn(2), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(0), bn(-5)], hook_program: key(41), hook_flags: 0b1110000,
       hook_disabled: 1, hook_fee_min: 100, hook_fee_max: 50_000, hook_max_cu: 60_000, hook_accounts_len: 4, timestamp: bn(1_700_000_004),
     };
     const e = one<PoolInfoV2Event>(eventLog(idl, "PoolInfoV2", v));
     expect(e.layoutVersion).toBe(1); expect(e.pendingPoolAdminEta.toString()).toBe("-5"); expect(e.isActive).toEqual([true, false]); expect(e.selloffPolicy[0].feeKinkPct).toBe(80);
-    expect(e.selloffPolicy[1].feeKinkPct).toBe(0); expect(e.rangeManagerMinLeverageBps).toBe(11_000); expect(e.pendingEtas).toHaveLength(11); expect(e.pendingEtas[10].toString()).toBe("-5");
+    expect(e.selloffPolicy[1].feeKinkPct).toBe(0); expect(e.rangeManagerMinConcentrationFactorBps).toBe(11_000); expect(e.pendingEtas).toHaveLength(11); expect(e.pendingEtas[10].toString()).toBe("-5");
     expect(e.hookDisabled).toBe(1); expect(e.timestamp).toBe(1_700_000_004); expect(e.decimals).toEqual([9, 6]);
   });
 });
@@ -314,19 +314,24 @@ describe("admin / before-after events", () => {
 
 describe("error code map (v6.1 incl. T22)", () => {
   test("[P22] coffer-pool 6104–6106 have user-facing messages and non-generic SDK codes", () => {
-    expect(describeProgramError(6104)).toMatchObject({ name: "VirtualBalanceNotAboveActual", sdkCode: "leverage_invariant" });
-    expect(describeProgramError(6105)).toMatchObject({ name: "VirtualBalanceBelowFloor", sdkCode: "leverage_invariant" });
+    expect(describeProgramError(6104)).toMatchObject({ name: "VirtualBalanceNotAboveActual", sdkCode: "concentration_factor_invariant" });
+    expect(describeProgramError(6105)).toMatchObject({ name: "VirtualBalanceBelowFloor", sdkCode: "concentration_factor_invariant" });
     expect(describeProgramError(6106)).toMatchObject({ name: "InvalidVirtualRescale", sdkCode: "invalid_input" });
     expect(describeProgramError(6104)!.message).toMatch(/rescale_virtual_balances/);
     expect(describeProgramError(6105)!.message).toMatch(/one whole token/);
     expect(describeProgramError(6106)!.message).toMatch(/≥ 2/);
-    expect(toSdkError(new Error("custom program error: 0x17d8")).code).toBe("leverage_invariant"); // 6104
+    expect(toSdkError(new Error("custom program error: 0x17d8")).code).toBe("concentration_factor_invariant"); // 6104
     expect(toSdkError(new Error("Error Number: 6105")).humanMessage).toMatch(/one whole token/);
   });
-  test("[P23] the table is append-only: every code 6000..6106 defined once; protocol-admin still 6010–6018", () => {
+  test("[P23] the table is append-only: every code 6000..6109 defined once; protocol-admin still 6010–6018", () => {
     const table = contractErrorMapForTests("cofferPool");
-    for (let c = 6000; c <= 6106; c++) expect(table[c]).toBeDefined();
-    expect(Object.keys(table)).toHaveLength(107);
+    for (let c = 6000; c <= 6109; c++) expect(table[c]).toBeDefined();
+    expect(Object.keys(table)).toHaveLength(110);
+    // rc2 appended 6107..6109.
+    expect(describeProgramError(6107)).toMatchObject({ name: "WithdrawFeeNotLockable", sdkCode: "invalid_input" });
+    expect(describeProgramError(6108)).toMatchObject({ name: "RangeManagerKeyRequired", sdkCode: "invalid_input" });
+    expect(describeProgramError(6109)).toMatchObject({ name: "FullExitRequiredBelowFloor", sdkCode: "invalid_input" });
+    expect(toSdkError(new Error("custom program error: 0x17dd")).humanMessage).toMatch(/whole LP balance/); // 6109
     expect(Object.keys(contractErrorMapForTests("protocolAdmin"))).toHaveLength(19);
     expect(describeProgramError(6095)?.sdkCode).toBe("hook_rejected"); expect(describeProgramError(6089)?.sdkCode).toBe("cooldown"); expect(describeProgramError(6070)?.sdkCode).toBe("pool_layout_outdated");
     expect(describeProgramError(6010, "protocolAdmin")?.sdkCode).toBe("cooldown"); expect(describeProgramError(6018, "protocolAdmin")?.name).toBe("InvalidPendingAdmin");
@@ -442,10 +447,10 @@ describe("legacy / retired / malformed logs", () => {
       expect(camel.kind).toBe("Unknown"); expect((camel as any).name).toBe(f.name);
     }
   });
-  test("[N15] unknown error codes map to undefined / unknown (6107, PA 6019)", () => {
-    expect(describeProgramError(6107)).toBeUndefined();
+  test("[N15] unknown error codes map to undefined / unknown (6110, PA 6019)", () => {
+    expect(describeProgramError(6110)).toBeUndefined();
     expect(describeProgramError(6019, "protocolAdmin")).toBeUndefined();
-    expect(toSdkError(new Error("custom program error: 0x17db")).code).toBe("unknown"); // 6107
+    expect(toSdkError(new Error("custom program error: 0x17de")).code).toBe("unknown"); // 6110
   });
   test("[N16] every pinned legacy name is absent from the IDLs and every typed name is present", () => {
     for (const pin of LEGACY_EVENT_DISCRIMINATORS.values()) {

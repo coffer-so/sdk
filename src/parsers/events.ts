@@ -225,7 +225,7 @@ function decodeTyped(name: string, buf: Buffer): CofferPoolEvent | null {
         swapFeeRate: r.u32(), protocolFeeRate: r.u16(), creatorFeeBps: r.u16(), depositFeeBps: r.u16(), withdrawFeeBps: r.u16(), liquidityFeeLock: r.u8(),
         poolEnabled: r.bool(), swapsEnabled: r.bool(),
         rangeManager: r.pubkey(), rangeManagerEnabled: r.bool(), rangeManagerLocked: r.bool(), rangeManagerMaxVbChangePct: r.u16(), rangeManagerMaxWeightChangePct: r.u16(),
-        rangeManagerMinUpdateIntervalSecs: r.u32(), rangeManagerMaxLeverageBps: r.u32(), rangeManagerMinLeverageBps: r.u32(), rangeManagerLastUpdated: r.i64(),
+        rangeManagerMinUpdateIntervalSecs: r.u32(), rangeManagerMaxConcentrationFactorBps: r.u32(), rangeManagerMinConcentrationFactorBps: r.u32(), rangeManagerLastUpdated: r.i64(),
         lookupTable: r.pubkey(), poolAdminDelaySecs: r.u32(), poolAdminEpoch: r.u32(), pendingActionsMask: r.u16(), pendingEtas: r.vecI64(),
         hookProgram: r.pubkey(), hookFlags: r.u16(), hookDisabled: r.u8(), hookFeeMin: r.u32(), hookFeeMax: r.u32(), hookMaxCu: r.u32(), hookAccountsLen: r.u8(),
         timestamp: ts(),

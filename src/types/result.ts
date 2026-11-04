@@ -55,7 +55,7 @@ export type SdkErrorCode =
   /** v6.1 (T9): the pool's hook refused or broke the operation (`HookDenied`, `HookPaused`, …). */
   | "hook_rejected"
   /** v6.1 (T22): a virtual balance would not stay strictly above its actual balance / its per-slot floor (`VirtualBalanceNotAboveActual`, `VirtualBalanceBelowFloor`); a legacy pool needs `rescale_virtual_balances`. */
-  | "leverage_invariant"
+  | "concentration_factor_invariant"
   | "unknown";
 
 export const ok = <T>(data: T): SdkResult<T> => ({ ok: true, data });

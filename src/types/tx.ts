@@ -382,12 +382,12 @@ export interface SetRangeManagerConfigParams {
    * The per-update percentage caps velocity, not distance — 5% steps
    * compound to ~131× in 100 updates. This is the distance limit.
    */
-  maxLeverageBps: number;
+  maxConcentrationFactorBps: number;
   /**
    * Absolute LOWER bound on the same ratio, same units. `0` disables the
    * floor. New in v5.1.
    */
-  minLeverageBps: number;
+  minConcentrationFactorBps: number;
 }
 
 /** Per-token sell-off policy, in pool order. Percent fields use 10,000 = 100%,

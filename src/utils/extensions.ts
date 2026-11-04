@@ -154,7 +154,7 @@ export function unsupportedMintExtensions(extensions: number[]): number[] {
 }
 
 type TransferPolicyToken = Pick<PoolTokenInfo, "index" | "mint" | "unsupportedExtensions" | "metadata"> &
-  Partial<Pick<PoolTokenInfo, "paused" | "tokenProgram" | "pinnedDecimalsMismatch">>;
+  Partial<Pick<PoolTokenInfo, "paused" | "tokenProgram" | "pinnedDecimalsMismatch" | "missingMint">>;
 
 /**
  * Why the v6 program would refuse to transfer this token right now, one
@@ -164,6 +164,7 @@ type TransferPolicyToken = Pick<PoolTokenInfo, "index" | "mint" | "unsupportedEx
  */
 export function tokenTransferBlockers(t: TransferPolicyToken): string[] {
   const reasons: string[] = [];
+  if (t.missingMint) reasons.push("mint account is absent or closed");
   const unsupported = t.unsupportedExtensions ?? [];
   if (unsupported.length > 0) {
     reasons.push(`unsupported Token-2022 extension(s): ${unsupported.map(mintExtensionName).join(", ")}`);
