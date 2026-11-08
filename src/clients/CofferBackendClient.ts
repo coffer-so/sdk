@@ -1,6 +1,7 @@
 import { SdkResult, err, ok } from "../types/result";
 import { PoolSummary } from "../types/pool";
-import { safeCall } from "../utils/retry";
+import { RetryOptions, safeCall } from "../utils/retry";
+import { toSdkError } from "../utils/errors";
 
 export interface CofferBackendClientParams {
   apiEndpoint: string;
@@ -508,6 +509,44 @@ export interface ReferralListResponse {
   page: number;
   limit: number;
   data: ReferralEntry[];
+}
+
+// ── Attribution types ──
+
+/** Backend `MAX_LANDING_URL_LEN`: a longer landingUrl is dropped server-side. */
+const ATTRIBUTION_MAX_LANDING_URL_LEN = 4096;
+/** Only the referrer's host is used; the cap keeps the body under the 8kb parser limit. */
+const ATTRIBUTION_MAX_REFERRER_LEN = 1024;
+
+/**
+ * One marketing touch (page load with UTM tags, click id, `ref` or an
+ * external referrer, or a single "direct" visit per session). The backend
+ * normalizes and stores it; no IP is kept. See the backend's
+ * docs/ATTRIBUTION.md for when to send it and how to keep the ids.
+ */
+export interface AttributionLandingInput {
+  /** Browser-scoped anonymous id (UUID v4), shared by landing and app. */
+  anonId: string;
+  /** Idempotency key (UUID v4): new per touch, the same on every retry. */
+  touchId: string;
+  /** anonId carried over from another browser (wallet in-app browser deeplink). */
+  parentAnonId?: string;
+  /** Full landing URL including the query string (`location.href`). */
+  landingUrl: string;
+  /** `document.referrer`, if any. */
+  referrer?: string;
+  /** Client time of the touch, unix milliseconds. Clamped by the server. */
+  ts?: number;
+}
+
+export interface AttributionLandingResponse {
+  ok: true;
+}
+
+export interface AttributionClaimResponse {
+  ok: true;
+  /** Number of anonIds linked to the authenticated wallet by this call. */
+  linked: number;
 }
 
 // ── Portfolio types ──
@@ -1436,6 +1475,61 @@ export class CofferBackendClient {
     );
   }
 
+  // ── Attribution ──
+
+  /**
+   * Record a marketing touch (UTM tags, click id, referrer) for an
+   * anonymous browser id. Public; if tokens are set, the backend also links
+   * the anonId to the wallet. The backend answers `{ ok: true }` (202) and
+   * drops invalid or duplicate touches itself. A landingUrl over 4096 chars
+   * is not sent at all (the backend would drop it) and also resolves to
+   * `{ ok: true }`. Network and 5xx failures still return `ok: false`, so
+   * cap the app's resend queue. Retries are safe: the backend deduplicates
+   * by `touchId`.
+   */
+  recordAttributionLanding(
+    input: AttributionLandingInput,
+  ): Promise<SdkResult<AttributionLandingResponse>> {
+    // An oversized body is rejected by the backend's body parser before its
+    // CORS middleware runs, so the browser would only see "Failed to fetch".
+    if (input.landingUrl.length > ATTRIBUTION_MAX_LANDING_URL_LEN) {
+      return Promise.resolve(ok({ ok: true }));
+    }
+    const body: Record<string, unknown> = {
+      anonId: input.anonId,
+      touchId: input.touchId,
+      landingUrl: input.landingUrl,
+    };
+    if (input.parentAnonId) body.parentAnonId = input.parentAnonId;
+    if (input.referrer) {
+      body.referrer = input.referrer.slice(0, ATTRIBUTION_MAX_REFERRER_LEN);
+    }
+    if (input.ts !== undefined) body.ts = input.ts;
+    return this.post<AttributionLandingResponse>(
+      "/api/attribution/landing",
+      body,
+    );
+  }
+
+  /**
+   * Link anonymous browser ids (current one plus `parentAnonId`, up to 5)
+   * to the authenticated wallet. Call after every sign-in, token restore
+   * and account switch. Idempotent. Only network failures are retried: the
+   * backend allows 20 claims per wallet per minute and every retry of a 429
+   * would count against that window.
+   * Requires authentication (setTokens must be called first).
+   */
+  claimAttribution(
+    anonIds: string[],
+  ): Promise<SdkResult<AttributionClaimResponse>> {
+    return this.requestWithRefresh<AttributionClaimResponse>(
+      "POST",
+      "/api/attribution/claim",
+      { anonIds },
+      { shouldRetry: retryTransportOnly },
+    );
+  }
+
   // ── Portfolio (auth required) ──
 
   /**
@@ -1802,15 +1896,16 @@ export class CofferBackendClient {
     method: "GET" | "POST" | "PUT",
     path: string,
     body?: unknown,
+    retry: RetryOptions = {},
   ): Promise<SdkResult<T>> {
-    const result = await this.rawRequest<T>(method, path, body);
+    const result = await this.rawRequest<T>(method, path, body, retry);
 
     // Don't auto-refresh for auth endpoints themselves
     const isAuthPath = path.startsWith("/api/auth/");
     if (!isAuthPath && !result.ok && this.is401(result) && this.refreshToken) {
       const refreshed = await this.tryRefresh();
       if (refreshed) {
-        return this.rawRequest<T>(method, path, body);
+        return this.rawRequest<T>(method, path, body, retry);
       }
     }
 
@@ -1820,7 +1915,8 @@ export class CofferBackendClient {
   private async rawRequest<T>(
     method: "GET" | "POST" | "PUT",
     path: string,
-    body?: unknown
+    body?: unknown,
+    retry: RetryOptions = {},
   ): Promise<SdkResult<T>> {
     const url = `${this.endpoint}${path}`;
     const fetchOpts: RequestInit = {
@@ -1838,7 +1934,7 @@ export class CofferBackendClient {
         throw error;
       }
       return (await res.json()) as T;
-    });
+    }, retry);
     if (!raw.ok) return raw;
     return ok(raw.data);
   }
@@ -1904,4 +2000,14 @@ export class CofferBackendClient {
   private async getEnvelope<T>(path: string): Promise<SdkResult<T>> {
     return this.get<T>(path);
   }
+}
+
+/**
+ * Retry only when no HTTP answer came back (timeout, unreachable host).
+ * Any HTTP status, 429 included, is final for the caller.
+ */
+function retryTransportOnly(e: unknown): boolean {
+  if (typeof (e as { status?: unknown } | null)?.status === "number") return false;
+  const code = toSdkError(e).code;
+  return code === "rpc_timeout" || code === "rpc_unavailable";
 }

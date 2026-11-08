@@ -235,6 +235,7 @@ insufficient funds) short-circuit.
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, STLD, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 | XP snapshots | Frozen results of finished epochs and campaigns — `getLeaderboardEpochSnapshot`, `getCampaignSnapshotTop`, …; see [XP snapshots guide](docs/XP_SNAPSHOTS.md) |
+| Attribution | `recordAttributionLanding` (public, idempotent by `touchId`) and `claimAttribution` (JWT) for UTM touches; anonId storage and `sendBeacon` stay in the app, see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 
 `getCached()` is the actual cache accessor; there is no `getState()`, `swap()`,
 or `getSwapQuote()` method. `pool.singleTokenDeposit` is a client getter, not a

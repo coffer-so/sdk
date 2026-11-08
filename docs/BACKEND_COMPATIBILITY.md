@@ -20,6 +20,7 @@ A TypeScript return type does not prove that a route exists or validate its JSON
 | `getPortfolioChart/Activity/Holdings/Positions` | No matching portfolio v2 controllers |
 | Campaign methods | No matching campaign controllers |
 | Snapshot methods (`getLeaderboardEpochSnapshot`, `getLeaderboardEpochUser`, `getCampaignHistory`, `getCampaignSnapshotTop`, `getCampaignSnapshotUser`) | No matching controllers in this revision — they need the backend that ships `XpEpochSnapshot`/`CampaignSnapshot` (September 2026); see [XP_SNAPSHOTS.md](XP_SNAPSHOTS.md) |
+| `recordAttributionLanding`, `claimAttribution` | No matching `/api/attribution/*` controllers in this revision — they need the backend that ships the attribution module (November 2026); browser-side anonId, cookie and beacon logic is described in the backend's `docs/ATTRIBUTION.md`, not in the SDK |
 
 Construct the client with `new CofferBackendClient({ apiEndpoint })`. Its optional
 `apiKey` initializes Bearer authorization, not a global `X-Coffer-Api-Key` header.
