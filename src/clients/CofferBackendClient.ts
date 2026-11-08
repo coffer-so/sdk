@@ -1,7 +1,7 @@
 import { SdkResult, err, ok } from "../types/result";
 import { PoolSummary } from "../types/pool";
 import { RetryOptions, safeCall } from "../utils/retry";
-import { toSdkError } from "../utils/errors";
+import { isFetchNetworkFailure, toSdkError } from "../utils/errors";
 
 export interface CofferBackendClientParams {
   apiEndpoint: string;
@@ -1059,6 +1059,24 @@ export interface AuthTokens {
  * Auto-refresh: when a request gets 401, the client automatically tries
  * to refresh tokens via POST /api/auth/refresh. If successful, the
  * original request is retried once with the new access token.
+ *
+ * Retries: by default a request is tried up to 3 times (15 s timeout each)
+ * when no HTTP answer came back (`backend_unavailable`, e.g. browser
+ * "Failed to fetch"), on a timeout (`rpc_timeout`), on HTTP 429
+ * (`rpc_rate_limited`) and on HTTP 5xx (`backend_unavailable`). Any other
+ * HTTP status is final (`unknown`, `cause.status` holds the status,
+ * `humanMessage` reads "METHOD path → HTTP nnn …"), and so are a request
+ * the runtime refused to send (invalid URL or header value: `unknown` with
+ * the original message) and a 2xx body that is not JSON
+ * (`backend_invalid_response`). `claimAttribution` retries only transport
+ * errors and timeouts; `verifySignature` and `verifyTransaction` retry only
+ * HTTP 429 (the nonce is single-use, and a 5xx, a transport error or a
+ * timeout may come after the server already consumed it).
+ *
+ * A failed refresh clears the tokens and calls `onAuthExpired` only when the
+ * backend rejected the refresh token (HTTP 400/401). If the refresh got no
+ * answer (offline, timeout, 5xx) the tokens are kept and the caller gets the
+ * original 401.
  */
 export class CofferBackendClient {
   private readonly endpoint: string;
@@ -1483,15 +1501,17 @@ export class CofferBackendClient {
    * the anonId to the wallet. The backend answers `{ ok: true }` (202) and
    * drops invalid or duplicate touches itself. A landingUrl over 4096 chars
    * is not sent at all (the backend would drop it) and also resolves to
-   * `{ ok: true }`. Network and 5xx failures still return `ok: false`, so
-   * cap the app's resend queue. Retries are safe: the backend deduplicates
-   * by `touchId`.
+   * `{ ok: true }`. Network failures, timeouts, 429 and 5xx are retried
+   * (3 attempts) and then return `ok: false`, so cap the app's resend
+   * queue. Retries are safe: the backend deduplicates by `touchId`.
    */
   recordAttributionLanding(
     input: AttributionLandingInput,
   ): Promise<SdkResult<AttributionLandingResponse>> {
-    // An oversized body is rejected by the backend's body parser before its
-    // CORS middleware runs, so the browser would only see "Failed to fetch".
+    // The backend drops a landingUrl over 4096 chars anyway, so it is not
+    // sent at all (saves traffic). The backend now attaches CORS headers to
+    // the 202 it answers on a body-parser rejection, so this guard is no
+    // longer what keeps the browser from seeing "Failed to fetch".
     if (input.landingUrl.length > ATTRIBUTION_MAX_LANDING_URL_LEN) {
       return Promise.resolve(ok({ ok: true }));
     }
@@ -1812,10 +1832,14 @@ export class CofferBackendClient {
     message: string,
     signature: string,
   ): Promise<SdkResult<AuthTokens>> {
-    return this.post<AuthTokens>("/api/auth/verify", {
-      message,
-      signature,
-    });
+    // The nonce is single-use: resend only after a 429 (rejected before the
+    // handler ran), never after a lost response or a 5xx.
+    return this.requestWithRefresh<AuthTokens>(
+      "POST",
+      "/api/auth/verify",
+      { message, signature },
+      { shouldRetry: retryRateLimitOnly },
+    );
   }
 
   /**
@@ -1839,9 +1863,14 @@ export class CofferBackendClient {
   verifyTransaction(
     signedTransactionBase64: string,
   ): Promise<SdkResult<AuthTokens>> {
-    return this.post<AuthTokens>("/api/auth/verify-tx", {
-      transaction: signedTransactionBase64,
-    });
+    // The challenge nonce is single-use: resend only after a 429, never
+    // after a lost response or a 5xx.
+    return this.requestWithRefresh<AuthTokens>(
+      "POST",
+      "/api/auth/verify-tx",
+      { transaction: signedTransactionBase64 },
+      { shouldRetry: retryRateLimitOnly },
+    );
   }
 
   /**
@@ -1925,7 +1954,14 @@ export class CofferBackendClient {
       body: body === undefined ? undefined : JSON.stringify(body),
     };
     const raw = await safeCall(async () => {
-      const res = await fetch(url, fetchOpts);
+      let res: Response;
+      try {
+        res = await fetch(url, fetchOpts);
+      } catch (e) {
+        // No HTTP answer → transport; refused before sending (invalid URL or
+        // header value) → permanent, keeps its own message.
+        throw markTransportError(e, isFetchNetworkFailure(e));
+      }
       if (!res.ok) {
         const error = new Error(
           `${method} ${path} → HTTP ${res.status} ${res.statusText}`,
@@ -1933,7 +1969,21 @@ export class CofferBackendClient {
         (error as any).status = res.status;
         throw error;
       }
-      return (await res.json()) as T;
+      try {
+        return (await res.json()) as T;
+      } catch (e) {
+        if (e instanceof SyntaxError) {
+          const error = new Error(
+            `${method} ${path} → HTTP ${res.status}: invalid JSON response (${e.message})`,
+          );
+          (error as Error & { invalidResponse?: boolean }).invalidResponse = true;
+          (error as Error & { cause?: unknown }).cause = e;
+          throw error;
+        }
+        // The body stream broke off (Safari "Load failed", undici
+        // "terminated"): the answer never fully arrived.
+        throw markTransportError(e, true);
+      }
     }, retry);
     if (!raw.ok) return raw;
     return ok(raw.data);
@@ -1968,14 +2018,24 @@ export class CofferBackendClient {
       return true;
     }
 
-    // Refresh failed — both tokens are dead
-    this.clearTokens();
-    this.onAuthExpired?.();
+    // Only a rejection of the refresh token itself (401 invalid/expired,
+    // 400 malformed) means both tokens are dead. No answer (offline,
+    // timeout, 5xx) keeps them: the caller gets the original 401 and the
+    // next request tries the refresh again.
+    const status = (res.error.cause as { status?: unknown } | null | undefined)
+      ?.status;
+    if (status === 401 || status === 400) {
+      this.clearTokens();
+      this.onAuthExpired?.();
+    }
     return false;
   }
 
   private is401(result: SdkResult<unknown>): boolean {
     if (result.ok) return false;
+    const status = (result.error.cause as { status?: unknown } | null | undefined)
+      ?.status;
+    if (typeof status === "number") return status === 401;
     return result.error.humanMessage.includes("HTTP 401");
   }
 
@@ -2003,11 +2063,51 @@ export class CofferBackendClient {
 }
 
 /**
+ * Mark a `fetch()` failure so `toSdkError` classifies it by structure
+ * instead of by browser-specific message text: `transport = true` (no HTTP
+ * answer: offline, DNS, CORS, reset, broken body) → `backend_unavailable`;
+ * `transport = false` (the runtime refused to send: invalid URL, invalid
+ * header value) → `unknown` with the original message, not retried.
+ */
+function markTransportError(e: unknown, transport: boolean): unknown {
+  if (e !== null && typeof e === "object") {
+    try {
+      (e as { transport?: boolean }).transport = transport;
+      if ((e as { transport?: boolean }).transport === transport) return e;
+    } catch {
+      // Frozen or exotic error object: wrap it below.
+    }
+  }
+  const wrapped = new Error(
+    e instanceof Error ? e.message : String(e ?? "fetch rejected"),
+  );
+  (wrapped as Error & { transport?: boolean }).transport = transport;
+  (wrapped as Error & { cause?: unknown }).cause = e;
+  return wrapped;
+}
+
+/**
  * Retry only when no HTTP answer came back (timeout, unreachable host).
  * Any HTTP status, 429 included, is final for the caller.
  */
 function retryTransportOnly(e: unknown): boolean {
   if (typeof (e as { status?: unknown } | null)?.status === "number") return false;
   const code = toSdkError(e).code;
-  return code === "rpc_timeout" || code === "rpc_unavailable";
+  return (
+    code === "rpc_timeout" ||
+    code === "rpc_unavailable" ||
+    code === "backend_unavailable"
+  );
+}
+
+/**
+ * For single-use requests (SIWS verify with a one-time nonce): retry only
+ * an HTTP 429, which the throttler (or the edge) answers before the handler
+ * consumes the nonce. A transport error, a timeout or a 5xx (500 from the
+ * handler, 502/504 from the proxy) may come after the server already
+ * consumed the nonce, so a resend would answer "nonce already used" (401)
+ * and mask the real outcome.
+ */
+function retryRateLimitOnly(e: unknown): boolean {
+  return (e as { status?: unknown } | null)?.status === 429;
 }

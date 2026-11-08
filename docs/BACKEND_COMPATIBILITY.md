@@ -27,6 +27,23 @@ Construct the client with `new CofferBackendClient({ apiEndpoint })`. Its option
 Public discovery reads have no such global key requirement in the checked source.
 Wallet JWT, internal admin keys and Layer3 integration keys serve separate roles.
 
+HTTP failures are classified by status, not by message text (since 1.4.6): a
+rejected `fetch` with no answer (including a CORS-blocked response) or a
+response body that broke off, and HTTP 5xx are `backend_unavailable`, 429 is
+`rpc_rate_limited`, every other status is `unknown` with `cause.status` set
+and `humanMessage` = `"METHOD path → HTTP nnn statusText"`. A `fetch` the
+runtime refused to send (invalid URL or header value) is `unknown` with the
+original message and a non-JSON 2xx body is `backend_invalid_response`; both
+are final. Transport errors, timeouts, 429 and 5xx are retried (3 attempts)
+except where a method says otherwise: `claimAttribution` retries only
+transport errors and timeouts, `verifySignature`/`verifyTransaction` only 429
+(single-use nonce, consumed before the signature check, so a 5xx may come
+after it is gone). A 401 triggers one refresh via `/api/auth/refresh`,
+detected by `cause.status === 401`; only a 400/401 from the refresh clears
+the tokens and calls `onAuthExpired`, a refresh with no answer keeps them. For browser calls the
+page origin must be in the backend's `CORS_ORIGINS`; otherwise every response
+reads as `backend_unavailable`.
+
 Most pool routes return a `{ success, data }` envelope; paginated pool lists also
 include `hasMore` and `totalCount`. `listPoolsRaw` and `getPoolRaw` unwrap these.
 The older `listPools/getPool` declarations describe simpler shapes than those

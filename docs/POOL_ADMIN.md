@@ -68,7 +68,9 @@ All admin methods return `SdkResult<T>`. Non-admin users get a clear
 ```ts
 const res = await client.renamePool(poolAddress, newName);
 if (!res.ok) {
-  if (res.error.humanMessage.includes("403")) {
+  // Match the HTTP status, not "403" in humanMessage: the message contains
+  // the request path with the pool address, which may itself contain "403".
+  if ((res.error.cause as { status?: number } | undefined)?.status === 403) {
     // User is not the admin of this pool
   }
 }

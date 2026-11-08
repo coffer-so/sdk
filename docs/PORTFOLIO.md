@@ -19,7 +19,7 @@ authentication.
 ```ts
 const res = await client.getPortfolioSummary();
 if (!res.ok) {
-  if (res.error.humanMessage.includes("404")) {
+  if ((res.error.cause as { status?: number } | undefined)?.status === 404) {
     // User has never provided liquidity
   }
   return;
@@ -162,9 +162,12 @@ Per-pool history (lazy-loaded on row expand). Requires auth.
 ```ts
 const res = await client.getPortfolioSummary();
 if (!res.ok) {
-  if (res.error.humanMessage.includes("404")) {
+  // HTTP errors carry the status on `cause.status` (match it, not digits in
+  // humanMessage, which also contains the request path).
+  const status = (res.error.cause as { status?: number } | undefined)?.status;
+  if (status === 404) {
     // User has never provided liquidity — show empty state
-  } else if (res.error.humanMessage.includes("401")) {
+  } else if (status === 401) {
     // Not authenticated — redirect to connect wallet
   }
 }

@@ -363,7 +363,7 @@ limit? = 20, sort? = "value", order? = "desc" }`. Requires auth.
 ```ts
 const res = await client.getPortfolioChart("networth", "24h");
 if (!res.ok) {
-  if (res.error.humanMessage.includes("401")) {
+  if ((res.error.cause as { status?: number } | undefined)?.status === 401) {
     // Not authenticated — redirect to connect wallet
   }
   // Empty wallets return zero series, not 404 — no special casing needed

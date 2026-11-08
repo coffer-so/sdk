@@ -218,10 +218,41 @@ if (!res.ok) {
 const poolInfo = res.data;
 ```
 
-The SDK's `safeCall` helper retries transient errors (RPC timeouts, rate
-limits, connection refused) up to 3 times with configurable backoff
-(default schedule: 200ms / 500ms / 1500ms). Permanent errors (parse failure, invalid input,
-insufficient funds) short-circuit.
+The SDK's `safeCall` helper retries transient errors up to 3 times with
+configurable backoff (default schedule: 200ms / 500ms / 1500ms). Permanent
+errors (parse failure, invalid input, insufficient funds, HTTP 4xx other than
+429) short-circuit.
+
+`toSdkError` classifies by structure first, then by text:
+
+| Failure | `code` | Retried by default |
+| --- | --- | --- |
+| Backend `fetch` rejected — no HTTP answer (Chrome "Failed to fetch", Safari "Load failed", Firefox "NetworkError when attempting to fetch resource.", Node "fetch failed", CORS), or the response body broke off | `backend_unavailable`, `humanMessage` "Backend unreachable: <original message>" | yes |
+| Backend `fetch` refused before sending (invalid URL such as `apiEndpoint` without `https://`, invalid header value) | `unknown`, original message | no |
+| Backend HTTP 2xx whose body is not JSON | `backend_invalid_response` | no |
+| Backend HTTP 5xx | `backend_unavailable` | yes |
+| Backend HTTP 429 | `rpc_rate_limited` | yes |
+| Backend HTTP 401/403/404/… | `unknown`; `cause.status` holds the status | no |
+| `TimeoutError`, or the per-attempt timeout (`timed out after …`) | `rpc_timeout` | yes |
+| RPC network failure (web3.js "fetch failed", "…: TypeError: Failed to fetch") | `rpc_unavailable` | yes, next endpoint |
+| RPC HTTP 5xx from web3.js ("502 Bad Gateway: …", "…: Error: 503 Service Unavailable: …") | `rpc_unavailable` | yes, next endpoint |
+| RPC "429 Too Many Requests" / "403 Forbidden" from web3.js | `rpc_rate_limited` / `rpc_unavailable` | yes, next endpoint |
+
+For backend HTTP errors `humanMessage` stays `"METHOD path → HTTP nnn
+statusText"`, so matching `HTTP 404` keeps working; prefer
+`(res.error.cause as { status?: number })?.status`. Digits inside the
+request path or in a JSON parse error never change the class of a backend
+error. Exceptions to the default policy: `claimAttribution` retries only
+transport errors and timeouts (any HTTP status, 429 included, is final), and
+`verifySignature` / `verifyTransaction` retry only HTTP 429 — their nonce is
+single-use and the backend consumes it before the signature check, so a
+resend after a lost response, a timeout or a 5xx (which can arrive after the
+nonce is gone) would answer "nonce already used" (401) and hide the real
+outcome. A failed token refresh logs the user out (`clearTokens` +
+`onAuthExpired`) only when the backend rejects the refresh token (HTTP
+400/401); when the refresh gets no answer the tokens are kept and the
+original 401 is returned. The per-attempt timeout does not abort the underlying
+`fetch` (no `AbortController`); the request may still complete server-side.
 
 ## Public operation surface
 

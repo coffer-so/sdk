@@ -125,9 +125,72 @@ const ERROR_TABLES: Record<CofferProgram, ErrorTable> = {
 const CONTRACT_ERROR_MAP = ERROR_TABLES.cubicPool;
 
 /**
+ * Messages that fetch implementations use when no HTTP response came back:
+ * Chrome "Failed to fetch", Safari "Load failed", Firefox "NetworkError when
+ * attempting to fetch resource.", undici (Node) "fetch failed", React Native
+ * "Network request failed", plus the Node socket codes. Matched on a
+ * `TypeError` (what `fetch` rejects with) or on an error the backend client
+ * marked as transport-level.
+ */
+const FETCH_NETWORK_FAILURE_RE =
+  /Failed to fetch|Load failed|NetworkError when attempting to fetch resource|fetch failed|Network request failed|The network connection was lost|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up/i;
+
+/**
+ * web3.js turns a non-2xx RPC answer into an Error whose message is
+ * "<status> <statusText>: <body>"; method wrappers then prefix it ("failed
+ * to get info about account …: Error: 503 Service Unavailable: …"). HTTP/2
+ * answers have an empty statusText ("502 : …"). Anchored at the start or
+ * after ": " so a base58 address that contains "5" + two digits does not
+ * match.
+ */
+const RPC_HTTP_5XX_RE = /(?:^|: (?:Error: )?)5\d\d [A-Za-z -]*:/;
+
+/**
+ * @internal Whether a rejected `fetch()` means "no HTTP answer" (offline,
+ * DNS, reset, CORS, timeout/abort) rather than a request the runtime refused
+ * to send (invalid URL, invalid header value). Used by `CofferBackendClient`
+ * to mark transport errors.
+ */
+export function isFetchNetworkFailure(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const name = (e as { name?: unknown }).name;
+  if (name === "AbortError" || name === "TimeoutError") return true;
+  const msg = extractMessage(e);
+  // Timeout wording ("Network request timed out" in React Native) and Deno's
+  // "error sending request" are network failures too.
+  return (
+    FETCH_NETWORK_FAILURE_RE.test(msg) ||
+    /timed? ?out|ETIMEDOUT|error sending request/i.test(msg)
+  );
+}
+
+/**
  * Convert a raw error (possibly from Anchor, web3.js, or fetch) into a
  * cleanly-typed SdkError. Used by safeCall wrappers so callers always
  * get structured errors, never exceptions.
+ *
+ * Structure is checked before text:
+ * - `name === "TimeoutError"` (e.g. `AbortSignal.timeout`) → `rpc_timeout`;
+ * - a numeric `status` (HTTP error from `CofferBackendClient`) → 429
+ *   `rpc_rate_limited`, 5xx `backend_unavailable`, anything else `unknown`;
+ *   `humanMessage` keeps the original "METHOD path → HTTP nnn …" text so
+ *   callers that match `HTTP 404` still work;
+ * - `transport === true` (the backend client's fetch rejected with no HTTP
+ *   answer, or the response body broke off) → `backend_unavailable`,
+ *   `humanMessage` "Backend unreachable: <original message>";
+ * - `transport === false` (the backend client's fetch was refused before it
+ *   reached the network: invalid URL, invalid header value) → `unknown`
+ *   with the original message, never retried;
+ * - `invalidResponse === true` (the backend answered 2xx with a body that is
+ *   not JSON) → `backend_invalid_response`, never retried;
+ * - an unmarked `TypeError` with a fetch network message → `rpc_unavailable`.
+ *
+ * Text rules (timeouts, fetch network messages, the web3.js "5xx …:" status
+ * prefix, then `429`, `403`, …) only apply to errors none of the above
+ * caught — in practice web3.js RPC errors such as "429 Too Many Requests: …",
+ * "502 Bad Gateway: …" or "failed to get info about account …: TypeError:
+ * Failed to fetch". Digits inside a backend request path or in a backend
+ * JSON parse error therefore never change the class of a backend error.
  *
  * @param program Which Coffer program the failing instruction belonged to.
  *   Anchor numbers each program's errors from 6000 independently, so the
@@ -137,8 +200,11 @@ const CONTRACT_ERROR_MAP = ERROR_TABLES.cubicPool;
  *   treasury-routed admin calls, or the message will be plausible and wrong.
  */
 export function toSdkError(cause: unknown, program: CofferProgram = "cubicPool"): SdkError {
-  // Anchor-encoded program errors
   const msg = extractMessage(cause);
+  const structural = classifyByStructure(cause, msg);
+  if (structural) return structural;
+
+  // Anchor-encoded program errors
   const code = extractErrorCode(msg);
   const table = ERROR_TABLES[program] ?? CONTRACT_ERROR_MAP;
   if (code !== null && table[code]) {
@@ -148,14 +214,26 @@ export function toSdkError(cause: unknown, program: CofferProgram = "cubicPool")
       cause,
     };
   }
-  // Common network strings
+  // Common network strings (web3.js RPC errors carry the HTTP status only
+  // in the message, e.g. "429 Too Many Requests: …" / "403 Forbidden: …")
   if (/timed? ?out|ETIMEDOUT/i.test(msg)) {
     return { code: "rpc_timeout", humanMessage: "RPC timed out", cause };
+  }
+  // Checked before the bare "429" so an account address with those digits
+  // in "failed to get info about account …: TypeError: Failed to fetch"
+  // stays a network failure.
+  if (FETCH_NETWORK_FAILURE_RE.test(msg)) {
+    return { code: "rpc_unavailable", humanMessage: "RPC endpoint unreachable", cause };
+  }
+  // RPC provider answered 5xx (web3.js "503 Service Unavailable: …"): fail
+  // over to the next endpoint.
+  if (RPC_HTTP_5XX_RE.test(msg)) {
+    return { code: "rpc_unavailable", humanMessage: "RPC endpoint unreachable", cause };
   }
   if (/429|rate limit/i.test(msg)) {
     return { code: "rpc_rate_limited", humanMessage: "RPC rate-limited - slow down", cause };
   }
-  if (/fetch failed|ECONNREFUSED|ENOTFOUND|Proxy error|-32056|-32052|403/i.test(msg)) {
+  if (/Proxy error|-32056|-32052|403/i.test(msg)) {
     return { code: "rpc_unavailable", humanMessage: "RPC endpoint unreachable", cause };
   }
   if (/Account does not exist|account not found/i.test(msg)) {
@@ -165,6 +243,49 @@ export function toSdkError(cause: unknown, program: CofferProgram = "cubicPool")
     return { code: "insufficient_funds", humanMessage: "Insufficient funds for this operation", cause };
   }
   return { code: "unknown", humanMessage: msg || "Unknown error", cause };
+}
+
+function classifyByStructure(cause: unknown, msg: string): SdkError | null {
+  if (!cause || typeof cause !== "object") return null;
+  const e = cause as {
+    name?: unknown;
+    status?: unknown;
+    transport?: unknown;
+    invalidResponse?: unknown;
+  };
+
+  if (e.name === "TimeoutError") {
+    return { code: "rpc_timeout", humanMessage: "Request timed out", cause };
+  }
+  if (typeof e.status === "number") {
+    const humanMessage = msg || `HTTP ${e.status}`;
+    if (e.status === 429) return { code: "rpc_rate_limited", humanMessage, cause };
+    if (e.status >= 500 && e.status <= 599) {
+      return { code: "backend_unavailable", humanMessage, cause };
+    }
+    return { code: "unknown", humanMessage, cause };
+  }
+  if (e.transport === true) {
+    return {
+      code: "backend_unavailable",
+      humanMessage: msg ? `Backend unreachable: ${msg}` : "Backend unreachable",
+      cause,
+    };
+  }
+  if (e.transport === false) {
+    return { code: "unknown", humanMessage: msg || "Request could not be sent", cause };
+  }
+  if (e.invalidResponse === true) {
+    return {
+      code: "backend_invalid_response",
+      humanMessage: msg || "Backend returned an invalid response",
+      cause,
+    };
+  }
+  if (cause instanceof TypeError && FETCH_NETWORK_FAILURE_RE.test(msg)) {
+    return { code: "rpc_unavailable", humanMessage: "RPC endpoint unreachable", cause };
+  }
+  return null;
 }
 
 function extractMessage(e: unknown): string {

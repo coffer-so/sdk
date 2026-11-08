@@ -118,15 +118,22 @@ export function useAuth() {
 
 The SDK handles token refresh automatically:
 
-1. A request to a protected endpoint returns **401**
+1. A request to a protected endpoint returns **401** (detected by the HTTP
+   status on `error.cause.status`, not by message text)
 2. SDK sends `POST /api/auth/refresh` with the stored refresh token
 3. If refresh succeeds:
    - New tokens are set internally
    - `onTokenRefreshed` callback fires (frontend updates localStorage)
    - Original request is retried with the new access token
-4. If refresh fails (refresh token also expired):
-   - `onAuthExpired` callback fires (frontend clears storage, shows sign-in)
+4. If the backend rejects the refresh token (HTTP 401 expired/invalid, or
+   400 malformed):
+   - Both tokens are cleared and `onAuthExpired` fires (frontend clears
+     storage, shows sign-in)
    - Original request returns the error
+5. If the refresh gets no answer (offline, timeout, HTTP 5xx after retries):
+   - Tokens are kept and `onAuthExpired` does **not** fire
+   - Original request returns its 401; the next protected request tries the
+     refresh again
 
 Concurrent 401s are deduplicated — only one refresh request is made.
 
@@ -151,6 +158,15 @@ Request a single-use nonce and pre-built SIWS message.
 Submit the signed message to receive tokens.
 **Returns:** `SdkResult<AuthTokens>`
 
+The nonce is single-use, so this call (and `verifyTransaction`) retries only
+an HTTP 429 (the rate limiter answers it before the nonce is touched). A
+transport error, a timeout or an HTTP 5xx is returned at once: the backend
+consumes the nonce before it checks the signature, so the server may already
+have consumed it (and even issued tokens) before a 500 from the handler or a
+502/504 from the proxy, and a resend would only answer "nonce already used"
+(401). On `backend_unavailable` or `rpc_timeout`, request a fresh nonce and
+sign again.
+
 ### `client.setTokens(accessToken: string, refreshToken: string)`
 Set both tokens. Call after sign-in and on page load (restore from storage).
 
@@ -162,15 +178,24 @@ Remove both tokens (logout).
 ```ts
 const res = await client.verifySignature(message, signature);
 if (!res.ok) {
-  switch (res.error.code) {
-    case "auth_failed":
-      // Signature invalid, nonce expired, or message tampered
-      break;
-    case "backend_unavailable":
-      // Server unreachable — retry later
-      break;
-    default:
-      console.error(res.error.humanMessage);
+  const status = (res.error.cause as { status?: number } | undefined)?.status;
+  if (status === 401 || status === 400) {
+    // Signature invalid, nonce expired/used, or message tampered
+    // (code "unknown", humanMessage "POST /api/auth/verify → HTTP 401 …")
+  } else if (res.error.code === "backend_unavailable" || res.error.code === "rpc_timeout") {
+    // No answer (offline, "Failed to fetch"), timeout or HTTP 5xx: get a new
+    // nonce and sign again later — the old nonce may already be consumed
+  } else {
+    console.error(res.error.humanMessage);
   }
 }
 ```
+
+`backend_unavailable` is returned when the backend `fetch` itself rejects
+with no answer (Chrome "Failed to fetch", Safari "Load failed", Firefox
+"NetworkError when attempting to fetch resource.", Node "fetch failed"), when
+the response body breaks off, and on HTTP 5xx (then `cause.status` is set).
+HTTP 4xx other than 429 comes back as `unknown` with `cause.status`; 429 is
+`rpc_rate_limited`. A request the runtime refused to send (invalid URL or
+header value) is `unknown` with the original message, and a 2xx body that is
+not JSON is `backend_invalid_response`; neither is retried.
