@@ -113,6 +113,11 @@ if (page1.ok) {
 }
 ```
 
+Since 1.4.7 (backend with public profiles) every row also carries `profile`
+— the referral's public card (username, display name, avatar, X link) or
+`null`; see [Public profiles](PROFILE.md). A user's public profile shows the
+number of direct referrals (`referralCount` = `stats.l1Count`), never the list.
+
 ## API Reference
 
 ### `client.bindReferral(code: string)`
@@ -175,6 +180,8 @@ interface ReferralListResponse {
     earnedBonusXp: number;
     /** When this user became your referral */
     boundAt: string;
+    /** Public profile card of the referral; null when nothing is set (since 1.4.7) */
+    profile?: UserProfileCard | null;
   }>;
 }
 ```

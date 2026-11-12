@@ -42,6 +42,10 @@ Two rules of thumb:
 - **Every "not yet" is a plain 404** (`res.ok === false`) — current epoch,
   unfinalized campaign, unknown slug, wallet absent from the snapshot. Show
   the empty state; do not retry in a loop.
+- **Rows also carry `profile`** (since 1.4.7, backend with public profiles):
+  the wallet's card — username, display name, avatar, X link — or `null`. It
+  is the one part that is NOT frozen: it is read live on every request, see
+  [Public profiles](PROFILE.md) and the caching note at the end.
 
 Details, field semantics and caching keys follow.
 
@@ -243,3 +247,8 @@ Use `staleTime: Infinity` and no `refetchInterval` for anything that
 returned successfully — it cannot change. Keep `getCampaignHistory` and
 `getLeaderboardEpoch` on their usual short `staleTime`, since those are the
 signals that flip from "not yet" to "frozen".
+
+Exception since 1.4.7: `getLeaderboardEpochSnapshot`, `getLeaderboardEpochUser`
+and `getCampaignSnapshotTop` rows carry a live `profile` card. Places, points
+and prizes still never change, but names and avatars do — give these three
+queries a finite `staleTime` if you render `profile` from them.

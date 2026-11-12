@@ -220,6 +220,10 @@ if (res.ok) {
 | `sent` / `received` | `USDC / USDT · ↗ Sent · −$500.00` | `transfer.counterparty` for the `→ 4nPz…3xLm` subtitle; `valueUsd` is priced at the HISTORICAL LP-token price of the transfer moment |
 | `deployed` | `COFFER / USDC · ◇ Deployed` | `pool.weights` for the "80/20 weights" subtitle; `valueUsd` is `null` by design (the seed deposit shows up as its own `added` row) |
 
+Since 1.4.7 (backend with pool images) `pool.imageUrl` is the image the
+pool admin uploaded; `null` or a missing key → compose the picture from
+`pool.tokens` logos as before (see [Pool admin](POOL_ADMIN.md)).
+
 Every row links to the transaction via `signature`. There is NO `fees`
 event type: LP fees auto-reinvest continuously on every swap (no claim
 transaction exists on-chain) — fee earnings live in the `il` chart tab and
@@ -312,6 +316,9 @@ if (res.ok) {
 - `netPnl = feesEarned + il + ilRealized`; `il` is ≤ 0 by definition.
 - `apy` is the POOL-wide APY — the same number the pools page shows for
   that pool (not a personal metric), so the two screens never disagree.
+- `pool.imageUrl` (since 1.4.7, backend with pool images) is the image the
+  pool admin uploaded; `null` or a missing key → compose it from
+  `pool.tokens` logos.
 
 **Sorting:** `sort: "value" | "fees" | "il" | "pnl" | "apy"` (default
 `"value"`), `order` default `"desc"`.

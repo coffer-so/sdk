@@ -107,6 +107,12 @@ export interface LeaderboardEntry {
   address: string;
   points: number;
   place: number;
+  /**
+   * Public profile card of this wallet, read live on every request; null
+   * when it has set none of username, display name, avatar and X link
+   * (backend with public profiles, November 2026; absent on older backends).
+   */
+  profile?: UserProfileCard | null;
 }
 
 export interface LeaderboardResponse {
@@ -123,6 +129,12 @@ export interface LeaderboardUserStats {
   lastAccrualSwapUsd: number;
   lastAccrualLiqUsd: number;
   lastAccrualAt: string | null;
+  /**
+   * Public profile card of this wallet, read live on every request; null
+   * when it has set none of username, display name, avatar and X link
+   * (backend with public profiles, November 2026; absent on older backends).
+   */
+  profile?: UserProfileCard | null;
 }
 
 export interface XpAccrualHistoryEntry {
@@ -283,6 +295,12 @@ export interface CampaignTopEntry {
   swapXp: number;
   swapVolumeUsd: number;
   joinedAt: string;
+  /**
+   * Public profile card of this wallet, read live on every request; null
+   * when it has set none of username, display name, avatar and X link
+   * (backend with public profiles, November 2026; absent on older backends).
+   */
+  profile?: UserProfileCard | null;
 }
 
 export interface CampaignTopResponse {
@@ -310,6 +328,13 @@ export interface EpochSnapshotEntry {
   points: number;
   /** XP earned inside this epoch alone (points minus the previous epoch's frozen points). */
   epochPoints: number;
+  /**
+   * Public profile card of this wallet. NOT frozen with the row: it is read
+   * live on every request; null when the wallet has set none of username,
+   * display name, avatar and X link (backend with public profiles,
+   * November 2026; absent on older backends).
+   */
+  profile?: UserProfileCard | null;
 }
 
 /**
@@ -342,6 +367,13 @@ export interface EpochSnapshotUser {
   epochPoints: number;
   /** Board size, for "N of M". */
   totalUsers: number;
+  /**
+   * Public profile card of this wallet. NOT frozen with the row: it is read
+   * live on every request; null when the wallet has set none of username,
+   * display name, avatar and X link (backend with public profiles,
+   * November 2026; absent on older backends).
+   */
+  profile?: UserProfileCard | null;
 }
 
 export interface CampaignHistoryEntry extends CampaignRules {
@@ -372,6 +404,13 @@ export interface CampaignSnapshotTopEntry {
   /** Prize for this place under the campaign's tiers — already resolved, no client-side join. */
   prizeUsd: number;
   joinedAt: string;
+  /**
+   * Public profile card of this wallet. NOT frozen with the row: it is read
+   * live on every request; null when the wallet has set none of username,
+   * display name, avatar and X link (backend with public profiles,
+   * November 2026; absent on older backends).
+   */
+  profile?: UserProfileCard | null;
 }
 
 export interface CampaignSnapshotTopResponse extends CampaignRules {
@@ -430,6 +469,19 @@ export interface AdminPoolEntry {
   baseAssetMint: string | null;
   /** Off-chain: short pool description. */
   description: string | null;
+  /**
+   * Off-chain: public URL of the pool image the admin uploaded (see
+   * `uploadPoolImage`); null = none — compose the picture from the token
+   * icons. Opaque: never build or parse it (backend with pool images,
+   * November 2026; absent on older backends).
+   */
+  imageUrl?: string | null;
+  /**
+   * Off-chain: one https link of the admin's choice (X account, site, …).
+   * User-supplied and not moderated — render it as an external link, never
+   * as official (same backend as `imageUrl`; absent on older backends).
+   */
+  additionalUrl?: string | null;
   tvlUsd: number;
   apy: number;
   volume24h: number;
@@ -445,10 +497,62 @@ export interface AdminPoolEntry {
 
 /** Off-chain, admin-editable pool settings. */
 export interface UpdatePoolSettingsBody {
-  /** Mint of the base asset (one of the pool tokens); "" clears it. */
+  /**
+   * Mint of the base asset — one of the pool tokens, any other value is a
+   * 400 (a mint outside the pool was a 403 on backends before November
+   * 2026); "" clears it.
+   */
   baseAssetMint?: string;
-  /** Short description; "" clears it. */
+  /**
+   * Short description: up to 280 characters, counted after the backend's
+   * trim (as sent on backends before November 2026); "" clears it.
+   */
   description?: string;
+  /**
+   * One additional link (X account, site, …): an absolute `https://` URL of
+   * at most 200 characters; "" clears it (backend with pool images,
+   * November 2026; ignored by older backends).
+   */
+  additionalUrl?: string;
+}
+
+/**
+ * Body of `createPool` (pool registration). Everything on-chain (fees,
+ * admins, tokens, balances) is read from chain state by the backend; the
+ * registrant wallet comes from the JWT. The pool image is not part of it —
+ * call `uploadPoolImage` right after the registration succeeded.
+ */
+export interface CreatePoolBody {
+  /** On-chain pool address (PDA). */
+  poolAddress: string;
+  /** 1–12 English letters and digits. */
+  poolName: string;
+  /**
+   * Mint of the base asset (one of the pool tokens), shown first; absent or
+   * "" = none. Any other value is a 400 (backends before November 2026:
+   * a 403 for a mint outside the pool, a 400 for "").
+   */
+  baseAssetMint?: string;
+  /** Short description: up to 280 characters, counted after the backend's trim. */
+  description?: string;
+  /**
+   * One additional link, same rule as in `UpdatePoolSettingsBody`; absent
+   * or "" = none (backend with pool images, November 2026; ignored by older
+   * backends).
+   */
+  additionalUrl?: string;
+  /** Optional assertion of the pool's protocol generation (5 or 6); a mismatch is a 422. */
+  protocolVersion?: number;
+}
+
+/** Answer of `uploadPoolImage` / `removePoolImage`. */
+export interface PoolImageResponse {
+  poolAddress: string;
+  /**
+   * The new public URL (a 400×400 WebP); null after a removal. Opaque — it
+   * changes with every new image and the previous URL stops working.
+   */
+  imageUrl: string | null;
 }
 
 export interface AdminPoolsResponse {
@@ -502,6 +606,12 @@ export interface ReferralEntry {
   earnedBonusXp: number;
   /** When this user became your referral */
   boundAt: string;
+  /**
+   * Public profile card of this wallet, read live on every request; null
+   * when it has set none of username, display name, avatar and X link
+   * (backend with public profiles, November 2026; absent on older backends).
+   */
+  profile?: UserProfileCard | null;
 }
 
 export interface ReferralListResponse {
@@ -547,6 +657,80 @@ export interface AttributionClaimResponse {
   ok: true;
   /** Number of anonIds linked to the authenticated wallet by this call. */
   linked: number;
+}
+
+// ── Profile types (public user profiles) ──
+
+/**
+ * Where a username came from: `sns` — seeded once from the wallet's primary
+ * SNS name; `custom` — set by the owner. `sns` is the origin, not a proof:
+ * the name is never re-checked, so it earns no "verified" badge.
+ */
+export type UsernameSource = "sns" | "custom";
+
+/**
+ * Short public profile of a wallet: the `profile` field of leaderboard,
+ * campaign, referral and pool-transaction rows, and the items of
+ * `getProfileCards`. Where it is embedded, the WHOLE card is null when the
+ * wallet has set none of username, display name, avatar and X link — render
+ * such a row from its address. Inside a card every field is null on its own.
+ */
+export interface UserProfileCard {
+  /** Unique, lower-case; can change or move to another wallet at any time. Null → show the shortened address. */
+  username: string | null;
+  /** Null exactly when `username` is null. */
+  usernameSource: UsernameSource | null;
+  /** Free text, NOT unique. */
+  displayName: string | null;
+  /**
+   * Opaque absolute URL of a 400×400 WebP — never build or parse it. It
+   * changes with every new image and the previous URL stops working (404).
+   * Null → draw an identicon from the full address.
+   */
+  avatarUrl: string | null;
+  /** X account as the owner entered it — format-checked only, NOT verified. */
+  x: { username: string; url: string } | null;
+}
+
+/**
+ * Public profile of an address (`getPublicProfile`). Every valid address
+ * has one: a wallet that never set anything up answers nulls.
+ */
+export interface PublicProfile extends UserProfileCard {
+  address: string;
+  bio: string | null;
+  /** Direct (level 1) referrals — `stats.l1Count` of the owner's `getReferralStatus`. */
+  referralCount: number;
+}
+
+/** The authenticated wallet's profile — `getMyProfile` and the answer of every profile write. */
+export interface MyProfile extends PublicProfile {
+  edit: {
+    /**
+     * Locked by moderation (only the owner sees the flag): clearing a field,
+     * a username reset and avatar removal still work, any new value is a 403.
+     */
+    locked: boolean;
+  };
+}
+
+export interface UserProfileCardsResponse {
+  /** One item per distinct requested address, in request order. */
+  data: Array<{ address: string; profile: UserProfileCard | null }>;
+}
+
+/**
+ * Partial update of the authenticated wallet's profile: a field that is
+ * absent (or `undefined`) stays as it is, "" clears it. Never send null —
+ * the backend answers 400.
+ */
+export interface UpdateMyProfileBody {
+  /** Up to 32 characters: letters, digits, spaces and `. ' _ -`. */
+  displayName?: string;
+  /** Up to 160 characters: letters, digits, spaces and `. , ! ? ( ) ' : ; % + - – — #` (no links, no emoji). */
+  bio?: string;
+  /** X profile link (`https://x.com/alice_x`, `twitter.com/alice_x`), `@alice_x` or `alice_x`. */
+  x?: string;
 }
 
 // ── Portfolio types ──
@@ -795,6 +979,12 @@ export interface PortfolioActivityItem {
   pool: {
     address: string;
     name: string;
+    /**
+     * Pool image set by the pool admin; null → compose one from the token
+     * logos (backend with pool images, November 2026; absent on older
+     * backends — read a missing key as null).
+     */
+    imageUrl?: string | null;
     feePercent: number | null;
     bptMint: string | null;
     tokens: ActivityTokenInfo[];
@@ -869,6 +1059,12 @@ export interface PortfolioPositionItem {
   pool: {
     address: string;
     name: string;
+    /**
+     * Pool image set by the pool admin; null → compose one from the token
+     * logos (backend with pool images, November 2026; absent on older
+     * backends — read a missing key as null).
+     */
+    imageUrl?: string | null;
     feePercent: number | null;
     bptMint: string | null;
     tokens: ActivityTokenInfo[];
@@ -1122,6 +1318,12 @@ export class CofferBackendClient {
     return this.getDataField<unknown>(`/api/pools/${addr}`);
   }
 
+  /**
+   * Register a pool the authenticated wallet deployed; answers the pool
+   * object. The body is `CreatePoolBody` (the parameter stays `unknown` for
+   * compatibility). It cannot carry an image: call `uploadPoolImage` right
+   * after this succeeded. Requires authentication.
+   */
   createPool<T>(body: unknown): Promise<SdkResult<T>> {
     return this.postDataField<T>("/api/pools", body);
   }
@@ -1151,6 +1353,12 @@ export class CofferBackendClient {
     return this.getDataField<T>(`/api/pools/${addr}/tx-stats`);
   }
 
+  /**
+   * Pool transaction history, newest first; `T` is the caller's type of
+   * the row array. Every row names its author in `userAddress` (not
+   * `address`) and, on a backend with public profiles (November 2026),
+   * carries the author's card as `profile: UserProfileCard | null`.
+   */
   getTransactions<T>(
     addr: string,
     options?: {
@@ -1309,7 +1517,8 @@ export class CofferBackendClient {
    * recomputed. Only finished epochs: the current one is a 404, as is an
    * epoch whose snapshot is not finalized yet (check
    * `epochs[].finalized` from getLeaderboardEpoch). Paginated like
-   * getLeaderboard. Safe to cache forever once received.
+   * getLeaderboard. Safe to cache forever once received — except the
+   * `profile` card of each row, which is read live.
    */
   getLeaderboardEpochSnapshot(
     epoch: number,
@@ -1420,7 +1629,9 @@ export class CofferBackendClient {
 
   /**
    * Rename a pool. Only the on-chain pool admin can do this.
-   * Requires authentication.
+   * Requires authentication. On a backend with pool images (November 2026)
+   * the name follows the rule of pool creation — 1–12 English letters and
+   * digits, anything else is a 400; before that, 2–64 characters.
    */
   renamePool(poolAddress: string, name: string): Promise<SdkResult<RenamePoolResponse>> {
     return this.put<RenamePoolResponse>(
@@ -1430,9 +1641,16 @@ export class CofferBackendClient {
   }
 
   /**
-   * Update off-chain pool settings (base asset, description). Only fields
-   * present are changed; empty string clears a field. Base asset must be
-   * one of the pool tokens. Pool admin only; requires authentication.
+   * Update off-chain pool settings (base asset, description, additional
+   * link). Only fields present are changed; empty string clears a field
+   * (never send null for "no change" — null clears it too). Base asset
+   * must be one of the pool tokens. Pool admin only; requires
+   * authentication. `T` is the backend's answer as is:
+   * `{ success, data: <pool object> }`. The pool image has its own methods:
+   * `uploadPoolImage` / `removePoolImage`.
+   * Statuses: 400 a refused value, a base asset that is not a token of
+   * the pool included (that one was a 403 on backends before November
+   * 2026); 403 not the pool admin; 404 pool not registered.
    */
   updatePoolSettings<T>(
     poolAddress: string,
@@ -1441,6 +1659,45 @@ export class CofferBackendClient {
     return this.put<T>(
       `/api/pools/admin/${encodeURIComponent(poolAddress)}/settings`,
       settings,
+    );
+  }
+
+  /**
+   * Upload the pool image. `image` is base64, bare or as a
+   * `data:image/...;base64,` URL (FileReader.readAsDataURL): PNG, JPEG or
+   * WebP, at most 512 KB decoded and 2048×2048 px. The backend stores a
+   * 400×400 WebP, centre-cropped when the upload is not square — crop on the
+   * client and check the size before sending. Pool admin only; requires
+   * authentication. At pool creation call it right after `createPool`.
+   * Idempotent: the same image ends at the same `imageUrl`, so the default
+   * re-sends are safe.
+   * Statuses: 400 not base64, 403 not the pool admin, 404 pool not
+   * registered, 413 over 512 KB, 422 not a PNG/JPEG/WebP, damaged or over
+   * the pixel limit, 429 more than 20 image changes of this pool in 10
+   * minutes, 503 encoder busy (re-sent by the SDK).
+   */
+  uploadPoolImage(
+    poolAddress: string,
+    image: string,
+  ): Promise<SdkResult<PoolImageResponse>> {
+    return this.putDataField<PoolImageResponse>(
+      `/api/pools/admin/${encodeURIComponent(poolAddress)}/image`,
+      { image },
+    );
+  }
+
+  /**
+   * Remove the pool image; answers `imageUrl: null` (the pool reads then
+   * return null too — compose the picture from the token icons).
+   * Idempotent. Pool admin only; requires authentication. Shares the 429
+   * limit of `uploadPoolImage`.
+   */
+  removePoolImage(
+    poolAddress: string,
+  ): Promise<SdkResult<PoolImageResponse>> {
+    return this.postDataField<PoolImageResponse>(
+      `/api/pools/admin/${encodeURIComponent(poolAddress)}/image/remove`,
+      {},
     );
   }
 
@@ -1548,6 +1805,109 @@ export class CofferBackendClient {
       { anonIds },
       { shouldRetry: retryTransportOnly },
     );
+  }
+
+  // ── Profile (public user profiles) ──
+
+  /**
+   * Public profile of any address: username, display name, bio, avatar,
+   * X link and the number of direct referrals. Public. Every valid address
+   * answers 200 — a wallet that never set anything up comes back with
+   * nulls, there is no 404; 400 for a malformed address.
+   */
+  getPublicProfile(address: string): Promise<SdkResult<PublicProfile>> {
+    return this.get<PublicProfile>(
+      `/api/profiles/${encodeURIComponent(address)}`,
+    );
+  }
+
+  /**
+   * Profile cards for 1–100 addresses in one request — for views that have
+   * addresses but no embedded `profile` (leaderboard, campaign, referral
+   * and pool-transaction rows already carry it). Public. One item per
+   * distinct address, in request order; `profile` is null for a wallet
+   * with nothing set. 400 for more than 100 distinct addresses or a
+   * malformed one. An empty list resolves to `{ data: [] }` without a
+   * request (the backend would answer 400).
+   */
+  getProfileCards(
+    addresses: string[],
+  ): Promise<SdkResult<UserProfileCardsResponse>> {
+    if (addresses.length === 0) return Promise.resolve(ok({ data: [] }));
+    const qs = new URLSearchParams({ addresses: addresses.join(",") });
+    return this.get<UserProfileCardsResponse>(
+      `/api/profiles/cards?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * The authenticated wallet's profile plus `edit.locked`. Reading creates
+   * nothing: a wallet that never set anything up answers nulls.
+   * Requires authentication (setTokens must be called first).
+   */
+  getMyProfile(): Promise<SdkResult<MyProfile>> {
+    return this.get<MyProfile>("/api/profile/me");
+  }
+
+  /**
+   * Update display name, bio and/or X link. Partial: a field that is absent
+   * stays as it is, "" clears it; null and an empty body are a 400. The
+   * backend normalises text (spaces collapsed, trimmed) — show what the
+   * answer returns, not what was typed. Answers the full profile.
+   * Idempotent, so the default re-sends are safe.
+   * Requires authentication (setTokens must be called first).
+   * Statuses: 400 nothing to update or a value of the wrong shape, 403 the
+   * profile is locked and the body sets a new value, 422 display name not
+   * allowed (brand or authority words), 429 more than 30 updates in 10
+   * minutes.
+   */
+  updateMyProfile(body: UpdateMyProfileBody): Promise<SdkResult<MyProfile>> {
+    return this.put<MyProfile>("/api/profile/me", body);
+  }
+
+  /**
+   * Set or change the authenticated wallet's username: 3–20 English letters
+   * and digits with single `_` or `-` between them; stored lower-case. ""
+   * resets it to null (allowed while locked). Answers the full profile.
+   * Idempotent — sending the current name again is a 200. There is no "is
+   * it free?" call and refused attempts count towards the 429: check the
+   * shape locally and submit on save.
+   * Requires authentication (setTokens must be called first).
+   * Statuses: 400 wrong shape, 403 the profile is locked, 409 taken (also
+   * by a look-alike spelling), 422 not allowed (brand, authority or
+   * reserved words, another wallet's referral code), 429 more than 20
+   * attempts in an hour.
+   */
+  setUsername(username: string): Promise<SdkResult<MyProfile>> {
+    return this.put<MyProfile>("/api/profile/me/username", { username });
+  }
+
+  /**
+   * Upload the authenticated wallet's avatar. `image` is base64, bare or as
+   * a `data:image/...;base64,` URL (FileReader.readAsDataURL): PNG, JPEG or
+   * WebP, at most 512 KB decoded and 2048×2048 px. The backend stores a
+   * 400×400 WebP, centre-cropped when the upload is not square — crop on the
+   * client and check the size before sending (a body over ~1 MB is cut off
+   * by the proxy and reads as a network error). Answers the full profile
+   * with the new `avatarUrl`. Idempotent: the same image ends at the same
+   * URL, so the default re-sends are safe.
+   * Requires authentication (setTokens must be called first).
+   * Statuses: 400 not base64, 403 the profile is locked, 413 over 512 KB,
+   * 422 not a PNG/JPEG/WebP, damaged or over the pixel limit, 429 more than
+   * 20 avatar changes in 10 minutes, 503 encoder busy (re-sent by the SDK).
+   */
+  uploadAvatar(image: string): Promise<SdkResult<MyProfile>> {
+    return this.put<MyProfile>("/api/profile/me/avatar", { image });
+  }
+
+  /**
+   * Remove the authenticated wallet's avatar; answers the full profile with
+   * `avatarUrl: null`. Idempotent, and allowed while the profile is locked.
+   * Shares the 429 limit of `uploadAvatar`.
+   * Requires authentication (setTokens must be called first).
+   */
+  removeAvatar(): Promise<SdkResult<MyProfile>> {
+    return this.post<MyProfile>("/api/profile/me/avatar/remove", {});
   }
 
   // ── Portfolio (auth required) ──
@@ -2052,6 +2412,12 @@ export class CofferBackendClient {
 
   private async postDataField<T>(path: string, body: unknown): Promise<SdkResult<T>> {
     const res = await this.post<{ data: T }>(path, body);
+    if (!res.ok) return res;
+    return ok(res.data?.data);
+  }
+
+  private async putDataField<T>(path: string, body: unknown): Promise<SdkResult<T>> {
+    const res = await this.put<{ data: T }>(path, body);
     if (!res.ok) return res;
     return ok(res.data?.data);
   }
