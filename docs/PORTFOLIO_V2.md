@@ -14,12 +14,17 @@ activity feed (Recent Activity widget + full Activity page). The v1
 methods are described in [Portfolio](PORTFOLIO.md). Do not enable v2 until your
 server implements its routes. The declared v2 flow uses authentication.
 
+Since 1.4.8 the same four views can be read for ANY wallet without
+authentication — the profile page; see
+[Public portfolio of any wallet](#public-portfolio-of-any-wallet).
+
 ## Prerequisites
 
 - User must be authenticated via SIWS (see `docs/SIWS.md`)
 - `client.setTokens()` must be called before using these methods
 - Unlike v1, v2 endpoints do NOT return 404 for wallets without positions —
   they return empty/zero data, so no special empty-state error handling
+- The `getPublicPortfolio*` twins need none of this: no SIWS, no tokens
 
 ## Methods
 
@@ -152,7 +157,10 @@ amounts are frozen at the oldest known values; for `pnl` — a position
 that predates the range and was fully closed inside it; for `il` — a
 basis token with no price history (valued flat at today's price), a
 position snapshot older than an LP event, an exit that could not be
-priced, or pre-range history that could not be reconstructed exactly).
+priced, or pre-range history that could not be reconstructed exactly; for
+`pnl` and `il` — the backend's stored LP history has not caught up with the
+wallet's last deposit or withdrawal yet, usually for under a minute, during
+which the chart can be off by about that transaction).
 Optionally show a subtle "approximate" hint.
 
 **`change.pct: null`** means the percentage is undefined — the range
@@ -323,6 +331,100 @@ if (res.ok) {
 **Sorting:** `sort: "value" | "fees" | "il" | "pnl" | "apy"` (default
 `"value"`), `order` default `"desc"`.
 
+## Public portfolio of any wallet
+
+Since 1.4.8 the four views above can be read for ANY wallet, without
+authentication — for the profile page (see [Public profiles](PROFILE.md)).
+They need the backend that ships the public portfolio (November 2026); see
+[backend compatibility](BACKEND_COMPATIBILITY.md). Only what is connected to
+Coffer is public: positions, the PnL / IL / XP charts, activity and the
+token composition of the positions. Net Worth and the tokens that sit in the
+wallet itself are not.
+
+| Private — the signed-in wallet (JWT) | Public — any wallet |
+|---|---|
+| `getPortfolioChart(metric, range, options?)` | `getPublicPortfolioChart(ref, metric, range, options?)` |
+| `getPortfolioActivity(options?)` | `getPublicPortfolioActivity(ref, options?)` |
+| `getPortfolioHoldings(options?)` | `getPublicPortfolioHoldings(ref, options?)` |
+| `getPortfolioPositions(options?)` | `getPublicPortfolioPositions(ref, options?)` |
+
+`ref` is a wallet address, a username or `@` + username, as in
+`getPublicProfile`. On a profile page pass the `address` of the profile
+answer rather than the username from the route.
+
+```ts
+const chart = await client.getPublicPortfolioChart(address, "il", "1y");
+const perPool = await client.getPublicPortfolioChart(address, "pnl", "all", { pool });
+const activity = await client.getPublicPortfolioActivity(address, { type: "liquidity" });
+const holdings = await client.getPublicPortfolioHoldings(address, { limit: 4 });
+const positions = await client.getPublicPortfolioPositions(address, { limit: 20 });
+```
+
+**What is the same.** The options and their defaults, the response types
+(`PortfolioChartResponse`, `PortfolioActivityResponse`,
+`PortfolioHoldingsResponse`, `PortfolioPositionsResponse`) and everything
+this guide says about them: the chart shape per metric, ranges and
+`granularitySec`, `options.pool`, the markers, `change.pct: null`, the
+activity filters, sorting and `highlight`, `transfer.counterparty` on sent /
+received rows, `pool.imageUrl`. The formulas and the prices are those of the
+private page, so one set of components renders both. A wallet the backend
+has never seen answers 200 with empty lists and zero charts — as in the
+private calls, there is no 404 for an address.
+
+**What differs.**
+
+| | Private | Public |
+|---|---|---|
+| LP balance behind positions and holdings | the wallet's live balance, 30 s fresh | the backend's stored position snapshot |
+| Holdings rows | wallet + pools | pools only: `sources.wallet` is `{ amount: 0, pct: 0 }` in every row, `balance` / `valueUsd` are the pool part, a token held only in the wallet has no row |
+| Chart metrics | `networth`, `pnl`, `il`, `xp` | `pnl`, `il`, `xp` (`PublicPortfolioChartMetric`); `networth` is a 400 |
+| Chart `approximateReasons` | present when `approximate` is true | never present; `approximate` itself is |
+| `ref` | — | 404 for a well-formed username nobody holds, 400 for a value that is neither an address nor a username |
+| Too many cold chart builds at once | — | 503; the SDK waits 2 s and re-sends, twice |
+| A `pnl` / `il` chart or a feed that is not cached, of a wallet with more than 200 withdrawals and LP transfers | built | 422, final: not built for a public read |
+
+**Snapshot balance.** The stored balance and the live one differ for
+seconds after a deposit or a withdrawal, and after LP tokens were
+transferred between wallets until the snapshot catches up: about a minute
+after the owner next opens their own portfolio page, within an hour
+otherwise. Until then the public tables show the position as it was
+before the transfer (a position received by a transfer appears once its
+snapshot exists), while the owner's private page already shows the new
+balance.
+
+**503 on the public chart.** A chart that is not in the backend's cache has
+to be built, and the backend builds only a few public charts at a time; a
+request over that limit is answered 503 with `Retry-After: 2`.
+`getPublicPortfolioChart` waits for it: three attempts, 2 s apart — a
+schedule of its own (the other methods wait 0.2 s and 0.5 s); the header
+itself is not read. So a busy chart normally arrives a few seconds late and
+the call can take about 4 s longer: keep the previous chart or a skeleton on
+screen. When the third attempt is a 503 too, the result is
+`backend_unavailable` with `cause.status === 503`: ask again in a few
+seconds.
+
+**422 on the public chart and feed.** Pricing a wallet's withdrawals and LP
+transfers one by one is what makes a chart and a feed expensive to build,
+and a public read takes its address from the URL. For a wallet with more
+than 200 of them the backend does not build a `pnl` / `il` chart or a feed
+that is not in its cache: `getPublicPortfolioChart` and
+`getPublicPortfolioActivity` answer `cause.status === 422` (code
+`"unknown"`). The SDK does not re-send it and neither should the app — it
+is not a matter of waiting. Show that profile's chart and feed as
+unavailable; positions, holdings and the `xp` chart work. The call succeeds
+while the answer is in the backend's cache, which the owner's own portfolio
+page puts there. No real wallet is near the limit today.
+
+```ts
+const res = await client.getPublicPortfolioChart(address, "pnl", "1m");
+if (!res.ok) {
+  const status = (res.error.cause as { status?: number } | undefined)?.status;
+  if (status === 503) {
+    // Busy, nothing wrong with this wallet — refetch in a few seconds
+  }
+}
+```
+
 ## Data Freshness
 
 | Data | Freshness |
@@ -365,6 +467,35 @@ Active LP positions with per-pool metrics; `options = { page? = 1,
 limit? = 20, sort? = "value", order? = "desc" }`. Requires auth.
 **Returns:** `SdkResult<PortfolioPositionsResponse>`
 
+### `client.getPublicPortfolioChart(ref, metric, range, options?)`
+`getPortfolioChart` for any wallet. `metric` is `"pnl" | "il" | "xp"` —
+no `"networth"`; `options = { pool? }` for `pnl` / `il`. The answer never
+has `approximateReasons`. 503 when too many charts are being built at once
+(the SDK waits 2 s and re-sends, twice); 422, final, when the chart is not
+cached and the wallet has more than 200 withdrawals and LP transfers. No
+auth.
+**Returns:** `SdkResult<PortfolioChartResponse>`
+
+### `client.getPublicPortfolioActivity(ref, options?)`
+`getPortfolioActivity` for any wallet, same `options` (`highlight`
+included). 422, final, when the feed is not cached and the wallet has more
+than 200 withdrawals and LP transfers. No auth.
+**Returns:** `SdkResult<PortfolioActivityResponse>`
+
+### `client.getPublicPortfolioHoldings(ref, options?)`
+Token composition of any wallet's LP positions — the shape and `options` of
+`getPortfolioHoldings`, pools only (`sources.wallet` is always zero). No
+auth.
+**Returns:** `SdkResult<PortfolioHoldingsResponse>`
+
+### `client.getPublicPortfolioPositions(ref, options?)`
+`getPortfolioPositions` for any wallet, same `options`; the LP balance comes
+from the stored position snapshot. No auth.
+**Returns:** `SdkResult<PortfolioPositionsResponse>`
+
+In all four `ref` is a wallet address, a username or `@` + username: 404 for
+a well-formed username nobody holds, 400 for a value that is neither.
+
 ## Error Handling
 
 ```ts
@@ -376,3 +507,8 @@ if (!res.ok) {
   // Empty wallets return zero series, not 404 — no special casing needed
 }
 ```
+
+The public twins need no token; their statuses (400 / 404 for `ref`, 503 for
+a busy chart, 422 for a chart or a feed the backend does not build for a
+public read) are listed in
+[Public portfolio of any wallet](#public-portfolio-of-any-wallet).

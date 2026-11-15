@@ -697,6 +697,7 @@ export interface UserProfileCard {
  * has one: a wallet that never set anything up answers nulls.
  */
 export interface PublicProfile extends UserProfileCard {
+  /** The wallet's canonical address — also when the profile was asked for by username. */
   address: string;
   bio: string | null;
   /** Direct (level 1) referrals — `stats.l1Count` of the owner's `getReferralStatus`. */
@@ -824,6 +825,11 @@ export interface PortfolioPoolHistoryResponse {
 // ── Portfolio v2 types (redesigned portfolio page) ──
 
 export type PortfolioChartMetric = "networth" | "pnl" | "il" | "xp";
+/**
+ * Metrics of the public chart (`getPublicPortfolioChart`): the private ones
+ * without `networth` — the value of a whole wallet is not public.
+ */
+export type PublicPortfolioChartMetric = "pnl" | "il" | "xp";
 export type PortfolioChartRange = "24h" | "1w" | "1m" | "1y" | "all";
 
 export interface PortfolioChartResponse {
@@ -854,10 +860,16 @@ export interface PortfolioChartResponse {
    * hit its cap / the history API was unavailable (amounts frozen at the
    * horizon); pnl — a position predating the range closed inside it;
    * il — a basis token without price history, a snapshot older than an
-   * LP event, or an exit that could not be priced.
+   * LP event, or an exit that could not be priced; pnl / il — the
+   * backend's stored LP history has not caught up with the wallet's last
+   * deposit or withdrawal yet (usually under a minute, during which the
+   * chart can be off by about that transaction).
    */
   approximate: boolean;
-  /** Why `approximate` is set — one human line per cause. Absent when exact. */
+  /**
+   * Why `approximate` is set — one human line per cause. Absent when exact,
+   * and always absent in a `getPublicPortfolioChart` answer.
+   */
   approximateReasons?: string[];
   /**
    * The single line, [unixSeconds, value] pairs ascending — for
@@ -1026,11 +1038,15 @@ export interface PortfolioHoldingItem {
     logo: string | null;
   };
   priceUsd: number;
-  /** Total amount: wallet + decomposed LP positions. */
+  /**
+   * Total amount: wallet + decomposed LP positions. In a
+   * `getPublicPortfolioHoldings` answer — the LP positions alone.
+   */
   balance: number;
   valueUsd: number;
   /** Source breakdown for the tooltip; pct is of the token's balance. */
   sources: {
+    /** Always `{ amount: 0, pct: 0 }` in a `getPublicPortfolioHoldings` answer. */
     wallet: { amount: number; pct: number };
     pools: Array<{
       poolAddress: string;
@@ -1069,7 +1085,11 @@ export interface PortfolioPositionItem {
     bptMint: string | null;
     tokens: ActivityTokenInfo[];
   };
-  /** Position value from the 30s-fresh wallet BPT balance. */
+  /**
+   * Position value from the 30s-fresh wallet BPT balance. In a
+   * `getPublicPortfolioPositions` answer — from the balance of the
+   * backend's stored position snapshot.
+   */
   valueUsd: number;
   /** Lifetime LP fees earned in this pool. */
   feesEarned: number;
@@ -1267,7 +1287,9 @@ export interface AuthTokens {
  * (`backend_invalid_response`). `claimAttribution` retries only transport
  * errors and timeouts; `verifySignature` and `verifyTransaction` retry only
  * HTTP 429 (the nonce is single-use, and a 5xx, a transport error or a
- * timeout may come after the server already consumed it).
+ * timeout may come after the server already consumed it). Between attempts
+ * the client waits 200 ms, then 500 ms; `getPublicPortfolioChart` alone
+ * waits 2 s both times (the backend's `Retry-After` for a busy chart).
  *
  * A failed refresh clears the tokens and calls `onAuthExpired` only when the
  * backend rejected the refresh token (HTTP 400/401). If the refresh got no
@@ -1810,14 +1832,19 @@ export class CofferBackendClient {
   // ── Profile (public user profiles) ──
 
   /**
-   * Public profile of any address: username, display name, bio, avatar,
-   * X link and the number of direct referrals. Public. Every valid address
-   * answers 200 — a wallet that never set anything up comes back with
-   * nulls, there is no 404; 400 for a malformed address.
+   * Public profile of any wallet: username, display name, bio, avatar,
+   * X link and the number of direct referrals. Public. `ref` is a wallet
+   * address, a username or `@` + username (the wallet's current username,
+   * in any letter case); the answer always carries the canonical `address`
+   * — key everything else by it. Every valid address answers 200: a wallet
+   * that never set anything up comes back with nulls.
+   * Statuses: 404 a well-formed username nobody holds, 400 a `ref` that is
+   * neither an address nor a username. On a backend before the public
+   * portfolio (November 2026) only an address works — a username is a 400.
    */
-  getPublicProfile(address: string): Promise<SdkResult<PublicProfile>> {
+  getPublicProfile(ref: string): Promise<SdkResult<PublicProfile>> {
     return this.get<PublicProfile>(
-      `/api/profiles/${encodeURIComponent(address)}`,
+      `/api/profiles/${encodeURIComponent(ref)}`,
     );
   }
 
@@ -2090,6 +2117,159 @@ export class CofferBackendClient {
     );
   }
 
+  // ── Public portfolio (any wallet — the profile page, no auth) ──
+
+  /**
+   * `getPortfolioChart` for ANY wallet — the chart card of a profile page.
+   * Public. `ref` is a wallet address, a username or `@` + username, as in
+   * `getPublicProfile`. Same ranges, same `options.pool` (for `pnl` / `il`)
+   * and the same answer: `series` for `pnl` / `xp`, `lines` for `il`,
+   * `markers` on `pnl` / `il` — a marker's `events[].signature` goes to
+   * `getPublicPortfolioActivity(ref, { highlight })`.
+   *
+   * Two differences from the private call: there is no `networth` metric
+   * (the value of a whole wallet is not public; the backend answers 400),
+   * and the answer never has `approximateReasons` — `approximate` itself
+   * is still there.
+   *
+   * A wallet the backend knows nothing about answers 200 with a zero chart.
+   * Statuses: 400 a `ref` that is neither an address nor a username, or a
+   * refused query; 404 a well-formed username nobody holds; 422 a `pnl` /
+   * `il` chart that is not in the backend's cache, of a wallet with more
+   * than 200 withdrawals and LP transfers — the backend does not build it
+   * for a public read, the call is not retried and asking again does not
+   * help (show the chart as unavailable); 503 too many cold chart builds
+   * at once.
+   *
+   * That 503 carries `Retry-After: 2`, and this method — it alone — waits
+   * for it: a request that failed in a retryable way is sent again after
+   * 2 s and once more after another 2 s (the other methods come back after
+   * 200 ms and 500 ms, which is before the backend has a free slot). So a
+   * busy chart normally just arrives a few seconds later; only when the
+   * third attempt is a 503 too is the result `backend_unavailable` with
+   * `cause.status === 503` — ask again a little later.
+   */
+  getPublicPortfolioChart(
+    ref: string,
+    metric: PublicPortfolioChartMetric,
+    range: PortfolioChartRange,
+    options?: { pool?: string },
+  ): Promise<SdkResult<PortfolioChartResponse>> {
+    const qs = new URLSearchParams({ metric, range });
+    if (options?.pool) qs.set("pool", options.pool);
+    return this.get<PortfolioChartResponse>(
+      `/api/profiles/${encodeURIComponent(ref)}/portfolio/chart?${qs.toString()}`,
+      PUBLIC_CHART_RETRY,
+    );
+  }
+
+  /**
+   * `getPortfolioActivity` for ANY wallet — the activity feed of a profile
+   * page. Public; `ref` as in `getPublicProfile`. Same options
+   * (`highlight` included) and the same answer, `transfer.counterparty` of
+   * the sent / received rows included.
+   *
+   * A wallet the backend knows nothing about answers 200 with an empty
+   * list. Statuses: 400 a `ref` that is neither an address nor a username,
+   * 404 a well-formed username nobody holds, 422 a feed that is not in the
+   * backend's cache, of a wallet with more than 200 withdrawals and LP
+   * transfers — not built for a public read, not retried (show the feed as
+   * unavailable).
+   */
+  getPublicPortfolioActivity(
+    ref: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      type?: PortfolioActivityFilter;
+      /** Sort column; unpriced rows (deployed) always go last on "value". */
+      sort?: PortfolioActivitySortField;
+      order?: SortOrder;
+      /** Transaction signature to land on; overrides `page`. */
+      highlight?: string;
+    },
+  ): Promise<SdkResult<PortfolioActivityResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      type: options?.type ?? "all",
+      sort: options?.sort ?? "time",
+      order: options?.order ?? "desc",
+    });
+    if (options?.highlight) qs.set("highlight", options.highlight);
+    return this.get<PortfolioActivityResponse>(
+      `/api/profiles/${encodeURIComponent(ref)}/portfolio/activity?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * Token composition of ANY wallet's LP positions — the holdings table of
+   * a profile page. Public; `ref` as in `getPublicProfile`. The options and
+   * the shape are those of `getPortfolioHoldings`, but only what is held IN
+   * POOLS is listed (the tokens in the wallet itself are not public): every
+   * row's `sources.wallet` is `{ amount: 0, pct: 0 }`, `balance` and
+   * `valueUsd` are the pool part alone, and a token the wallet holds only
+   * outside pools has no row.
+   *
+   * A wallet the backend knows nothing about answers 200 with an empty
+   * list. Statuses: 400 a `ref` that is neither an address nor a username,
+   * 404 a well-formed username nobody holds.
+   */
+  getPublicPortfolioHoldings(
+    ref: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      sort?: PortfolioHoldingsSortField;
+      order?: SortOrder;
+    },
+  ): Promise<SdkResult<PortfolioHoldingsResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      sort: options?.sort ?? "value",
+      order: options?.order ?? "desc",
+    });
+    return this.get<PortfolioHoldingsResponse>(
+      `/api/profiles/${encodeURIComponent(ref)}/portfolio/holdings?${qs.toString()}`,
+    );
+  }
+
+  /**
+   * `getPortfolioPositions` for ANY wallet — the positions table of a
+   * profile page. Public; `ref` as in `getPublicProfile`. Same options and
+   * the same answer.
+   *
+   * One difference from the private call: the LP balance behind `valueUsd`
+   * is the one of the backend's stored position snapshot, not a live read
+   * of the wallet. The two differ for seconds after a deposit or a
+   * withdrawal, and after LP tokens were transferred between wallets until
+   * the snapshot catches up; formulas and prices are the same.
+   *
+   * A wallet the backend knows nothing about answers 200 with an empty
+   * list. Statuses: 400 a `ref` that is neither an address nor a username,
+   * 404 a well-formed username nobody holds.
+   */
+  getPublicPortfolioPositions(
+    ref: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      sort?: PortfolioPositionsSortField;
+      order?: SortOrder;
+    },
+  ): Promise<SdkResult<PortfolioPositionsResponse>> {
+    const qs = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      limit: String(options?.limit ?? 20),
+      sort: options?.sort ?? "value",
+      order: options?.order ?? "desc",
+    });
+    return this.get<PortfolioPositionsResponse>(
+      `/api/profiles/${encodeURIComponent(ref)}/portfolio/positions?${qs.toString()}`,
+    );
+  }
+
   // ── Token pair-chart (pool creation range picker, public) ──
 
   /**
@@ -2259,9 +2439,14 @@ export class CofferBackendClient {
     this.refreshToken = null;
   }
 
-  /** Generic GET with retry. Callers that need it for other endpoints. */
-  get<T>(path: string): Promise<SdkResult<T>> {
-    return this.requestWithRefresh<T>("GET", path);
+  /**
+   * Generic GET with retry. Callers that need it for other endpoints.
+   * `retry` replaces parts of the default policy for this one call
+   * (attempts, backoff, timeout, which errors are retried); without it the
+   * call is retried as every other.
+   */
+  get<T>(path: string, retry?: RetryOptions): Promise<SdkResult<T>> {
+    return this.requestWithRefresh<T>("GET", path, undefined, retry);
   }
 
   post<T>(path: string, body: unknown): Promise<SdkResult<T>> {
@@ -2451,6 +2636,16 @@ function markTransportError(e: unknown, transport: boolean): unknown {
   (wrapped as Error & { cause?: unknown }).cause = e;
   return wrapped;
 }
+
+/**
+ * Retry schedule of `getPublicPortfolioChart`. The backend builds only a
+ * few public charts at a time and refuses one more with 503 and
+ * `Retry-After: 2`. The default schedule comes back after 200 ms and
+ * 500 ms — while the backend is still busy — and gives up; this one waits
+ * the two seconds the backend names, twice. What counts as retryable is the
+ * default (no HTTP answer, a timeout, 429, 5xx).
+ */
+const PUBLIC_CHART_RETRY: RetryOptions = { attempts: 3, backoffMs: [2000, 2000] };
 
 /**
  * Retry only when no HTTP answer came back (timeout, unreachable host).

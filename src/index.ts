@@ -213,6 +213,7 @@ export type {
   CampaignSnapshotTopResponse,
   CampaignSnapshotUserResponse,
   PortfolioChartMetric,
+  PublicPortfolioChartMetric,
   PortfolioChartRange,
   PortfolioChartResponse,
   PairChartRange,

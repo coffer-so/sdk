@@ -23,6 +23,7 @@ A TypeScript return type does not prove that a route exists or validate its JSON
 | `recordAttributionLanding`, `claimAttribution` | No matching `/api/attribution/*` controllers in this revision — they need the backend that ships the attribution module (November 2026); browser-side anonId, cookie and beacon logic is described in the backend's `docs/ATTRIBUTION.md`, not in the SDK |
 | Profile methods (`getPublicProfile`, `getProfileCards`, `getMyProfile`, `updateMyProfile`, `setUsername`, `uploadAvatar`, `removeAvatar`) and the optional `profile` card on leaderboard, epoch/campaign snapshot, campaign top, referral and pool-transaction rows | No matching `/api/profiles/*` and `/api/profile/me*` controllers in this revision, and its rows carry no `profile` — they need the backend that ships the profile module (November 2026); these routes answer flat JSON; see [PROFILE.md](PROFILE.md) |
 | `uploadPoolImage`, `removePoolImage`; `additionalUrl` in `updatePoolSettings` / `createPool`; `imageUrl` / `additionalUrl` on pool objects, `AdminPoolEntry` and `pool` of portfolio v2 positions / activity | No matching `/api/pools/admin/:address/image` routes or fields in this revision — they need the backend that ships pool images (November 2026; the same release makes `renamePool` accept only 1–12 English letters and digits); the image routes answer `{ success, data }`, unwrapped by the SDK; see [POOL_ADMIN.md](POOL_ADMIN.md) |
+| Public portfolio methods (`getPublicPortfolioChart`, `getPublicPortfolioActivity`, `getPublicPortfolioHoldings`, `getPublicPortfolioPositions`) and `getPublicProfile` by username (`alice`, `@alice`) | No matching `/api/profiles/:ref/portfolio/{chart,activity,holdings,positions}` controllers in this revision — they need the backend that ships the public portfolio (November 2026, a later release than the profile module). On a backend with the profile module alone the four routes are a 404 for any `ref`, an address included, and `/api/profiles/:address` takes only an address (a username is a 400). The routes answer flat JSON; the chart answers 503 with `Retry-After: 2` when too many are being built at once — `getPublicPortfolioChart` re-sends it twice, 2 s apart (a schedule of its own; the header is not read). The chart (`pnl` / `il`) and the activity route answer 422 when the answer is not in the backend's cache and the wallet has more than 200 withdrawals and LP transfers — final, not re-sent; see [PROFILE.md](PROFILE.md) and [PORTFOLIO_V2.md](PORTFOLIO_V2.md) |
 
 Construct the client with `new CofferBackendClient({ apiEndpoint })`. Its optional
 `apiKey` initializes Bearer authorization, not a global `X-Coffer-Api-Key` header.
@@ -40,7 +41,8 @@ are final. Transport errors, timeouts, 429 and 5xx are retried (3 attempts)
 except where a method says otherwise: `claimAttribution` retries only
 transport errors and timeouts, `verifySignature`/`verifyTransaction` only 429
 (single-use nonce, consumed before the signature check, so a 5xx may come
-after it is gone). A 401 triggers one refresh via `/api/auth/refresh`,
+after it is gone). Attempts are 200 ms and 500 ms apart; `getPublicPortfolioChart`
+alone waits 2 s both times. A 401 triggers one refresh via `/api/auth/refresh`,
 detected by `cause.status === 401`; only a 400/401 from the refresh clears
 the tokens and calls `onAuthExpired`, a refresh with no answer keeps them. For browser calls the
 page origin must be in the backend's `CORS_ORIGINS`; otherwise every response
