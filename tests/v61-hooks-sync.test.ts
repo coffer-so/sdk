@@ -70,7 +70,7 @@ describe("T9 on the final ABI — builders", () => {
     const tx = buildRemoveLiquidityTx(cfg, pool, { user, lpAmount: new BN(1_000), minimumTokenAmounts: [new BN(0), new BN(0)], bypassHooks: true });
     expect(disc(tx.instructions.at(-1)!.data)).toBe(DISC.bypass); expect(tx.suggestedCuLimit).toBe(cfg.defaults.cuLimit);
   });
-  test("[P03] initialize_pool: hook_config is the LAST argument (Option tag + 47 B after the three u16), the slice follows the mints", () => {
+  test("[P03] initialize_pool: hook_config follows the three u16 (Option tag + 47 B) and precedes the trailing lp_transfer_fee_bps u16; the slice follows the mints", () => {
     const cfgHook = { program: key(41), flags: HOOK_FLAGS.BEFORE_SWAP | HOOK_FLAGS.DYNAMIC_FEE, feeMin: 100, feeMax: 50_000, maxCu: 60_000, accountsLen: 3 };
     const mints = [pk(), pk()];
     const slice = [{ pubkey: key(41), isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: key(42), isSigner: false, isWritable: true }];
@@ -78,11 +78,15 @@ describe("T9 on the final ABI — builders", () => {
     const plain = buildInitializePoolIx(cfg, base);
     const withHook = buildInitializePoolIx(cfg, { ...base, hookConfig: cfgHook, hookAccounts: slice });
     expect(disc(withHook.data)).toBe(DISC.init);
-    expect(withHook.data.length).toBe(plain.data.length + HOOK_CONFIG_LEN); expect(plain.data.at(-1)).toBe(0);
+    expect(withHook.data.length).toBe(plain.data.length + HOOK_CONFIG_LEN); expect(plain.data.at(-3)).toBe(0);
     const prefixLen = 8 + 4 + 16 + 4 + 16 + 4 + 8 + encodeLpMetadataArgs(LP_METADATA_GOOD).length + 6;
-    expect(plain.data.length).toBe(prefixLen + 1);
-    expect(withHook.data[prefixLen]).toBe(1); expect(withHook.data.subarray(prefixLen + 1).equals(encodeHookConfig(cfgHook))).toBe(true);
-    expect(idl.instructions.find((i: any) => i.name === "initialize_pool").args.at(-1)).toEqual({ name: "hook_config", type: { option: { defined: { name: "HookConfig" } } } });
+    // Option tag (1) + the trailing `lp_transfer_fee_bps: u16` (2).
+    expect(plain.data.length).toBe(prefixLen + 1 + 2); expect(plain.data.readUInt16LE(prefixLen + 1)).toBe(0);
+    expect(withHook.data[prefixLen]).toBe(1); expect(withHook.data.subarray(prefixLen + 1, prefixLen + 1 + HOOK_CONFIG_LEN).equals(encodeHookConfig(cfgHook))).toBe(true);
+    expect(withHook.data.readUInt16LE(prefixLen + 1 + HOOK_CONFIG_LEN)).toBe(0);
+    const args = idl.instructions.find((i: any) => i.name === "initialize_pool").args;
+    expect(args.at(-2)).toEqual({ name: "hook_config", type: { option: { defined: { name: "HookConfig" } } } });
+    expect(args.at(-1)).toEqual({ name: "lp_transfer_fee_bps", type: "u16" });
     expect(keysOf(withHook).slice(7)).toEqual([...mints.map((m) => m.toBase58()), ...slice.map((m) => m.pubkey.toBase58())]);
     expect(withHook.keys.at(-1)!.isWritable).toBe(true);
   });

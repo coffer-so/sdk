@@ -5,7 +5,7 @@ describe("CONTRACT_ERROR_MAP", () => {
   test("covers every coffer-pool IDL error code", () => {
     const map = contractErrorMapForTests();
     // v6.1 (T22): 6104–6106 carry an SDK user-facing message instead of the terse IDL `msg`.
-    const userFacing = new Set(["VirtualBalanceNotAboveActual", "VirtualBalanceBelowFloor", "InvalidVirtualRescale"]);
+    const userFacing = new Set(["VirtualBalanceNotAboveActual", "VirtualBalanceBelowFloor", "InvalidVirtualRescale", "LpTransferFeeMaxExceeded", "LpTransferFeeUnsupported", "LpTransferFeeProtocolShareMaxExceeded", "NoLpTransferFeesOwed", "LpFeeAccountUnderfunded"]);
     for (const anchorError of cofferPoolIdl.errors) {
       expect(map[anchorError.code]).toBeDefined();
       expect(map[anchorError.code].name).toBe(anchorError.name);

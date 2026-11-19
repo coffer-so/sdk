@@ -280,19 +280,8 @@
         {
           "name": "pool",
           "docs": [
-            "The pool whose helper PDA is being drained. It is NOT merely a seed",
-            "source: it must belong to the config that authorised this call.",
-            "",
-            "Without that binding, `config` and `pool` are independent inputs, and",
-            "the admin of config A could drain the helper of a pool governed by",
-            "config B — the helper PDA signs on nothing but its seeds, and those",
-            "seeds are derived from whichever pool the caller passes. That is the",
-            "same defect the audit raised as L-07 against coffer-pool's own",
-            "`withdraw_sol`, which binds `pool.config == config.key()`; this",
-            "instruction was rewritten for L-08 without picking the binding up.",
-            "",
-            "It is latent only while one Treasury PDA governs every config. Rotation",
-            "is deliberately unpinned (L-09), so configs are expected to diverge."
+            "Bind the helper's pool to the authorizing config; another config's admin",
+            "must not be able to derive and drain this helper."
           ]
         },
         {
@@ -648,11 +637,6 @@
         "- `dynamics: AssetDynamics` — auto-updated by user txs (balances,",
         "protocol_fees_owed, sliding-window selloff state).",
         "",
-        "This mirrors Solend / MarginFi / Kamino's `Reserve { config, ... }`",
-        "pattern. Reading per-token data is a single struct lookup; auditors",
-        "see at a glance which fields a user can mutate vs which need pool",
-        "admin authority.",
-        "",
         "## Storage layout — DO NOT REORDER",
         "Backends (`onchainPoolFetcher.ts`, indexer) read fields by raw offset.",
         "Adding fields is OK if appended at the END (before the trailing",
@@ -682,11 +666,10 @@
         "| T3   | `pool_admin_delay_secs: u32` @1862, `pool_admin_epoch: u32` @1866, `pending_pool_admin_eta: i64` @1870, 10 typed pending slots (`eta: i64` + absolute payload) @1878..2054 — see `COOLDOWN_BLOCK_LEN` | 192 | 1862..2054 | carved |",
         "| T9   | `hook_program: Pubkey` @2054, `hook_flags: u16` @2086, `hook_disabled: u8` @2088, `hook_fee_min: u32` @2089, `hook_fee_max: u32` @2093, `hook_max_cu: u32` @2097, `hook_accounts_len: u8` @2101 — see `HOOK_BLOCK_LEN` | 48 | 2054..2102 | carved (AFTER T3) |",
         "| audit S-04/S-05/S-08 | seed/restriction flags (2 B) and immutable weight anchors (20 B) | 22 | 2102..2124 | carved |",
-        "| left in `reserved_v61` | 180 | 2124..2304 | |",
-        "",
-        "The security fixes intentionally consume 22 B of the original 202 B",
-        "reserve, superseding the earlier 200 B planning target. Account length",
-        "and every pre-existing field offset remain unchanged.",
+        "| LP transfer fee | `lp_transfer_fee_protocol_share_bps: u16` @2124, `lp_transfer_fees_owed_protocol: u64` @2126, `lp_transfer_fees_pending_burn: u64` @2134, `lp_transfer_fee_burn_last_ts: i64` @2142 — see `LP_TRANSFER_FEE_BLOCK_LEN` | 26 | 2124..2150 | carved |",
+        "| LP transfer fee cooldown | pending slot 11 `pending_set_lp_transfer_fee` (`eta: i64` + `bps: u16`) — see `LP_TRANSFER_FEE_SLOT_LEN` | 10 | 2150..2160 | carved (outside the T3 block) |",
+        "| LP transfer fee stream end | `lp_transfer_fee_burn_end_ts: i64` @2160 — see `LP_TRANSFER_FEE_END_TS_LEN` (after slot 11: 2150 was already taken when the linear-vesting end landed) | 8 | 2160..2168 | carved |",
+        "| left in `reserved_v61` | 136 | 2168..2304 | |",
         "",
         "T3 slot order inside the cooldown block (all `eta` fields are `i64`,",
         "`0` = empty; the pool-admin transfer reuses `pending_pool_admin` for its",
@@ -709,17 +692,11 @@
         "| 10 SetTokenActive | `pending_set_token_active` | `token_index: u8` (always `true`) | 2045 | 9 |",
         "| | T9 hook block (`HOOK_BLOCK_LEN`) | | 2054 | 48 |",
         "| | `safety_flags` / `range_manager_weight_anchors` | | 2102 / 2104 | 2 / 20 |",
-        "| | `reserved_v61` | | 2124 | 180 |",
-        "",
-        "The absolute offsets above are the contract between branches: the T12",
-        "block (80 B @1776) was held by a same-sized placeholder on the T7 / T6",
-        "branches so the T7 fields sit at 1856..1861 and `range_manager_locked`",
-        "at 1861; the T12 merge replaced the placeholder with `surge_fees_owed`",
-        "at the same offset. The T3 cooldown block sits at 1862..2054 directly",
-        "after the T6 flag and the T9 hook block follows it at 2054..2102 (the T9",
-        "branch had carved @1862 on a T3-less base; the merge moved the block",
-        "behind T3 as the carve table always said). Offsets of landed fields",
-        "never moved.",
+        "| | `lp_transfer_fee_protocol_share_bps` / `lp_transfer_fees_owed_protocol` | | 2124 / 2126 | 2 / 8 |",
+        "| | `lp_transfer_fees_pending_burn` / `lp_transfer_fee_burn_last_ts` | | 2134 / 2142 | 8 / 8 |",
+        "| 11 SetLpTransferFee | `pending_set_lp_transfer_fee` | `bps: u16` | 2150 | 10 |",
+        "| | `lp_transfer_fee_burn_end_ts` | | 2160 | 8 |",
+        "| | `reserved_v61` | | 2168 | 136 |",
         "",
         "### Vault bookkeeping (v6.1, T14 + T12)",
         "For every slot `i`: `vault_i.amount == actual_balance_i +",
@@ -733,16 +710,15 @@
         "curve (never traded, never priced) but it IS LP capital — a deposit",
         "buys into it pro rata and a burn pays it out pro rata, so the LP token's",
         "net asset value per unit is `(actual + surge_fees_owed) / supply`",
-        "(`nav_balances`). The T7 deposit / withdraw fees never create a bucket:",
-        "the withheld LP (deposit) and the withheld tokens (withdraw) stay in the",
-        "reserves, i.e. in `actual_balance`.",
+        "(`nav_balances`). Deposit fees reduce new LP supply; withdrawal fees",
+        "remain in their original reserve or surge bucket for the remaining LPs.",
         "",
-        "## Derived (not stored) state",
+        "## Derived addresses and supply",
         "- `lp_mint`        — derived as `[LP_MINT_SEED, pool]` PDA.",
         "- `lp_total_supply`— read from `lp_mint.supply` at runtime.",
         "- `token_vaults[i]` — derived as ATA(pool, mint, tokens[i].config.token_program).",
-        "- `token_decimals`  — pinned on the pool since v6.1 (FIX-6); the live",
-        "mint must still agree with it on every transfer."
+        "",
+        "Stored `token_decimals` pins must match live mint decimals on transfers."
       ],
       "type": {
         "kind": "struct",
@@ -1136,21 +1112,9 @@
           {
             "name": "_deprecated_banned_extensions",
             "docs": [
-              "Bytes 1651..1659 of the account. Until v6.1 this held the per-pool",
-              "`banned_extensions` Token-2022 policy bitmap snapshot. The policy was",
-              "removed in v6.1 (T19): the pool creator alone decides which mints go",
-              "into a pool and the frontend discloses the extensions they carry.",
-              "Mint admission is now purely structural",
-              "(`util::token::validate_mint_for_admission`).",
-              "",
-              "Not trailing (it sits between `lookup_table` and",
-              "`range_manager_max_concentration_factor_bps`), so it cannot be folded into",
-              "`reserved`. Existing pools still carry their old bitmap here; fresh",
-              "pools write `0`. No code path reads it. `migrate_to_v5` keeps its",
-              "`== 0` precondition on these bytes as part of the \"untouched legacy",
-              "layout\" proof (I-11). A later task may reuse these 8 bytes only",
-              "after an explicit migration instruction zeroes them — existing pools",
-              "hold non-zero values that would otherwise be misread."
+              "Legacy extension-policy bitmap at bytes 1651..1659; unused for mint admission.",
+              "Fresh pools write zero; legacy provenance checks still inspect these bytes.",
+              "Preserve the slot and its existing values until an explicit migration reuses it."
             ],
             "type": "u64"
           },
@@ -1161,22 +1125,8 @@
               "manager may leave a token at, in basis points (10_000 = 1.0×). `0`",
               "disables the band.",
               "",
-              "The per-update percentage caps velocity, not distance: measured",
-              "against the live value each call, 5% steps compound to ~2.65× in 20",
-              "updates and ~131× in 100, so a manager — or a malfunctioning bot —",
-              "can walk the pool price arbitrarily far using only individually legal",
-              "moves. This band is the distance limit.",
-              "",
-              "Anchored to `actual_balance` rather than to a captured snapshot on",
-              "purpose: real reserves only move when capital actually enters or",
-              "leaves, so the baseline cannot go stale the way a stored snapshot",
-              "does. Tokens with `actual_balance == 0` (sidelined) are exempt —",
-              "there is no real capital to anchor against.",
-              "",
-              "Appended at the END (before `reserved`) per the layout rule above, so",
-              "every pre-existing field keeps its byte offset. Pre-upgrade pools",
-              "decode this as `0` (band disabled), which is the back-compatible",
-              "reading."
+              "Limits cumulative movement independently of per-update percentage caps.",
+              "Anchored to live actual reserves; reserve-less slots are exempt."
             ],
             "type": "u32"
           },
@@ -1187,27 +1137,15 @@
               "`virtual_balance / actual_balance` ratio it may leave a token at, in",
               "`PERCENT_SCALE` units. `0` disables the floor.",
               "",
-              "The ceiling alone was not an envelope. Output is priced off VIRTUAL",
-              "balances, so DEPRESSING a token's virtual balance makes the pool",
-              "believe it holds less than it does, and a sale into that token moves",
-              "the price far more than it should — the seller takes the other side's",
-              "real reserves at a fabricated rate. Fifty individually-legal 5% steps",
-              "took a 1M/1M pool's virtual balance down to ~77k in testing, after",
-              "which selling 100k returned ~565k instead of ~91k. Every step passed",
-              "the ceiling, because the ceiling only ever looks upward.",
-              "",
-              "Checked on the same terms as the ceiling: only over the slots a call",
-              "actually writes, and skipped for sidelined tokens (`actual_balance ==",
-              "0`), which have no capital to anchor a ratio against."
+              "Bounds downward movement that the ceiling cannot constrain.",
+              "Like the ceiling, applies to written slots with nonzero actual reserves."
             ],
             "type": "u32"
           },
           {
             "name": "reserved",
             "docs": [
-              "LEGACY padding block (bytes 1667..1683 of the account). Shrank 24 → 20",
-              "when `range_manager_max_concentration_factor_bps` was carved out of it, then",
-              "20 → 16 for `range_manager_min_concentration_factor_bps`. Since v6.1 it is FROZEN:",
+              "Frozen legacy padding at bytes 1667..1683.",
               "`reserved[..4]` holds the one-shot `V5M1` migration marker and the",
               "remaining 12 bytes are part of the `migrate_to_v5` \"untouched legacy",
               "layout\" proof (I-11). Nothing new is ever carved from here; new",
@@ -1329,8 +1267,8 @@
             "docs": [
               "v6.1 (T7): withdraw fee as a haircut on every token payout of",
               "`remove_liquidity`, same units: `payout_i = gross_i − ceil(gross_i ·",
-              "bps / 10_000)`. The withheld tokens stay in `actual_balance`",
-              "(remaining LPs' reserves; never a protocol or creator bucket). 100%",
+              "bps / 10_000)`. Each part's fee stays in its reserve or surge bucket,",
+              "belonging to remaining LPs rather than protocol or creator buckets. 100%",
               "closes withdrawals (`WithdrawFeeConsumesAll`). Bytes 1858..1860."
             ],
             "type": "u16"
@@ -1590,6 +1528,74 @@
             }
           },
           {
+            "name": "lp_transfer_fee_protocol_share_bps",
+            "docs": [
+              "Share of every collected LP transfer fee that belongs to the protocol,",
+              "in basis points (`0..=MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS`); the",
+              "rest is burned by `collect_lp_transfer_fees`. Set to",
+              "`DEFAULT_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS` at `initialize_pool`, changed",
+              "by the protocol admin (`set_lp_transfer_fee_protocol_share`). Migrated",
+              "pools decode 0; their LP mints have no fee extension anyway. @2124."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "lp_transfer_fees_owed_protocol",
+            "docs": [
+              "LP units collected for the protocol and still held in the pool's LP",
+              "fee account (`ATA(pool, lp_mint)`), redeemed for underlying tokens by",
+              "`redeem_lp_transfer_fees`. Invariant after every collection:",
+              "`lp_fee_account.amount == lp_transfer_fees_owed_protocol +",
+              "lp_transfer_fees_pending_burn`. @2126."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "lp_transfer_fees_pending_burn",
+            "docs": [
+              "Burn part of collected LP transfer fees still in the fee account,",
+              "vesting linearly from `lp_transfer_fee_burn_last_ts` to",
+              "`lp_transfer_fee_burn_end_ts` and burned by `collect_lp_transfer_fees`",
+              "(`math::lp_transfer_fee_drip`): an immediate burn could be sandwiched",
+              "in one transaction. @2134."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "lp_transfer_fee_burn_last_ts",
+            "docs": [
+              "Start of the stream's current linear segment: the last collect that",
+              "burned something (a collect whose drip floored to 0 keeps it, so the",
+              "elapsed time keeps accruing). 0 before the first collection. @2142."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pending_set_lp_transfer_fee",
+            "docs": [
+              "Pool-admin cooldown slot 11 (`set_lp_transfer_fee`, D-class like the",
+              "other fee setters). @2150."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingSetLpTransferFee"
+              }
+            }
+          },
+          {
+            "name": "lp_transfer_fee_burn_end_ts",
+            "docs": [
+              "Unix time at which `lp_transfer_fees_pending_burn` is fully burnable:",
+              "the stream vests linearly over `[burn_last_ts, burn_end_ts]`",
+              "(`math::lp_transfer_fee_drip`); a new collection re-bases the end to",
+              "the amount-weighted average of the old end and `now +",
+              "LP_TRANSFER_FEE_BURN_WINDOW_SECS` (`math::lp_transfer_fee_schedule`).",
+              "`== burn_last_ts` while nothing is pending; 0 on migrated pools. @2160",
+              "(after slot 11: carved later than the slot, see the struct doc)."
+            ],
+            "type": "i64"
+          },
+          {
             "name": "reserved_v61",
             "docs": [
               "v6.1 reserve. See the struct doc for the carve-out order and the byte",
@@ -1600,7 +1606,7 @@
             "type": {
               "array": [
                 "u8",
-                180
+                136
               ]
             }
           }
@@ -1781,6 +1787,32 @@
             "name": "withdraw_fee_bps",
             "docs": [
               "LP-equivalent exit fee, in basis points."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingSetLpTransferFee",
+      "docs": [
+        "Slot for `SetLpTransferFee` (kind 11, @2150 — after the LP transfer fee",
+        "block, outside the T3 block)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bps",
+            "docs": [
+              "Proposed LP transfer fee in basis points."
             ],
             "type": "u16"
           }

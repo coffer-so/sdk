@@ -106,6 +106,8 @@ export interface SwapQuote {
 
 export interface AddLiquidityParams {
   user: PublicKey;
+  /** Maximum per-leg join rounding loss in hundredths-bps; defaults to config slippage. Independent of minimumLpAmount. */
+  slippageHundredthsBps?: number;
   /**
    * Per-token spend CEILING, one entry per pool token, in raw units.
    *
@@ -126,9 +128,8 @@ export interface AddLiquidityParams {
    */
   tokenAmounts: BN[];
   /**
-   * Slippage floor on LP minted. Required and must be > 0 — this is the
-   * only guard on the join, since `tokenAmounts` is now a ceiling rather
-   * than a commitment.
+   * On-chain slippage floor on LP minted. Required and must be > 0. SDK
+   * builders separately check rounding loss using slippageHundredthsBps.
    */
   minimumLpAmount?: BN;
   /** v6 remaining-account tail (`resolveAddLiquidityExtraAccounts`); see `SwapParams.extraAccounts`. */
@@ -183,11 +184,13 @@ export interface AddLiquidityQuote {
   lpGross: BN;
   /** v6.1 (T7): `ceil(lpGross · depositFeeBps / 1e4)`, withheld for the existing LPs; `0` at the seed. */
   depositFeeLp: BN;
+  /** Exact effective fee is depositFeeLp / lpGross; this display rate is ceiled. */
+  depositFeeEffectiveHundredthsBpsCeil: number;
   /** v6.1 (T7): the deposit fee in force (`0` at the seed, which is fee-exempt). */
   depositFeeBps: number;
   /** LP the program will mint for this basket at the synced state (NET of the deposit fee; the exact `lp_amount` at the seed). */
   lpOut: BN;
-  /** `lpOut` after the quoted slippage; pass as `minimumLpAmount` (equals `lpOut` at the seed: the mint is exact). */
+  /** `max(1, lpOut after slippage)`; pass as `minimumLpAmount` (equals `lpOut` at the exact-mint seed). */
   minimumLpAmount: BN;
   /** Index of the token that limits the basket (smallest net amount / NAV); `-1` for the seed deposit. */
   limitingTokenIndex: number;
@@ -259,7 +262,7 @@ export interface LpPriceQuote {
  * whole route (internal swaps run with `min_out = 0`).
  */
 export interface PlannedZapQuoteOptions {
-  /** Hundredths-bps slippage on the estimated LP; omit to use the SDK default. */
+  /** Hundredths-bps slippage on estimated LP and the final join's per-leg rounding-loss budget; defaults to config. */
   slippageHundredthsBps?: number;
   /** Plan validity in slots from the snapshot slot (1..150, default 120 ≈ 48 s). */
   validForSlots?: number;

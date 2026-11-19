@@ -190,6 +190,28 @@ export const MAX_TOKEN_DECIMALS = 18;
 /** T5: Treasury vault PDA seed `[b"vault", mint]` under protocol_admin — the only accepted protocol-fee recipient. */
 export const TREASURY_VAULT_SEED = Buffer.from("vault");
 
+// ── LP transfer fee (2026-11-19; `constants.rs` "LP transfer fee" block) ──
+
+/** Denominator of `lp_transfer_fee_bps` and of the protocol share (10_000 = 100 %). */
+export const LP_TRANSFER_FEE_PRECISION = 10_000;
+/** Hard cap on the LP transfer fee (10 %) at `initialize_pool` and `set_lp_transfer_fee` (`LpTransferFeeMaxExceeded`, 6111). */
+export const MAX_LP_TRANSFER_FEE_BPS = 1_000;
+/** `maximum_fee` written into the LP mint's `TransferFeeConfig`: `u64::MAX` — no absolute cap, the fee is purely proportional. */
+export const LP_TRANSFER_FEE_MAXIMUM = (1n << 64n) - 1n;
+/** Upper bound on `CofferPool.lp_transfer_fee_protocol_share_bps` (100 %; `LpTransferFeeProtocolShareMaxExceeded`, 6113). */
+export const MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS = LP_TRANSFER_FEE_PRECISION;
+/** Protocol share of collected LP transfer fees written onto every new pool by `initialize_pool` (= `DEFAULT_PROTOCOL_FEE_RATE`). */
+export const DEFAULT_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS = DEFAULT_PROTOCOL_FEE_RATE;
+/**
+ * L-1 / X1 burn stream window (24 h): a fresh collection vests linearly over
+ * `[now, now + WINDOW]`; one joining a live stream re-bases the end to the
+ * amount-weighted average of the old end and `now + WINDOW`
+ * (`lpTransferFeeSchedule`). `collect_lp_transfer_fees` burns
+ * `floor(pending · (now − last_ts) / (end_ts − last_ts))` per call
+ * (`lpTransferFeeDrip`).
+ */
+export const LP_TRANSFER_FEE_BURN_WINDOW_SECS = 86_400;
+
 export type ProgramIdKind = "cofferPool" | "singleTokenLiquidity" | "protocolAdmin";
 
 export function programId(cfg: CofferConfig, kind: ProgramIdKind): PublicKey {

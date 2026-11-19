@@ -17,16 +17,22 @@ function metadataMint(pointerTarget = key(2), extra: Array<[number, Buffer]> = [
   const metadata = Buffer.from(pack({ mint: key(2), updateAuthority: PublicKey.default, name: "LP", symbol: "LP", uri: "https://x", additionalMetadata: [] }));
   return extended([[18, pointer], [19, metadata], ...extra]);
 }
-describe("STLD LP policy from token_validation.rs (epoch concentration-factor-20261102)", () => {
+describe("STLD LP policy from token_validation.rs (epoch lp-transfer-fee-20261119)", () => {
   test("accepts legacy plain owners and the exact self-pointing metadata pair, including zero padding", () => {
     for (const owner of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) expect(validatePlannedZapLpMint(key(2), owner, base(), key(1)).extensions).toEqual([]);
     for (const padding of [0, 1, 16]) expect(validatePlannedZapLpMint(key(2), TOKEN_2022_PROGRAM_ID, Buffer.concat([metadataMint(), Buffer.alloc(padding)]), key(1)).extensions).toEqual([18, 19]);
+  });
+  test("accepts the metadata pair plus TransferFeeConfig (LP transfer fee); the fee never stands in for the pair", () => {
+    expect(validatePlannedZapLpMint(key(2), TOKEN_2022_PROGRAM_ID, metadataMint(key(2), [[1, Buffer.alloc(108)]]), key(1)).extensions).toEqual([18, 19, 1]);
+    const pointer = Buffer.alloc(64); key(2).toBuffer().copy(pointer, 32);
+    expect(() => validatePlannedZapLpMint(key(2), TOKEN_2022_PROGRAM_ID, extended([[18, pointer], [1, Buffer.alloc(108)]]), key(1))).toThrow(/ZapTokenExtensionsUnsupported/);
+    expect(() => validatePlannedZapLpMint(key(2), TOKEN_2022_PROGRAM_ID, extended([[1, Buffer.alloc(108)]]), key(1))).toThrow(/ZapTokenExtensionsUnsupported/);
   });
   test("rejects foreign/missing authorities, foreign owners, foreign pointer and arbitrary LP extensions", () => {
     const missing = base(); missing.writeUInt32LE(0);
     for (const data of [base(key(3)), missing]) expect(() => validatePlannedZapLpMint(key(2), TOKEN_2022_PROGRAM_ID, data, key(1))).toThrow(/InvalidLpMint/);
     for (const owner of [key(9), TOKEN_PROGRAM_ID]) expect(() => validatePlannedZapLpMint(key(2), owner, metadataMint(), key(1))).toThrow(/InvalidMint/);
-    for (const data of [metadataMint(key(4)), metadataMint(key(2), [[1, Buffer.alloc(108)]]), extended([[18, Buffer.alloc(64)]]), metadataMint(key(2), [[3, Buffer.alloc(32)]])]) expect(() => validatePlannedZapLpMint(key(2), TOKEN_2022_PROGRAM_ID, data, key(1))).toThrow(/ZapTokenExtensionsUnsupported/);
+    for (const data of [metadataMint(key(4)), metadataMint(key(2), [[12, Buffer.alloc(32)]]), extended([[18, Buffer.alloc(64)]]), metadataMint(key(2), [[3, Buffer.alloc(32)]]), metadataMint(key(2), [[1, Buffer.alloc(108)], [3, Buffer.alloc(32)]])]) expect(() => validatePlannedZapLpMint(key(2), TOKEN_2022_PROGRAM_ID, data, key(1))).toThrow(/ZapTokenExtensionsUnsupported/);
   });
   test("rejects duplicate/truncated TLVs, uninitialized base, invalid metadata UTF8 and trailing body bytes", () => {
     const pointer = Buffer.alloc(64); key(2).toBuffer().copy(pointer, 32);

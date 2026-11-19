@@ -204,7 +204,15 @@ export function validatePlannedZapLpMint(address: PublicKey, owner: PublicKey, d
   const mint = validateTransferMintSnapshot(address, owner, data);
   if (!mint.mintAuthority?.equals(pool)) throw new Error("InvalidLpMint: mint authority must be pool");
   if (data.length === 82) return mint;
-  if (mint.extensions.length !== 2 || !mint.extensions.includes(ExtensionType.MetadataPointer) || !mint.extensions.includes(ExtensionType.TokenMetadata) || !mint.metadataPointer?.metadataAddress?.equals(address)) throw new Error("ZapTokenExtensionsUnsupported: expected MetadataPointer to self + TokenMetadata only");
+  // v6.1 (T1): `{MetadataPointer → self, TokenMetadata}`; LP transfer fee (2026-11-19): plus `TransferFeeConfig`
+  // (pool-owned authorities). The zap only MINTS LP, which Token-2022 never charges, so the fee is admissible.
+  const allowed = new Set<number>([ExtensionType.MetadataPointer, ExtensionType.TokenMetadata, ExtensionType.TransferFeeConfig]);
+  if (
+    (mint.extensions.length !== 2 && mint.extensions.length !== 3)
+    || !mint.extensions.includes(ExtensionType.MetadataPointer) || !mint.extensions.includes(ExtensionType.TokenMetadata)
+    || !mint.extensions.every((t) => allowed.has(t))
+    || !mint.metadataPointer?.metadataAddress?.equals(address)
+  ) throw new Error("ZapTokenExtensionsUnsupported: expected MetadataPointer to self + TokenMetadata (+ TransferFeeConfig) only");
   if (!mint.tokenMetadata) throw new Error("InvalidMint: malformed TokenMetadata");
   return mint;
 }

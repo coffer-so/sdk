@@ -166,6 +166,20 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   RangeManagerKeyRequired: "invalid_input",
   /** rc2 (6109): LP supply at or below the floor — redeem the whole LP balance in one exit. */
   FullExitRequiredBelowFloor: "invalid_input",
+  /** Proposed F-02 append (6110); caller slippage cannot override this bound. */
+  DepositRoundingLossTooLarge: "deposit_rounding_loss",
+
+  // ── coffer-pool 6111–6115, LP transfer fee (2026-11-19) ──────────────
+  /** `initialize_pool` / `set_lp_transfer_fee` with `bps > 1_000`. */
+  LpTransferFeeMaxExceeded: "invalid_input",
+  /** The pool's LP mint has no `TransferFeeConfig` (pre-feature pool / legacy SPL mint): the feature is unavailable there. */
+  LpTransferFeeUnsupported: "unsupported_pool_state",
+  /** `set_lp_transfer_fee_protocol_share` with `bps > 10_000`. */
+  LpTransferFeeProtocolShareMaxExceeded: "invalid_input",
+  /** `redeem_lp_transfer_fees` while nothing is owed — collect first. */
+  NoLpTransferFeesOwed: "unsupported_pool_state",
+  /** The LP fee account holds less than `lp_transfer_fees_owed_protocol + lp_transfer_fees_pending_burn` (state corruption / foreign burn). */
+  LpFeeAccountUnderfunded: "unsupported_pool_state",
 
   // ── protocol-admin ───────────────────────────────────────────────────
   /** New admin cannot be the all-zero pubkey. */
@@ -175,6 +189,8 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   /** T3: protocol-admin cooldown queue (6010–6018); the shared names map above. */
   PendingAccountsMismatch: "cooldown",
   BufferAuthorityMismatch: "invalid_input",
+  /** Proposed F-01 append (6019): a full payload and rent exemption are required. */
+  UpgradeBufferNotLive: "invalid_input",
 
   // ── single-token-liquidity 6030–6032, new in v5.1 ────────────────────
   /** Zap route can't carry an armed transfer hook's extra accounts. */
@@ -200,6 +216,15 @@ const USER_MESSAGES: Record<string, string> = {
     "A virtual balance is below the per-slot minimum of one whole token (max(10^decimals, 1000) raw units). Raise it when creating the pool, " +
     "in the range-manager update, or pick a larger rescale multiplier.",
   InvalidVirtualRescale: "The rescale multiplier must be an integer ≥ 2 (1 is a no-op, 0 would zero every price).",
+  // LP transfer fee (6111–6115)
+  LpTransferFeeMaxExceeded: "The LP transfer fee is capped at 10 % (1_000 bps) — at pool creation and in set_lp_transfer_fee.",
+  LpTransferFeeUnsupported:
+    "This pool's LP mint has no Token-2022 transfer fee extension (created before the LP transfer fee feature, or a legacy SPL LP mint): " +
+    "set_lp_transfer_fee, collect_lp_transfer_fees and redeem_lp_transfer_fees are unavailable for it.",
+  LpTransferFeeProtocolShareMaxExceeded: "The protocol share of collected LP transfer fees is capped at 100 % (10_000 bps).",
+  NoLpTransferFeesOwed: "The protocol has no collected LP transfer fees to redeem on this pool — run collect_lp_transfer_fees first.",
+  LpFeeAccountUnderfunded:
+    "The pool's LP fee account holds less LP than the protocol is owed plus the unburned stream (lp_transfer_fees_owed_protocol + lp_transfer_fees_pending_burn); the pool's fee bookkeeping is inconsistent — do not redeem.",
 };
 
 function buildErrorTable(errors: AnchorIdlError[]): ErrorTable {

@@ -18,6 +18,7 @@ import {
   MAX_CREATOR_FEE_BPS,
   MAX_INITIAL_LP_SUPPLY,
   MAX_LIQUIDITY_FEE_BPS,
+  MAX_LP_TRANSFER_FEE_BPS,
   MIN_INITIAL_LP_SUPPLY,
   MIN_LP_SUPPLY,
 } from "../config";
@@ -47,11 +48,13 @@ import {
 } from "../types/tx-v61";
 import { deriveAta, deriveLpMint, derivePoolPda } from "../utils/pda";
 import { buildContractInstruction } from "./contract-instructions";
-import { calcTokensOutGivenLpIn, calcLpOutGivenExactTokensIn } from "../math/poolMath";
+import { calcTokensOutGivenLpIn, calcJoinRatioAndLp, calcDepositCredit } from "../math/poolMath";
 import { checkFundConcentrationFactor, checkSeedConcentrationFactor, minVirtualBalance } from "../math/concentrationFactor";
-import { MathError } from "../math/fixedPoint";
-import { netOfTransferFee } from "../math/transferFee";
-import { splitExitPayout } from "../math/surgeBucket";
+import { assertInteger, MathError } from "../math/fixedPoint";
+import { grossOfTransferFee, netOfTransferFee } from "../math/transferFee";
+import { navBalances, splitExitPayout } from "../math/surgeBucket";
+import { applyDepositFee } from "../math/liquidityFee";
+import { assertDepositRoundingLoss, checkDepositRounding } from "../math/liquidityRounding";
 import { assertTokensSupported } from "../utils/extensions";
 import { encodeLpMetadataArgs, validateLpMetadata } from "../utils/lpMetadata";
 import { encodeOptionHookConfig, hookCuBudget, requireHookSlice, validateHookConfig } from "../utils/hooks";
@@ -106,6 +109,14 @@ const PINNED: Record<string, string> = {
   set_swaps_enabled: "909acd3af1a94028",
   set_hook_disabled: "f78c7bef72feba57",
   rescale_virtual_balances: "dc51a090bd46a9eb",
+  // LP transfer fee (2026-11-19) additions; `initialize_pool` gained a trailing
+  // `lp_transfer_fee_bps: u16` (re-cut args, discriminator unchanged).
+  set_lp_transfer_fee: "da8162567b51dd69",
+  set_lp_transfer_fee_protocol_share: "634341a9d2099cb2",
+  collect_lp_transfer_fees: "1433ed8b8eea4644",
+  redeem_lp_transfer_fees: "33b96e8af96ebb32",
+  // I-1: `set_lp_transfer_fee` is D-class — kind 11 of the pool-admin cooldown.
+  execute_set_lp_transfer_fee: "e35b25e5e4e08a9b",
 };
 
 function computeDiscriminator(
@@ -154,6 +165,12 @@ const COFFER_POOL_DISC = {
   claimCreatorFees: computeDiscriminator("claim_creator_fees"),
   removeLiquidityBypassHooks: computeDiscriminator("remove_liquidity_bypass_hooks"),
   setSwapsEnabled: computeDiscriminator("set_swaps_enabled"),
+  // LP transfer fee — pinned here (tripwire); the builders live in `clients/lpTransferFee.ts`.
+  setLpTransferFee: computeDiscriminator("set_lp_transfer_fee"),
+  setLpTransferFeeProtocolShare: computeDiscriminator("set_lp_transfer_fee_protocol_share"),
+  collectLpTransferFees: computeDiscriminator("collect_lp_transfer_fees"),
+  redeemLpTransferFees: computeDiscriminator("redeem_lp_transfer_fees"),
+  executeSetLpTransferFee: computeDiscriminator("execute_set_lp_transfer_fee"),
 };
 
 const PROTOCOL_ADMIN_DISC = {
@@ -329,6 +346,7 @@ export function buildAddLiquidityIx(
   assertTokensSupported(pool, params.tokenAmounts.flatMap((amount, i) => amount.gt(new BN(0)) ? [i] : []), "add_liquidity");
   const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
   const minLp = requirePositiveMinimumLp(params.minimumLpAmount, "add_liquidity");
+  assertInteger(params.slippageHundredthsBps ?? cfg.defaults.slippageHundredthsBps, 0, 1_000_000, "slippage");
   if (params.tokenAmounts.length !== pool.tokenCount) {
     // The program rejects this with `InvalidArrayLength` (6064); catching it
     // here costs a round trip less.
@@ -343,16 +361,32 @@ export function buildAddLiquidityIx(
   // (`DepositTooSmall`). v6 credits live legs UP from the ratio, so a
   // positive LP amount never leaves a live leg unmoved.
   if (pool.lpTotalSupply.gt(new BN(0))) {
-    const balances = pool.tokens.map(token => BigInt(token.actualBalance.toString()));
+    const balances = navBalances(
+      pool.tokens.map(token => BigInt(token.actualBalance.toString())),
+      pool.tokens.map((token, i) => BigInt((token.surgeFeesOwed ?? pool.surgeFeesOwed?.[i] ?? new BN(0)).toString()))
+    );
     const amounts = params.tokenAmounts.map(amount => BigInt(amount.toString()));
     const net = amounts.map((amount, i) => netOfTransferFee(pool.tokens[i].transferFee, amount));
     balances.forEach((balance, i) => {
       if ((balance > 0n) !== (amounts[i] > 0n)) throw new Error("add_liquidity: token liveness mismatch");
       if (amounts[i] > 0n && net[i] === 0n) throw new Error(`add_liquidity: ceiling at token index ${i} is fully consumed by its transfer fee`);
     });
-    if (calcLpOutGivenExactTokensIn(balances, net, BigInt(pool.lpTotalSupply.toString())) === 0n) {
+    const supply = BigInt(pool.lpTotalSupply.toString());
+    const { lp: lpGross, ratio } = calcJoinRatioAndLp(balances, net, supply);
+    if (lpGross === 0n) {
       throw new Error("add_liquidity: deposit too small after proportional rounding");
     }
+    const { net: lpOut } = applyDepositFee(lpGross, pool.depositFeeBps ?? 0);
+    if (lpOut === 0n) throw new Error("add_liquidity: DepositFeeConsumesAll");
+    if (lpOut < BigInt(minLp.toString())) throw new Error("add_liquidity: InsufficientLpOut");
+    const credits = balances.map(nav => calcDepositCredit(nav, ratio));
+    credits.forEach((credit, i) => {
+      if (credit > net[i]) throw new Error("add_liquidity: MathOverflow");
+      checkDepositRounding(balances[i], credit, lpGross, supply, i);
+      if (grossOfTransferFee(pool.tokens[i].transferFee, credit) > amounts[i]) throw new Error("add_liquidity: transfer-fee gross-up exceeds ceiling");
+    });
+    assertDepositRoundingLoss(balances, credits, supply, lpGross,
+      params.slippageHundredthsBps ?? cfg.defaults.slippageHundredthsBps);
   }
 
   const data = Buffer.concat([
@@ -881,7 +915,8 @@ function u16Bps(value: number, name: string, max: number, errorName: string): Bu
  *    lp_metadata: LpMetadataArgs,            // T1  (3 Borsh strings)
  *    creator_fee_bps: u16,                   // T14
  *    deposit_fee_bps: u16, withdraw_fee_bps: u16,   // T7
- *    hook_config: Option<HookConfig>)        // T9  (1 tag byte [+ 47])
+ *    hook_config: Option<HookConfig>,        // T9  (1 tag byte [+ 47])
+ *    lp_transfer_fee_bps: u16)               // LP transfer fee (2026-11-19), LAST
  * ```
  *
  * Accounts `[config, pool w, lp_mint w, payer w s, lp_token_program,
@@ -890,11 +925,15 @@ function u16Bps(value: number, name: string, max: number, errorName: string): Bu
  * the `hookConfig.accountsLen` accounts of the hook slice.
  *
  * `lpTokenProgram` MUST be Token-2022 (v6.1 LP mints carry in-mint
- * metadata); the LP mint's decimals are pinned to 9 on-chain. The metadata
- * and the three bps are validated with the program's rules before encoding
- * (`LpNameInvalid` 6076 / `LpSymbolInvalid` 6077 / `LpUriInvalid` 6078,
- * `CreatorFeeBpsMaxExceeded` 6079, `LiquidityFeeMaxExceeded` 6083,
- * `HookInvalidConfig` 6098).
+ * metadata and, since the LP transfer fee, a `TransferFeeConfig` whose
+ * authorities are the pool PDA); the LP mint's decimals are pinned to 9
+ * on-chain. The metadata and the four bps are validated with the program's
+ * rules before encoding (`LpNameInvalid` 6076 / `LpSymbolInvalid` 6077 /
+ * `LpUriInvalid` 6078, `CreatorFeeBpsMaxExceeded` 6079,
+ * `LiquidityFeeMaxExceeded` 6083, `HookInvalidConfig` 6098,
+ * `LpTransferFeeMaxExceeded` 6111). `lpTransferFeeBps` defaults to 0 ("no
+ * fee for now"; the pool admin can raise it later with
+ * `set_lp_transfer_fee`, up to 10 %).
  */
 export function buildInitializePoolIx(
   cfg: CofferConfig,
@@ -953,6 +992,7 @@ export function buildInitializePoolIx(
     u16Bps(params.depositFeeBps ?? 0, "depositFeeBps", MAX_LIQUIDITY_FEE_BPS, "LiquidityFeeMaxExceeded"),
     u16Bps(params.withdrawFeeBps ?? 0, "withdrawFeeBps", MAX_LIQUIDITY_FEE_BPS, "LiquidityFeeMaxExceeded"),
     encodeOptionHookConfig(hookConfig),
+    u16Bps(params.lpTransferFeeBps ?? 0, "lpTransferFeeBps", MAX_LP_TRANSFER_FEE_BPS, "LpTransferFeeMaxExceeded"),
   ]);
 
   // There is no `tokens` ix arg — the pool's token set is defined SOLELY by

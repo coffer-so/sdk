@@ -22,9 +22,9 @@ Pick by the program version you talk to:
 
 ## Contract compatibility
 
-Source: `contracts-v6.1` at `v6.1-rc2` (IDL sha256 pins in
+Source: `contracts-v6.1` at `c9f8f1c` (LP transfer fee + review fixes + X1 linear burn stream on the `v6.1-rc2` ABI; IDL sha256 pins in
 [CONTRACT_COMPATIBILITY.md](docs/CONTRACT_COMPATIBILITY.md)). Vendored IDLs
-contain 110 instructions (51 + 55 + 4) and 81 events (41 + 38 + 2); raw
+contain 118 instructions (56 + 58 + 4) and 87 events (45 + 40 + 2); raw
 builders, generated types and event decoding cover that ABI.
 Program addresses are configuration values; this checkout has no verified owner
 deployment receipt for installed devnet v6.1. Final stable contract integration
@@ -259,7 +259,7 @@ insufficient funds) short-circuit.
 | `PlannedZapClient` | `quote`, `replayAt`, `ensureUserTokenAccountIxs`, `resolveExtraAccounts`, `buildIx`, `buildTx`, `walletLookupAddresses`, `prepareWalletLookupTable`, `waitForWalletLookupTable`, `poolLookupTable`, `compileTransaction`; see [PLANNED_ZAP.md](docs/PLANNED_ZAP.md) |
 | `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializePoolIx` |
 | `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 55 protocol-admin instructions |
-| Generic ABI | `buildContractInstruction` for all 110 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 81 events; `parseTransactionEvents` with invoke-stack attribution ([EVENTS.md](docs/EVENTS.md)) |
+| Generic ABI | `buildContractInstruction` for all 118 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 87 events; `parseTransactionEvents` with invoke-stack attribution ([EVENTS.md](docs/EVENTS.md)) |
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation; `buildPlannedZapIx`, `stateCommitment`, `compilePlannedZapTransaction`; `resolveTransferExtraAccounts` |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 | XP snapshots | Frozen results of finished epochs and campaigns — `getLeaderboardEpochSnapshot`, `getCampaignSnapshotTop`, …; see [XP snapshots guide](docs/XP_SNAPSHOTS.md) |

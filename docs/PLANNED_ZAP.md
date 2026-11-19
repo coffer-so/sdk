@@ -12,6 +12,23 @@ The SDK ships the planner in TypeScript (`src/math/planner.ts`, a port of
 `programs/single-token-liquidity/src/planner.rs`) on top of the ported pool
 math, so quotes run in the browser with no Rust and no planner service.
 
+The pure planner mirrors the proposed contract's per-leg rounding bound;
+D6 ratification is pending. Bisection stops on non-monotone 6110, exposing
+`deposit_rounding_search_incomplete` or a feasible quote's `searchLimitation`.
+It does not exhaustively search aligned plans. These SDK diagnostics differ
+from the frozen Rust search; replay pricing and guard ordering remain shared.
+`PlannedZapClient` additionally applies the [caller rounding policy](LIQUIDITY_ROUNDING.md)
+to the final join, using the quote's slippage tolerance. Its builder replays
+the plan before checking again; a positive manual LP floor cannot bypass it.
+The pure planner and the raw instruction encoder remain contract-exact
+lower-level tools and do not apply that client policy automatically.
+
+The zap is unavailable while any slot is bucket-only
+(`actual == 0 < surge_fees_owed`): the join needs that NAV leg, but a swap
+cannot buy its empty reserves. Use multi-token `add_liquidity`, or revive
+the slot by swapping that token into the pool or calling
+`fund_sidelined_token` as the pool admin. Existing exits remain available.
+
 ## Flow
 
 ```ts

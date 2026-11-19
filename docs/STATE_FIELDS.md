@@ -78,7 +78,7 @@ Defaults on an unmigrated 1683-byte account: 0 / `[]` / `false` / `PublicKey.def
 | `pending_set_range_manager` | `{eta, manager: pubkey, enabled: bool}` | 1940 | `pendingActions[7]` | same | kind 7 |
 | `pending_set_range_manager_config` | `{eta, u16, u16, u32, u32, u32}` | 1981 | `pendingActions[8]` | same | kind 8 |
 | `pending_set_max_selloff` | `{eta, params_hash: [u8; 32]}` | 2005 | `pendingActions[9]` (`paramsHash` hex) | same | kind 9 |
-| `pending_set_token_active` | `{eta, token_index: u8}` | 2045 | `pendingActions[10]` | same | kind 10 |
+| `pending_set_token_active` | `{eta, token_index: u8}` | 2045 | `pendingActions[10]` | same | kind 10 (kind 11 sits @2150, after the LP transfer fee block) |
 | `hook_program` | `pubkey` | 2054 | `hookProgram` | `hook.program` (`hook = null` when default) | T9 |
 | `hook_flags` | `u16` | 2086 | `hookFlags` | `hook.flags` | T9 |
 | `hook_disabled` | `u8` | 2088 | `hookDisabled` | `hook.disabled`, `hook.active` | T9 |
@@ -87,7 +87,13 @@ Defaults on an unmigrated 1683-byte account: 0 / `[]` / `false` / `PublicKey.def
 | `hook_accounts_len` | `u8` | 2101 | `hookAccountsLen` | `hook.accountsLen` | T9 |
 | `safety_flags` | `u16` | 2102 | `safetyFlags` | `seeded` (bit 0), `protocolRestrictedTokenMask` (bits 1–10), `protocolSwapsRestricted` (bit 11), `protocolRangeManagerRestricted` (bit 12), `protocolRangeManagerWasEnabled` (bit 13); `SAFETY_FLAG_*` constants | rc2 |
 | `range_manager_weight_anchors` | `[u16; 10]` | 2104 | `rangeManagerWeightAnchors` | `rangeManagerWeightAnchors` (first `tokenCount`) | rc2 |
-| `reserved_v61` | `[u8; 180]` | 2124 | `reservedV61: Buffer` | Omitted (`layoutDrift` lists a non-zero reserve) | — |
+| `lp_transfer_fee_protocol_share_bps` | `u16` | 2124 | `lpTransferFeeProtocolShareBps` | `lpTransferFeeProtocolShareBps` | LP transfer fee |
+| `lp_transfer_fees_owed_protocol` | `u64` | 2126 | `lpTransferFeesOwedProtocol` | `lpTransferFeesOwedProtocol` (LP held in `deriveLpFeeAccount`) | LP transfer fee |
+| `lp_transfer_fees_pending_burn` | `u64` | 2134 | `lpTransferFeesPendingBurn` | `lpTransferFeesPendingBurn` (burn stream; fee account == owed + pending) | LP transfer fee L-1 |
+| `lp_transfer_fee_burn_last_ts` | `i64` | 2142 | `lpTransferFeeBurnLastTs` | `lpTransferFeeBurnLastTs` (start of the stream's current linear segment — the last collect that burned; `lpTransferFeeDrip`) | LP transfer fee L-1 |
+| `pending_set_lp_transfer_fee` | `{eta, bps: u16}` | 2150 | `pendingActions[11]` | same | kind 11 (I-1, outside the T3 block) |
+| `lp_transfer_fee_burn_end_ts` | `i64` | 2160 | `lpTransferFeeBurnEndTs` | `lpTransferFeeBurnEndTs` (when `pending_burn` is fully burnable; `== last_ts` while nothing is pending, 0 on a migrated pool; `lpBurnStreamOf` builds the triple) | LP transfer fee X1 (carved AFTER slot 11: 2150 was taken first) |
+| `reserved_v61` | `[u8; 136]` | 2168 | `reservedV61: Buffer` | Omitted (`layoutDrift` lists a non-zero reserve) | — |
 
 Total size: **2304 bytes**. `pendingActionsMask` (bit `kind` ⇔ `eta != 0`) is derived; `pendingStatus(eta, chainNow)` classifies a slot as none / waiting / ready / expired against the Clock sysvar (14-day grace).
 
@@ -151,9 +157,10 @@ Use `decodeTreasuryAccount(data)` (raw offsets, accepts 786 / 818 / 1624 bytes) 
 | `pending_set_delay` … `pending_program_op` (kinds 1..12) | typed slots, see `TREASURY_LAYOUT` | 834 … 1426 |
 | `pending_pool_rescale_virtual_balances` (v6.1 T22, kind 13) | `{ eta: i64, pool: pubkey, multiplier: u64 }` (48 B) | 1499 |
 | `pending_pool_enable_range_manager` | `PendingPoolTarget` | 1547 |
-| `reserved_v61` | `[u8; 37]` | 1587 |
+| `pending_pool_set_lp_transfer_fee_protocol_share` (LP transfer fee, kind 15) | `{ eta: i64, bps: u16, pool_tag: [u8; 16] = sha256(pool)[..16] }` (26 B) | 1587 |
+| `reserved_v61` | `[u8; 11]` | 1613 |
 
-Current account length: **1624 bytes** (v3) including discriminator; v2 = 818, v1 = 786 (no supervisor). T22 carved the kind-13 slot from the v3 reserve (125 → 77 B; rc2 adds the kind-14 restoration slot, 77 → 37 B); `LEN` is unchanged. The v6.1 program refuses every typed Treasury instruction until the admin runs `migrate_treasury_layout_v61` (`treasuryNeedsLayoutMigration`).
+Current account length: **1624 bytes** (v3) including discriminator; v2 = 818, v1 = 786 (no supervisor). T22 carved the kind-13 slot from the v3 reserve (125 → 77 B; rc2 adds the kind-14 restoration slot, 77 → 37 B; the LP transfer fee adds the compact kind-15 slot, 37 → 11 B); `LEN` is unchanged. The v6.1 program refuses every typed Treasury instruction until the admin runs `migrate_treasury_layout_v61` (`treasuryNeedsLayoutMigration`).
 
 Bytes 74..90 of the config and 1651..1659 of the pool held the Token-2022 extension-policy bitmaps until v6.1. The policy was removed (T19): no code path reads them, existing accounts still carry their old values, fresh accounts write zero. They are exposed raw (`_deprecated_extension_policy`, `deprecatedBannedExtensions`) only so every later field keeps its byte offset; never interpret them.
 

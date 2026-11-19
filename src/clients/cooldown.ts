@@ -18,8 +18,11 @@
  * unit variants `{ LockLiquidityFees: {} }` — use the typed constructors.
  */
 import { PublicKey, TransactionInstruction, type AccountMeta } from "@solana/web3.js";
+import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
-import { CofferConfig } from "../config";
+import { CofferConfig, MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS } from "../config";
+import { validateLpTransferFeeBps } from "../math/lpTransferFee";
+import { deriveLpMint } from "../utils/pda";
 import {
   POOL_ACTION_KIND,
   POOL_ACTION_KINDS,
@@ -66,6 +69,14 @@ export const PoolActions = {
   setMaxSelloff: (params: SelloffParams[]): PoolAction => ({ SetMaxSelloff: { params: params.map(selloffParamsArg) } }),
   /** Queues reactivation; execute applies `is_active = true`, irrespective of intervening deactivation. */
   setTokenActive: (tokenIndex: number): PoolAction => ({ SetTokenActive: { token_index: tokenIndex } }),
+  /**
+   * I-1 (kind 11, tag 10): the LP mint's transfer fee, `0..=1_000` bps
+   * (`LpTransferFeeMaxExceeded` 6111). Executed through
+   * `execute_set_lp_transfer_fee`, which needs the LP mint and Token-2022
+   * next to the pool (`buildExecutePoolActionIx` derives them); refused
+   * once the liquidity fees are locked (`LiquidityFeesLocked`).
+   */
+  setLpTransferFee: (bps: number): PoolAction => ({ SetLpTransferFee: { bps: validateLpTransferFeeBps(bps) } }),
 } as const;
 
 /** `PoolAction` variant name → pending-slot kind (`cancel_pool_action` arg; bit of `pending_actions_mask`). */
@@ -89,6 +100,7 @@ export const POOL_EXECUTE_INSTRUCTION = {
   SetRangeManagerConfig: "execute_set_range_manager_config",
   SetMaxSelloff: "execute_set_max_selloff",
   SetTokenActive: "execute_set_token_active",
+  SetLpTransferFee: "execute_set_lp_transfer_fee",
 } as const satisfies Record<PoolActionKindName, string>;
 
 export function poolActionKindName(kind: number | PoolActionKindName): PoolActionKindName {
@@ -118,7 +130,10 @@ export function buildCancelPoolActionIx(cfg: CofferConfig, pool: PublicKey, auth
  * `execute_<kind>` for a ready slot. Kind 9 (`SetMaxSelloff`) takes the
  * SAME `params` vector that was proposed (the slot stores its hash,
  * `PendingPayloadMismatch` otherwise). Kind 0 maps to
- * `accept_pool_admin_transfer`, signed by the NOMINEE (`new_admin`).
+ * `accept_pool_admin_transfer`, signed by the NOMINEE (`new_admin`). Kind 11
+ * (`SetLpTransferFee`) maps to `execute_set_lp_transfer_fee` with the
+ * direct setter's accounts `[pool w, lp_mint w, authority s, Token-2022]`
+ * (the LP mint PDA is derived from `pool`).
  */
 export function buildExecutePoolActionIx(
   cfg: CofferConfig,
@@ -137,7 +152,11 @@ export function buildExecutePoolActionIx(
   if (name === "TransferPoolAdmin") {
     return buildContractInstruction(cfg, "cofferPool", "accept_pool_admin_transfer", {}, { pool, new_admin: authority });
   }
-  return buildContractInstruction(cfg, "cofferPool", ixName as Exclude<typeof ixName, "accept_pool_admin_transfer" | "execute_set_max_selloff">, {}, { pool, authority });
+  if (name === "SetLpTransferFee") {
+    const [lpMint] = deriveLpMint(cfg.programs.cofferPool, pool);
+    return buildContractInstruction(cfg, "cofferPool", "execute_set_lp_transfer_fee", {}, { pool, lp_mint: lpMint, authority, lp_token_program: TOKEN_2022_PROGRAM_ID });
+  }
+  return buildContractInstruction(cfg, "cofferPool", ixName as Exclude<typeof ixName, "accept_pool_admin_transfer" | "execute_set_max_selloff" | "execute_set_lp_transfer_fee">, {}, { pool, authority });
 }
 
 // ─── Protocol scope (payload helpers; instructions live on AdminClient) ──────
@@ -170,6 +189,17 @@ export const ProtocolActions = {
     if (m.isNeg() || m.bitLength() > 64) throw new Error("PoolRescaleVirtualBalances: multiplier must be an unsigned 64-bit integer");
     if (m.ltn(2)) throw new Error("PoolRescaleVirtualBalances: multiplier must be ≥ 2 (InvalidVirtualRescale)");
     return { PoolRescaleVirtualBalances: { pool, multiplier: m } };
+  },
+  /**
+   * LP transfer fee (kind 15): the protocol share (0..=10_000 bps) of every
+   * LP transfer fee `collect_lp_transfer_fees` books for `pool`. The slot
+   * pins `sha256(pool)[..16]` (`treasuryPoolTag`), not the pool key.
+   */
+  poolSetLpTransferFeeProtocolShare: (pool: PublicKey, bps: number): ProtocolAction => {
+    if (!Number.isInteger(bps) || bps < 0 || bps > MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS) {
+      throw new Error(`PoolSetLpTransferFeeProtocolShare: bps must be an integer 0..=${MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS} (LpTransferFeeProtocolShareMaxExceeded)`);
+    }
+    return { PoolSetLpTransferFeeProtocolShare: { pool, bps } };
   },
 } as const;
 
@@ -212,6 +242,7 @@ export const PROTOCOL_EXECUTE_INSTRUCTIONS = {
   ProgramOp: ["execute_transfer_upgrade_authority", "execute_freeze_pool_program", "execute_close_pool_program"],
   PoolRescaleVirtualBalances: ["execute_pool_rescale_virtual_balances"],
   PoolEnableRangeManager: ["execute_pool_enable_range_manager"],
+  PoolSetLpTransferFeeProtocolShare: ["execute_pool_set_lp_transfer_fee_protocol_share"],
 } as const satisfies Record<ProtocolActionKindName, readonly string[]>;
 
 /** Remaining accounts `propose_action` needs for `action` (the upgrade buffer for `UpgradeProgram`, else none). */

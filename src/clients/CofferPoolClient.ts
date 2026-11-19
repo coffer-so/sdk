@@ -25,6 +25,7 @@ import {
 import { divDown } from "../math/fixedPoint";
 import { navBalances, splitDepositCredit, calculateExitPayout } from "../math/surgeBucket";
 import { applyDepositFee, lpBurnNetOfWithdrawFee } from "../math/liquidityFee";
+import { assertDepositRoundingLoss, checkDepositRounding, DepositRoundingLossError } from "../math/liquidityRounding";
 import { lpPositionValue, lpPriceUsd } from "../math/lpPrice";
 import { applyRescale, checkFundConcentrationFactor, checkSeedConcentrationFactor, concentrationFactorViolations, minRescaleMultiplier } from "../math/concentrationFactor";
 import { MathError } from "../math/fixedPoint";
@@ -287,6 +288,14 @@ export class CofferPoolClient {
       },
       layoutDrift: raw.layoutDrift,
       lpMetadata: lpMintAcc.tokenMetadata,
+      // LP transfer fee: the LP mint's TransferFeeConfig (null on a pre-feature mint) + the pool's protocol-share block.
+      lpTransferFeeConfig: lpMintAcc.transferFeeConfig,
+      lpTransferFee: lpMintAcc.transferFeeConfig ? selectEpochFee(lpMintAcc.transferFeeConfig, BigInt(chainEpoch)) : null,
+      lpTransferFeeProtocolShareBps: raw.lpTransferFeeProtocolShareBps,
+      lpTransferFeesOwedProtocol: raw.lpTransferFeesOwedProtocol,
+      lpTransferFeesPendingBurn: raw.lpTransferFeesPendingBurn,
+      lpTransferFeeBurnLastTs: raw.lpTransferFeeBurnLastTs,
+      lpTransferFeeBurnEndTs: raw.lpTransferFeeBurnEndTs,
       // v6.1 (T22): a legacy pool at `V ≤ A` is frozen for swaps / deposits until rescaled.
       concentrationFactorViolations: concentrationFactorViolations(tokens.map((t) => BigInt(t.virtualBalance.toString())), tokens.map((t) => BigInt(t.actualBalance.toString()))),
     };
@@ -553,6 +562,7 @@ export class CofferPoolClient {
         virtualBalancesAfter: pool.tokens.map(t => t.virtualBalance.clone()),
         lpGross: lpBn.clone(),
         depositFeeLp: new BN(0),
+        depositFeeEffectiveHundredthsBpsCeil: 0,
         depositFeeBps: 0,
         lpOut: lpBn.clone(),
         minimumLpAmount: lpBn.clone(),
@@ -651,6 +661,12 @@ export class CofferPoolClient {
    * Liveness is keyed on NAV: a slot with `nav_i > 0` needs a positive
    * ceiling, a slot with `nav_i == 0` must be `0` (`TokenLivenessMismatch`).
    * `DepositTooSmall` / `DepositFeeConsumesAll` are `amount_too_small`.
+   * Proposed contract guard: reject 6110 / `deposit_rounding_loss` above
+   * ceil(NAV * gross LP / supply) + floor(fair / 1000) + 1 per leg.
+   * D6 owner ratification is pending. Caller slippage cannot relax it.
+   * Additional client policy: reject `deposit_rounding_loss` when any credited leg's
+   * gross-LP value at the pre-join NAV loses more than the supplied slippage
+   * tolerance. Deposit/transfer fees are separate explicitly quoted costs.
    *
    * Not applicable to the seed deposit (LP supply == 0): see `quoteSeedDeposit`.
    */
@@ -672,6 +688,8 @@ export class CofferPoolClient {
       return err("invalid_input", "tokenAmounts must be u64 values");
     }
     const slip = slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
+    try { applySlippage(1n, slip); }
+    catch (e) { return err("invalid_input", "slippageHundredthsBps must be an integer in 0..1000000", e); }
     try {
       const actual = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
       const surge = pool.tokens.map((t) => tokenSurgeBucket(t, pool));
@@ -700,6 +718,7 @@ export class CofferPoolClient {
         const leg = splitDepositCredit(actual[i], surge[i], ratio);
         const credit = leg.totalCredit;
         if (credit > net[i]) return err("invalid_input", `Credit exceeds the net ceiling at token index ${i} (program would fail with MathOverflow)`);
+        checkDepositRounding(navs[i], credit, lpGross, supply, i);
         const charge = grossOfTransferFee(pool.tokens[i].transferFee, credit);
         if (charge > amounts[i]) return err("invalid_input", `Transfer-fee gross-up exceeds the ceiling at token index ${i}; raise the ceiling by at least ${(charge - amounts[i]).toString()}`);
         u64(actual[i] + leg.actualIn, "reserve balance");
@@ -712,6 +731,8 @@ export class CofferPoolClient {
         credited.push(credit); charged.push(charge); virtualAfter.push(next); buyIn.push(leg.bucketIn); actualIn.push(leg.actualIn);
       }
       const unspent = amounts.map((a, i) => a - charged[i]);
+      assertDepositRoundingLoss(navs, credited, supply, lpGross, slip);
+      const minimumLp = applySlippage(lpOut, slip);
       const bnList = (xs: bigint[]) => xs.map((x) => new BN(x.toString()));
       return ok({
         tokenAmounts,
@@ -727,12 +748,14 @@ export class CofferPoolClient {
         virtualBalancesAfter: bnList(virtualAfter),
         lpGross: new BN(lpGross.toString()),
         depositFeeLp: new BN(depositFeeLp.toString()),
+        depositFeeEffectiveHundredthsBpsCeil: Number((depositFeeLp * 1_000_000n + lpGross - 1n) / lpGross),
         depositFeeBps,
         lpOut: new BN(lpOut.toString()),
-        minimumLpAmount: new BN(applySlippage(lpOut, slip).toString()),
+        minimumLpAmount: new BN((minimumLp > 0n ? minimumLp : 1n).toString()),
         limitingTokenIndex: limiting,
       });
     } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
       return err("math_overflow", `Add-liquidity quote failed: ${e instanceof Error ? e.message : String(e)}`, e);
     }
   }
@@ -874,6 +897,7 @@ export class CofferPoolClient {
     try {
       return ok(buildAddLiquidityTx(this.config, poolRes.data, params));
     } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
       return err("tx_build_failed", "Failed to build add_liquidity tx", e);
     }
   }

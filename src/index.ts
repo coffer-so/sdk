@@ -83,7 +83,8 @@ export { selectEpochFee, transferFeeOf, netOfTransferFee, inverseTransferFee, gr
 export type { TransferFee, TransferFeeConfig } from "./math/transferFee";
 export { validateWeights, calcSpotPrice } from "./math/weightedMath";
 export { computeAllocations } from "./math/singleToken";
-export { quoteZap, replay, swapInPool, validatePlanBudget, validateQuotePool, SimError, isSimFailure } from "./math/planner";
+export { quoteZap, replay, swapInPool, validatePlanBudget, validateQuotePool, assertZapDepositRoundingLoss, SimError, isSimFailure } from "./math/planner";
+export { assertDepositRoundingLoss, checkDepositRounding, sizeDepositForLp, DepositRoundingLossError } from "./math/liquidityRounding";
 export type { QuotePool, ZapQuote, PlannerSwapQuote } from "./math/planner";
 export { applySlippage, applySwapFee, lpBalances, priceImpactHbps } from "./math/slippage";
 export { computeSelloffWindow, projectSelloffWindow } from "./math/maxSelloff";
@@ -345,4 +346,31 @@ export type {
 } from "./types/events";
 
 export { effectiveScaledUiMultiplier, rawAmountToScaledUiString, scaledUiAmountToRaw, scaledUiPriceToUnscaledPrice, unscaledPriceToScaledUiPrice } from "./utils/scaledUi";
+
+// ─── LP transfer fee (2026-11-19): Token-2022 TransferFeeConfig on new LP mints ─
+export {
+  LP_TRANSFER_FEE_PRECISION, MAX_LP_TRANSFER_FEE_BPS, LP_TRANSFER_FEE_MAXIMUM, MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS, DEFAULT_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS,
+  LP_TRANSFER_FEE_BURN_WINDOW_SECS,
+} from "./config";
+export {
+  validateLpTransferFeeBps, validateLpTransferFeeProtocolShareBps, lpTransferFeeAt, lpTransferFeeBpsAt, scheduledLpTransferFeeBps, lpTransferFeeOf, lpNetOfTransferFee,
+  lpReceivedAfterTransferFee, lpGrossForNet, splitLpTransferFee, previewLpTransferFeeCollection, lpTransferFeeDrip, quoteLpTransferFeeBurnStream,
+  lpTransferFeeSettle, lpTransferFeeSchedule, collectLpTransferFeeStep, lpBurnStreamOf,
+} from "./math/lpTransferFee";
+export type { LpFeeSplit, LpBurnStream, LpTransferFeeCollectStep, LpTransferFeeBurnStreamQuote, LpTransferFeeCollectionPreview } from "./math/lpTransferFee";
+export {
+  LP_TRANSFER_FEE_DISC, SET_LP_TRANSFER_FEE_KIND, deriveLpFeeAccount, lpFeeAccountsOf, treasuryPoolTag, treasuryPoolTagHex, readLpTransferFeeConfig, fetchLpTransferFeeConfig, lpTransferFeeSupported,
+  buildSetLpTransferFeeIx, buildProposeSetLpTransferFeeIx, buildCancelSetLpTransferFeeIx, buildExecuteSetLpTransferFeeIx,
+  buildSetLpTransferFeeProtocolShareIx, buildPoolSetLpTransferFeeProtocolShareIx, buildExecutePoolSetLpTransferFeeProtocolShareIx,
+  buildCollectLpTransferFeesIx, buildCreateLpFeeAccountIx, buildCollectLpTransferFeesTx, redeemLpTransferFeesRemainingAccounts, buildRedeemLpTransferFeesIx,
+  buildPoolRedeemLpTransferFeesIx, quoteRedeemLpTransferFees,
+} from "./clients/lpTransferFee";
+export type {
+  FetchedLpTransferFeeConfig, SetLpTransferFeeParams, PoolSetLpTransferFeeProtocolShareParams, CollectLpTransferFeesParams, CollectLpTransferFeesTxParams,
+  RedeemLpTransferFeesParams, PoolRedeemLpTransferFeesParams, RedeemLpTransferFeesQuote,
+} from "./clients/lpTransferFee";
+export {
+  LP_MINT_METADATA_POINTER_TLV_SIZE, LP_MINT_TRANSFER_FEE_TLV_SIZE, LP_MINT_BASE_SIZE_PRE_FEE, lpTokenAccountSize, lpTokenAccountSizeForMint, LP_TOKEN_ACCOUNT_SIZE_WITH_TRANSFER_FEE,
+} from "./utils/lpMetadata";
+export type { LpTransferFeeUpdatedEvent, LpTransferFeeProtocolShareUpdatedEvent, LpTransferFeesCollectedEvent, LpTransferFeesRedeemedEvent } from "./types/events";
 export type { ScaledUiAmountConfig, InterestBearingConfig, ConfidentialTransferMintConfig } from "./parsers/mintAccount";

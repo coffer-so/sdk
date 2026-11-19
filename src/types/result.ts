@@ -35,6 +35,10 @@ export type SdkErrorCode =
   | "unsupported_token_extension"
   /** The amount is too small to survive fees/rounding (`AmountFullyConsumedByTransferFee`, `DepositTooSmall`). */
   | "amount_too_small"
+  /** Proposed contract error 6110 or stricter SDK token-credit / LP rounding policy. */
+  | "deposit_rounding_loss"
+  /** Non-monotone LP rounding interrupted search; this does not prove no aligned plan exists. */
+  | "deposit_rounding_search_incomplete"
   | "slippage_exceeded"
   | "simulation_failed"
   | "tx_build_failed"

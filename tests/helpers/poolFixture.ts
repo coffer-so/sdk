@@ -81,7 +81,7 @@ export function mockPool(o: MockPoolOptions = {}): PoolInfo {
     active: o.hook.active ?? !(o.hook.disabled ?? false), feeMin: o.hook.feeMin ?? 0, feeMax: o.hook.feeMax ?? 0,
     maxCu: o.hook.maxCu ?? 50_000, accountsLen: o.hook.accountsLen ?? 3,
   };
-  const etas = o.pendingEtas ?? Array(11).fill(0);
+  const etas = o.pendingEtas ?? Array(12).fill(0);
   const pendingActions = POOL_ACTION_KINDS.map((name, kind) => ({ kind, name, eta: bn(etas[kind] ?? 0), payload: {} as Record<string, never> }));
   return {
     address, config: configKey, bump: 254, poolId, tokenCount: n, tokens, unsupportedTokenIndices: [], lpMint, lpTokenProgram,

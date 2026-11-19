@@ -92,7 +92,7 @@ exposed as `actionKind`. The full per-event field tables are in the contracts'
 
 1. **Decoder table** (`parsers/events.ts`): replace the v6 discriminators with
    `EVENT_TABLES` (= `events ∪ addedEvents ∪ recutEvents[*].discriminator`
-   of `abi-pins.json`, 81 events: 41 / 38 / 2). Keep the v6 table behind a
+   of `abi-pins.json`, 87 events: 45 / 40 / 2 after the LP transfer fee). Keep the v6 table behind a
    version switch for history — `LEGACY_EVENT_DISCRIMINATORS` tells a v6 log
    from garbage. Decode **by program id with the invoke stack**
    (`parseTransactionEvents(logs, { cofferPool, protocolAdmin, singleTokenLiquidity })`),
@@ -158,9 +158,9 @@ raised `--log-messages-bytes-limit` or replay through RPC on `Log truncated`
 
 `scripts/generate-event-fixtures.cjs` samples every event of the three IDLs
 deterministically, encodes it with an independent Borsh encoder and writes
-`tests/fixtures/events/*.json` (82 fixtures for 81 events: `Option` fields get a `some` and
+`tests/fixtures/events/*.json` (88 fixtures for 87 events: `Option` fields get a `some` and
 a `none` variant). `tests/v61-events.test.ts` decodes each through both APIs,
 compares field by field, re-encodes the decoded value to the fixture bytes and
 checks the pins, the legacy / retired handling, truncation, bad tags and CPI
 attribution; `tests/contract-abi.test.ts` covers the raw IDL round trip of all
-81 events.
+87 events.

@@ -28,7 +28,8 @@ import { tokenTransferBlockers, unsupportedMintExtensions } from "../../utils/ex
 import { selectEpochFee } from "../../math/transferFee";
 import { applySlippage } from "../../math/slippage";
 import { MathError } from "../../math/fixedPoint";
-import { quoteZap, replay, QuotePool, SimError, ZapQuote } from "../../math/planner";
+import { quoteZap, replay, assertZapDepositRoundingLoss, QuotePool, SimError, ZapQuote } from "../../math/planner";
+import { DepositRoundingLossError } from "../../math/liquidityRounding";
 import { concentrationFactorViolations } from "../../math/concentrationFactor";
 import { SwapLeg } from "../../math/swapSim";
 import { resolveTransferExtraAccounts, TransferLeg, UnsupportedTransferProfileError } from "../../utils/transferProfile";
@@ -53,14 +54,20 @@ export interface PlannedZapQuote {
   plan: AllocationPlan;
   /** Exact replay of the plan on the snapshot (bigint). */
   economics: ZapQuote;
+  /** A feasible result may be suboptimal because a non-monotone LP grid stopped search. */
+  searchLimitation?: "deposit_rounding_grid";
   /** `economics.lp` as BN: the LP the user receives, NET of the pool's deposit fee (v6.1 T7). */
   estimatedLp: BN;
   /** LP the proportional join computes before the deposit fee (`economics.lpGross`). */
   estimatedLpGross: BN;
   /** `estimatedLpGross − estimatedLp`: withheld by the deposit fee. */
   depositFeeLp: BN;
-  /** `estimatedLp` after slippage — the instruction's only floor; always > 0. */
+  /** Effective exact LP fee is depositFeeLp / estimatedLpGross; this display rate is ceiled. */
+  depositFeeEffectiveHundredthsBpsCeil: number;
+  /** `max(1, estimatedLp after slippage)` — the instruction's only floor. */
   minimumLp: BN;
+  /** Client-only per-leg join rounding-loss budget; independent of the on-chain minimumLp. */
+  slippageHundredthsBps?: number;
   /**
    * v6.1 (T9): where the legs' swap fee rate came from. `"hook_dynamic_unknown"`
    * means the pool has an active `DYNAMIC_FEE` hook and no `hookFeeOverride`
@@ -130,6 +137,8 @@ export class PlannedZapClient {
     const amount = typeof amountIn === "bigint" ? amountIn : BigInt(amountIn.toString());
     if (amount <= 0n || amount > (1n << 64n) - 1n) return err("invalid_input", "amountIn must be a positive u64");
     const slip = options.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
+    try { applySlippage(1n, slip); }
+    catch (e) { return err("invalid_input", "slippageHundredthsBps must be an integer in 0..1000000", e); }
     const validForSlots = options.validForSlots ?? DEFAULT_VALID_FOR_SLOTS;
     if (!Number.isInteger(validForSlots) || validForSlots < 1 || validForSlots > MAX_VALID_FOR_SLOTS) return err("invalid_input", `validForSlots must be 1..${MAX_VALID_FOR_SLOTS}`);
     if (options.nowSeconds !== undefined && (!Number.isSafeInteger(options.nowSeconds) || options.nowSeconds < 0)) return err("invalid_input", "nowSeconds must be a non-negative integer");
@@ -233,14 +242,17 @@ export class PlannedZapClient {
     let economics: ZapQuote;
     try {
       economics = quoteZap(quotePool, tokenInIndex, amount);
+      assertZapDepositRoundingLoss(quotePool, economics, slip);
     } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
+      if (e instanceof SimError && e.code === "DepositRoundingSearchIncomplete") return err("deposit_rounding_search_incomplete", e.message, e);
       if (e instanceof SimError || e instanceof MathError) return err(e instanceof SimError && e.code === "AmountTooSmall" ? "amount_too_small" : "invalid_input", `Planned zap quote failed: ${e.message}`, e);
       throw e;
     }
     // `economics.lp` is NET of the deposit fee (T7); the floor must be > 0
     // (a zero `minimum_lp` would disable the only slippage guard, T8).
-    const minimumLp = applySlippage(economics.lp, slip);
-    if (minimumLp <= 0n) return err("amount_too_small", "Quote is too small for a positive LP floor");
+    const slippedLp = applySlippage(economics.lp, slip);
+    const minimumLp = slippedLp > 0n ? slippedLp : 1n;
     const plan: AllocationPlan = {
       allocations: economics.allocations.slice(),
       expectedState: stateCommitment(snapshots.pool, snapshots.lpMint, snapshots.mints, chainEpoch),
@@ -253,10 +265,13 @@ export class PlannedZapClient {
       amountIn: bn(amount),
       plan,
       economics,
+      searchLimitation: economics.searchLimitation,
       estimatedLp: bn(economics.lp),
       estimatedLpGross: bn(economics.lpGross),
       depositFeeLp: bn(economics.depositFeeLp),
+      depositFeeEffectiveHundredthsBpsCeil: Number((economics.depositFeeLp * 1_000_000n + economics.lpGross - 1n) / economics.lpGross),
       minimumLp: bn(minimumLp),
+      slippageHundredthsBps: slip,
       feeSource,
       allocations: economics.allocations.map(bn),
       expectedOuts: expectedOuts.map(bn),
@@ -285,8 +300,11 @@ export class PlannedZapClient {
   /** Re-price a fixed plan at another Clock second on the same snapshot (window decay only). */
   replayAt(quote: PlannedZapQuote, nowSeconds: number): SdkResult<ZapQuote> {
     try {
-      return ok(replay({ ...quote.quotePool, now: BigInt(nowSeconds) }, quote.tokenInIndex, BigInt(quote.amountIn.toString()), quote.plan.allocations));
+      const economics = replay({ ...quote.quotePool, now: BigInt(nowSeconds) }, quote.tokenInIndex, BigInt(quote.amountIn.toString()), quote.plan.allocations);
+      assertZapDepositRoundingLoss(quote.quotePool, economics, quote.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps);
+      return ok(economics);
     } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
       if (e instanceof SimError || e instanceof MathError) return err("invalid_input", `Plan is infeasible at ${nowSeconds}: ${e.message}`, e);
       throw e;
     }
@@ -385,6 +403,10 @@ export class PlannedZapClient {
 
   /** The `deposit_single_token_planned` instruction for `user`. */
   buildIx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): TransactionInstruction {
+    // Re-run the signed allocations; a manual positive minimumLp or edited
+    // displayed economics must not skip the client's rounding policy.
+    const economics = replay(quote.quotePool, quote.tokenInIndex, BigInt(quote.amountIn.toString()), quote.plan.allocations);
+    assertZapDepositRoundingLoss(quote.quotePool, economics, quote.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps);
     return buildPlannedZapIx(this.config, this.accountsFor(quote, user, tails), {
       amountIn: BigInt(quote.amountIn.toString()),
       tokenInIndex: quote.tokenInIndex,
@@ -401,6 +423,7 @@ export class PlannedZapClient {
         suggestedCuLimit: PLANNED_ZAP_CU_LIMIT,
       });
     } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
       return err("tx_build_failed", `Failed to build the planned zap: ${e instanceof Error ? e.message : String(e)}`, e);
     }
   }

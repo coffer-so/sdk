@@ -83,10 +83,10 @@ describe("event pins (idl/abi-pins.json @ 409067d)", () => {
       }
     }
   });
-  test("[P02] the tables hold 41 / 38 / 2 events, no discriminator is shared and every one is sha256(event:<Name>)", () => {
-    expect(EVENT_TABLES.cofferPool.size).toBe(41); expect(EVENT_TABLES.protocolAdmin.size).toBe(38); expect(EVENT_TABLES.singleTokenLiquidity.size).toBe(2);
+  test("[P02] the tables hold 45 / 40 / 2 events, no discriminator is shared and every one is sha256(event:<Name>)", () => {
+    expect(EVENT_TABLES.cofferPool.size).toBe(45); expect(EVENT_TABLES.protocolAdmin.size).toBe(40); expect(EVENT_TABLES.singleTokenLiquidity.size).toBe(2);
     const all = [...EVENT_TABLES.cofferPool.keys(), ...EVENT_TABLES.protocolAdmin.keys(), ...EVENT_TABLES.singleTokenLiquidity.keys()];
-    expect(new Set(all).size).toBe(81);
+    expect(new Set(all).size).toBe(87);
     expect(LEGACY_EVENT_DISCRIMINATORS.size).toBe(19 + 24 + 2 + 3);
     for (const hex of all) expect(LEGACY_EVENT_DISCRIMINATORS.has(hex)).toBe(false);
     expect(eventProgramOf(disc("SwapV2"))).toEqual({ program: "cofferPool", name: "SwapV2" });
@@ -132,9 +132,9 @@ describe("decoder round trips against the IDL-generated fixtures", () => {
     // attribution: the flat lookup names the right program
     expect(decodeEventLine(f.base64).program).toBe(program);
   });
-  test("[P06] every program's whole event set is fixtured (41 + 38 + 2 names)", () => {
+  test("[P06] every program's whole event set is fixtured (45 + 40 + 2 names)", () => {
     const names = (p: ContractProgram) => new Set(FIXTURES.filter(([x]) => x === p).map(([, , f]) => f.name));
-    expect(names("cofferPool").size).toBe(41); expect(names("protocolAdmin").size).toBe(38); expect(names("singleTokenLiquidity").size).toBe(2);
+    expect(names("cofferPool").size).toBe(45); expect(names("protocolAdmin").size).toBe(40); expect(names("singleTokenLiquidity").size).toBe(2);
   });
 });
 
@@ -323,16 +323,19 @@ describe("error code map (v6.1 incl. T22)", () => {
     expect(toSdkError(new Error("custom program error: 0x17d8")).code).toBe("concentration_factor_invariant"); // 6104
     expect(toSdkError(new Error("Error Number: 6105")).humanMessage).toMatch(/one whole token/);
   });
-  test("[P23] the table is append-only: every code 6000..6109 defined once; protocol-admin still 6010–6018", () => {
+  test("[P23] proposed tables append only: pool through 6110, protocol-admin through 6019", () => {
     const table = contractErrorMapForTests("cofferPool");
     for (let c = 6000; c <= 6109; c++) expect(table[c]).toBeDefined();
-    expect(Object.keys(table)).toHaveLength(110);
+    expect(Object.keys(table)).toHaveLength(116);
+    expect(describeProgramError(6110)).toMatchObject({ name: "DepositRoundingLossTooLarge", sdkCode: "deposit_rounding_loss" });
+    expect(toSdkError(new Error("Error Number: 6110")).code).toBe("deposit_rounding_loss");
     // rc2 appended 6107..6109.
     expect(describeProgramError(6107)).toMatchObject({ name: "WithdrawFeeNotLockable", sdkCode: "invalid_input" });
     expect(describeProgramError(6108)).toMatchObject({ name: "RangeManagerKeyRequired", sdkCode: "invalid_input" });
     expect(describeProgramError(6109)).toMatchObject({ name: "FullExitRequiredBelowFloor", sdkCode: "invalid_input" });
     expect(toSdkError(new Error("custom program error: 0x17dd")).humanMessage).toMatch(/whole LP balance/); // 6109
-    expect(Object.keys(contractErrorMapForTests("protocolAdmin"))).toHaveLength(19);
+    expect(Object.keys(contractErrorMapForTests("protocolAdmin"))).toHaveLength(20);
+    expect(describeProgramError(6019, "protocolAdmin")).toMatchObject({ name: "UpgradeBufferNotLive", sdkCode: "invalid_input" });
     expect(describeProgramError(6095)?.sdkCode).toBe("hook_rejected"); expect(describeProgramError(6089)?.sdkCode).toBe("cooldown"); expect(describeProgramError(6070)?.sdkCode).toBe("pool_layout_outdated");
     expect(describeProgramError(6010, "protocolAdmin")?.sdkCode).toBe("cooldown"); expect(describeProgramError(6018, "protocolAdmin")?.name).toBe("InvalidPendingAdmin");
   });
@@ -447,10 +450,11 @@ describe("legacy / retired / malformed logs", () => {
       expect(camel.kind).toBe("Unknown"); expect((camel as any).name).toBe(f.name);
     }
   });
-  test("[N15] unknown error codes map to undefined / unknown (6110, PA 6019)", () => {
-    expect(describeProgramError(6110)).toBeUndefined();
-    expect(describeProgramError(6019, "protocolAdmin")).toBeUndefined();
-    expect(toSdkError(new Error("custom program error: 0x17de")).code).toBe("unknown"); // 6110
+  test("[N15] unknown error codes map to undefined / unknown (6111, PA 6020)", () => {
+    expect(describeProgramError(6116)).toBeUndefined();
+    expect(describeProgramError(6020, "protocolAdmin")).toBeUndefined();
+    expect(toSdkError(new Error("custom program error: 0x17df")).code).toBe("invalid_input"); // 6111 LpTransferFeeMaxExceeded
+    expect(toSdkError(new Error("custom program error: 0x17e4")).code).toBe("unknown"); // 6116: past the table
   });
   test("[N16] every pinned legacy name is absent from the IDLs and every typed name is present", () => {
     for (const pin of LEGACY_EVENT_DISCRIMINATORS.values()) {

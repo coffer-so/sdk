@@ -202,7 +202,9 @@ describe("initialize_pool v6.1 args (T1 / T7 / T9 / T14)", () => {
     expect(ix.data.subarray(argsOffset, argsOffset + meta.length).equals(meta)).toBe(true);
     const o = argsOffset + meta.length;
     expect([ix.data.readUInt16LE(o), ix.data.readUInt16LE(o + 2), ix.data.readUInt16LE(o + 4), ix.data[o + 6]]).toEqual([0, 0, 0, 0]);
-    expect(ix.data.length).toBe(o + 7);
+    // LP transfer fee (2026-11-19): trailing `lp_transfer_fee_bps: u16`, default 0.
+    expect(ix.data.readUInt16LE(o + 7)).toBe(0);
+    expect(ix.data.length).toBe(o + 9);
     const [pool] = derivePoolPda(cfg.programs.cofferPool, p.configKey, p.poolId); const [lpMint] = deriveLpMint(cfg.programs.cofferPool, pool);
     expect(ix.keys.slice(0, 7).map((k) => k.pubkey.toBase58())).toEqual([p.configKey, pool, lpMint, p.payer, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, SystemProgram.programId].map((k) => k.toBase58()));
     expect(ix.keys.slice(7).map((k) => k.pubkey.toBase58())).toEqual(p.tokens.map((k) => k.toBase58()));
@@ -211,10 +213,12 @@ describe("initialize_pool v6.1 args (T1 / T7 / T9 / T14)", () => {
     const hookProgram = pk(); const caller = pk();
     const hookConfig = { program: hookProgram, flags: HOOK_FLAGS.BEFORE_SWAP | HOOK_FLAGS.DYNAMIC_FEE, feeMin: 100, feeMax: 10_000, maxCu: 20_000, accountsLen: 2 };
     const hookAccounts = [{ pubkey: hookProgram, isSigner: false, isWritable: false }, { pubkey: caller, isSigner: false, isWritable: false }];
-    const ix = buildInitializePoolIx(cfg, { ...base(), creatorFeeBps: 2500, depositFeeBps: 10, withdrawFeeBps: 20, hookConfig, hookAccounts });
+    const ix = buildInitializePoolIx(cfg, { ...base(), creatorFeeBps: 2500, depositFeeBps: 10, withdrawFeeBps: 20, hookConfig, hookAccounts, lpTransferFeeBps: 250 });
     const o = argsOffset + encodeLpMetadataArgs(LP_METADATA_GOOD).length;
     expect([ix.data.readUInt16LE(o), ix.data.readUInt16LE(o + 2), ix.data.readUInt16LE(o + 4), ix.data[o + 6]]).toEqual([2500, 10, 20, 1]);
-    expect(ix.data.subarray(o + 7).equals(encodeHookConfig(hookConfig))).toBe(true);
+    const hookBytes = encodeHookConfig(hookConfig);
+    expect(ix.data.subarray(o + 7, o + 7 + hookBytes.length).equals(hookBytes)).toBe(true);
+    expect(ix.data.readUInt16LE(o + 7 + hookBytes.length)).toBe(250); expect(ix.data.length).toBe(o + 7 + hookBytes.length + 2);
     expect(ix.keys.slice(9).map((k) => k.pubkey.toBase58())).toEqual([hookProgram, caller].map((k) => k.toBase58()));
     expect(buildDeployPoolTx(cfg, base()).instructions.length).toBe(2);
   });
@@ -237,6 +241,11 @@ describe("initialize_pool v6.1 args (T1 / T7 / T9 / T14)", () => {
     expect(() => buildInitializePoolIx(cfg, { ...base(), depositFeeBps: 10_001 })).toThrow(/LiquidityFeeMaxExceeded/);
     expect(() => buildInitializePoolIx(cfg, { ...base(), withdrawFeeBps: -1 })).toThrow();
     expect(() => buildInitializePoolIx(cfg, { ...base(), withdrawFeeBps: 1.5 })).toThrow();
+    // LP transfer fee cap is 10 % (1_000 bps), not 100 %.
+    expect(() => buildInitializePoolIx(cfg, { ...base(), lpTransferFeeBps: 1_001 })).toThrow(/LpTransferFeeMaxExceeded/);
+    expect(() => buildInitializePoolIx(cfg, { ...base(), lpTransferFeeBps: -1 })).toThrow();
+    expect(() => buildInitializePoolIx(cfg, { ...base(), lpTransferFeeBps: 0.5 })).toThrow();
+    expect(() => buildInitializePoolIx(cfg, { ...base(), lpTransferFeeBps: 1_000 })).not.toThrow();
   });
   test("[N11] hook config / slice consistency", () => {
     const hookProgram = pk();

@@ -200,7 +200,7 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(hex(ix("initialize_pool").discriminator)).toBe(hex(sha8("global:initialize_pool")));
     expect(ix("initialize_pool").args.map((a: any) => a.name)).toEqual([
       "normalized_weights", "initial_virtual_balances", "swap_fee_rate", "pool_id",
-      "lp_metadata", "creator_fee_bps", "deposit_fee_bps", "withdraw_fee_bps", "hook_config",
+      "lp_metadata", "creator_fee_bps", "deposit_fee_bps", "withdraw_fee_bps", "hook_config", "lp_transfer_fee_bps",
     ]);
   });
 
@@ -263,10 +263,10 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(describeProgramError(6025)?.name).toBe("BannedExtension");
   });
 
-  test("ABI size after v6.1-rc2: 110 instructions and 81 events across the three programs (51+55+4 / 41+38+2)", () => {
+  test("ABI size after the LP transfer fee (I-1): 118 instructions and 87 events across the three programs (56+58+4 / 45+40+2)", () => {
     const programs = Object.values(IDLS) as any[];
-    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(110);
-    expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(81);
+    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(118);
+    expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(87);
   });
 });
 
@@ -321,15 +321,16 @@ describe("T19 deploy builder encodes no Option<u64> policy argument", () => {
     weightsBps: [2000, 3000, 5000], virtualBalances: [new BN(1), new BN(2), new BN(3)], swapFeeRate: 3000, lpMetadata: LP_META,
   });
 
-  test("instruction data is disc + Vec<u64> + Vec<u64> + u32 + u64 (pool_id) + the v6.1 tail (lp_metadata, 3 × u16, Option<HookConfig> = None)", () => {
+  test("instruction data is disc + Vec<u64> + Vec<u64> + u32 + u64 (pool_id) + the v6.1 tail (lp_metadata, 3 × u16, Option<HookConfig> = None, lp_transfer_fee_bps u16)", () => {
     const p = params();
     const built = buildInitializePoolIx(cfg, p);
     const n = p.tokens.length;
     const prefix = 8 + (4 + 8 * n) + (4 + 8 * n) + 4 + 8;
-    expect(built.data.length).toBe(prefix + LP_META_LEN + 2 + 2 + 2 + 1);
+    expect(built.data.length).toBe(prefix + LP_META_LEN + 2 + 2 + 2 + 1 + 2);
     expect(hex(built.data.subarray(0, 8))).toBe("5fb40aac54aee828");
     expect(built.data.subarray(prefix - 8, prefix).equals(u64(99))).toBe(true);
-    expect(built.data[built.data.length - 1]).toBe(0); // no hook
+    expect(built.data[built.data.length - 3]).toBe(0); // no hook
+    expect(built.data.readUInt16LE(built.data.length - 2)).toBe(0); // LP transfer fee 0 bps
   });
 
   test("hand-built data equals the IDL-driven encoder's data for initialize_pool", () => {
@@ -339,7 +340,7 @@ describe("T19 deploy builder encodes no Option<u64> policy argument", () => {
     const [lpMint] = deriveLpMint(cfg.programs.cofferPool, pool);
     const generic = buildContractInstruction(cfg, "cofferPool", "initialize_pool", {
       normalized_weights: p.weightsBps.map((w) => new BN(w)), initial_virtual_balances: p.virtualBalances,
-      swap_fee_rate: p.swapFeeRate, pool_id: p.poolId, lp_metadata: LP_META, creator_fee_bps: 0, deposit_fee_bps: 0, withdraw_fee_bps: 0, hook_config: null,
+      swap_fee_rate: p.swapFeeRate, pool_id: p.poolId, lp_metadata: LP_META, creator_fee_bps: 0, deposit_fee_bps: 0, withdraw_fee_bps: 0, hook_config: null, lp_transfer_fee_bps: 0,
     }, {
       config: p.configKey, pool, lp_mint: lpMint, payer: p.payer, lp_token_program: TOKEN_2022_PROGRAM_ID,
       associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID, system_program: SystemProgram.programId,

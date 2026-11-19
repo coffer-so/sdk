@@ -96,6 +96,13 @@ describe("calcSurgeFeeRate is a 1e18 fraction", () => {
 });
 
 describe("calcSurgeFeeAmount (swap handler charge)", () => {
+  test("rounding dips saturate and retain the running maximum (rc2)", () => {
+    // [2, 1, 3, 4] cumulative output: taxed deltas [2, 0, 1, 1].
+    // Saturation alone would tax the recovered unit twice and return 3.
+    expect(calcSurgeFeeAmount({ before: 0n, after: 4n, cap: 4n,
+      curve: curve(0, 5_000, 5_000, 5_000, 0), amountOut: 4n,
+      cumulativeOut: u => u === 1n ? 2n : u === 2n ? 1n : 3n })).toBe(2n);
+  });
   // Identity curve: output == input slice. Makes expected values exact and
   // isolates the segmentation logic from AMM concavity.
   const identity = (u: bigint) => u;

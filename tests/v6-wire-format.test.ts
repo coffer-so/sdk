@@ -351,7 +351,7 @@ describe("instruction signatures the SDK encodes by hand", () => {
   const ix = (name: string) =>
     (cofferPoolIdl.instructions as any[]).find((candidate) => candidate.name === name);
 
-  test("initialize_pool has no tokens arg, no banned_extensions_override (T19) and the v6.1 tail (T1 lp_metadata, T14, T7, T9 hook_config LAST)", () => {
+  test("initialize_pool has no tokens arg, no banned_extensions_override (T19) and the v6.1 tail (T1 lp_metadata, T14, T7, T9 hook_config, lp_transfer_fee_bps LAST)", () => {
     expect(ix("initialize_pool").args.map((a: any) => a.name)).toEqual([
       "normalized_weights",
       "initial_virtual_balances",
@@ -362,8 +362,11 @@ describe("instruction signatures the SDK encodes by hand", () => {
       "deposit_fee_bps",
       "withdraw_fee_bps",
       "hook_config",
+      "lp_transfer_fee_bps",
     ]);
     expect(ix("initialize_pool").args[8].type).toEqual({ option: { defined: { name: "HookConfig" } } });
+    // LP transfer fee (2026-11-19): the trailing u16 after T9's hook_config.
+    expect(ix("initialize_pool").args[9].type).toBe("u16");
   });
 
   test("initialize_config dropped protocol_admin and made the treasury a signer", () => {

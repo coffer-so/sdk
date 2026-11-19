@@ -383,6 +383,10 @@ export const CLAIM_ERROR_NAMES: Record<"cofferPool" | "protocolAdmin", Record<nu
     6014: "TokenMintMismatch", 6019: "InvalidMint", 6030: "InvalidVault", 6056: "MemoProgramMissing",
     6064: "InvalidArrayLength (claim ABI mismatch? try the other abi)", 6070: "LayoutVersionMismatch (migrate_pool_layout_v61 first)",
     6018: "Unauthorized", 6080: "CreatorFeesUnclaimed",
+    // LP transfer fee redemption (pool_redeem_lp_transfer_fees)
+    6109: "FullExitRequiredBelowFloor (collect_lp_transfer_fees first, then redeem the whole fee account)",
+    6112: "LpTransferFeeUnsupported (pre-feature LP mint)", 6114: "NoLpTransferFeesOwed (collect_lp_transfer_fees first)",
+    6115: "LpFeeAccountUnderfunded (fee account below the protocol's owed LP)",
   },
   protocolAdmin: {
     6000: "Unauthorized (signer is not Treasury.admin)", 6001: "MaxTokensReached (v5.1 Treasury: 10 registered mints max)",

@@ -431,6 +431,7 @@ export async function buildAtomicDeploy(
     payer, configKey: config, poolId, tokens: mints,
     weightsBps: weights.map((w) => w.toNumber()), virtualBalances, swapFeeRate,
     lpTokenProgram, lpMetadata, creatorFeeBps, depositFeeBps, withdrawFeeBps, hookConfig, hookAccounts, tokenDecimals,
+    lpTransferFeeBps: params.lpTransferFeeBps ?? 0,
   });
 
   // Vaults are plain ATAs owned by the pool PDA and are NOT created by

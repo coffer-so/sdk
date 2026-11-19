@@ -12,7 +12,7 @@ test("ABI CLI last --idl-dir wins and an actual wire mismatch remains a failure"
   const success = spawnSync(process.execPath,args,{ encoding:"utf8" });
   expect(success.status).toBe(0);
   const receipt = JSON.parse(success.stdout);
-  expect(receipt.programs.map((p: any) => [p.instructions,p.events])).toEqual([[51,41],[55,38],[4,2]]);
+  expect(receipt.programs.map((p: any) => [p.instructions,p.events])).toEqual([[56,45],[58,40],[4,2]]);
   expect(receipt.programs.every((p: any) => p.matches && /^[a-f0-9]{64}$/.test(p.sdkIdlSha256))).toBe(true);
   const file = join(directory,"idl/coffer_pool.json");
   const idl = JSON.parse(readFileSync(file,"utf8")); idl.instructions[0].discriminator[0] ^= 1; writeFileSync(file,JSON.stringify(idl));

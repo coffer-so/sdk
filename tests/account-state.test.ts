@@ -75,7 +75,11 @@ function fixture(): State {
     pending_set_token_active: { eta: bn(-5), token_index: 2 },
     hook_program: key(41), hook_flags: 0b1110000, hook_disabled: 1, hook_fee_min: 100, hook_fee_max: 50000, hook_max_cu: 60000, hook_accounts_len: 4,
     safety_flags: 1, range_manager_weight_anchors: Array.from({length: 10}, (_, i) => i < 2 ? 5_000 : 0),
-    reserved_v61: Array.from({length: 180}, () => 0),
+    lp_transfer_fee_protocol_share_bps: 1_500, lp_transfer_fees_owed_protocol: wide.addn(170),
+    lp_transfer_fees_pending_burn: wide.addn(171), lp_transfer_fee_burn_last_ts: bn(1700000011),
+    pending_set_lp_transfer_fee: { eta: bn(1700000012), bps: 250 },
+    lp_transfer_fee_burn_end_ts: bn(1700086411),
+    reserved_v61: Array.from({length: 136}, () => 0),
   };
 }
 const poolMap = {
@@ -91,7 +95,9 @@ const poolMap = {
   surge_fees_owed: "surgeFeesOwed", deposit_fee_bps: "depositFeeBps", withdraw_fee_bps: "withdrawFeeBps", liquidity_fee_lock: "liquidityFeeLock",
   range_manager_locked: "rangeManagerLocked", pool_admin_delay_secs: "poolAdminDelaySecs", pool_admin_epoch: "poolAdminEpoch",
   pending_pool_admin_eta: "pendingPoolAdminEta", hook_program: "hookProgram", hook_flags: "hookFlags", hook_disabled: "hookDisabled",
-  hook_fee_min: "hookFeeMin", hook_fee_max: "hookFeeMax", hook_max_cu: "hookMaxCu", hook_accounts_len: "hookAccountsLen", safety_flags: "safetyFlags", range_manager_weight_anchors: "rangeManagerWeightAnchors", reserved_v61: "reservedV61",
+  hook_fee_min: "hookFeeMin", hook_fee_max: "hookFeeMax", hook_max_cu: "hookMaxCu", hook_accounts_len: "hookAccountsLen", safety_flags: "safetyFlags", range_manager_weight_anchors: "rangeManagerWeightAnchors",
+  lp_transfer_fee_protocol_share_bps: "lpTransferFeeProtocolShareBps", lp_transfer_fees_owed_protocol: "lpTransferFeesOwedProtocol",
+  lp_transfer_fees_pending_burn: "lpTransferFeesPendingBurn", lp_transfer_fee_burn_last_ts: "lpTransferFeeBurnLastTs", lp_transfer_fee_burn_end_ts: "lpTransferFeeBurnEndTs", reserved_v61: "reservedV61",
 } as const;
 /** v6.1 (T3) typed slots: wire field → (pendingActions kind, payload keys in wire order). */
 const pendingMap: Record<string, [number, string[]]> = {
@@ -99,7 +105,7 @@ const pendingMap: Record<string, [number, string[]]> = {
   pending_set_liquidity_fees: [4, ["depositFeeBps", "withdrawFeeBps"]], pending_lock_liquidity_fees: [5, []], pending_lock_range_manager: [6, []],
   pending_set_range_manager: [7, ["manager", "enabled"]],
   pending_set_range_manager_config: [8, ["maxVbChangePct", "maxWeightChangePct", "minUpdateIntervalSecs", "maxConcentrationFactorBps", "minConcentrationFactorBps"]],
-  pending_set_max_selloff: [9, ["paramsHash"]], pending_set_token_active: [10, ["tokenIndex"]],
+  pending_set_max_selloff: [9, ["paramsHash"]], pending_set_token_active: [10, ["tokenIndex"]], pending_set_lp_transfer_fee: [11, ["bps"]],
 };
 const configMap = {
   mint: ["tokenMints", "mint"], token_program: ["tokenPrograms", "tokenProgram"], normalized_weight: ["normalizedWeights", "weightBps"],
@@ -135,7 +141,7 @@ test("manual pool decoder preserves every field, signed i64, wide u64 and paddin
   // v6.1 (T3): every typed slot lands in `pendingActions` with its eta and payload in wire order.
   expect(encoded.length).toBe(2304);
   expect(raw.layoutDrift).toEqual([]);
-  expect(raw.pendingActions).toHaveLength(11);
+  expect(raw.pendingActions).toHaveLength(12);
   expect(normalize(raw.pendingActions[0].eta)).toBe(normalize(state.pending_pool_admin_eta));
   expect(normalize(raw.pendingActions[0].payload.newAdmin)).toBe(normalize(state.pending_pool_admin));
   for (const [wire, [kind, keys]] of Object.entries(pendingMap)) {
@@ -149,7 +155,7 @@ test("manual pool decoder preserves every field, signed i64, wide u64 and paddin
       expect(normalize(raw.pendingActions[kind].payload[keys[j]])).toEqual(normalize(expected));
     });
   }
-  expect(raw.pendingActionsMask).toBe((1 << 0) | (1 << 1) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 10));
+  expect(raw.pendingActionsMask).toBe((1 << 0) | (1 << 1) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 10) | (1 << 11));
 });
 
 test("an unmigrated 1683-byte pool decodes read-only with layout_version 0 and v6.1 defaults", () => {
@@ -159,7 +165,8 @@ test("an unmigrated 1683-byte pool decodes read-only with layout_version 0 and v
   for (const [wire, name] of Object.entries(poolMap)) {
     if (["layout_version", "token_decimals", "creator_fee_bps", "creator_fees_owed", "surge_fees_owed", "deposit_fee_bps", "withdraw_fee_bps",
       "liquidity_fee_lock", "range_manager_locked", "pool_admin_delay_secs", "pool_admin_epoch", "pending_pool_admin_eta", "hook_program", "hook_flags",
-      "hook_disabled", "hook_fee_min", "hook_fee_max", "hook_max_cu", "hook_accounts_len", "safety_flags", "range_manager_weight_anchors", "reserved_v61"].includes(wire)) continue;
+      "hook_disabled", "hook_fee_min", "hook_fee_max", "hook_max_cu", "hook_accounts_len", "safety_flags", "range_manager_weight_anchors",
+      "lp_transfer_fee_protocol_share_bps", "lp_transfer_fees_owed_protocol", "lp_transfer_fees_pending_burn", "lp_transfer_fee_burn_last_ts", "lp_transfer_fee_burn_end_ts", "reserved_v61"].includes(wire)) continue;
     expect(normalize(raw[name])).toEqual(normalize((state as any)[wire]));
   }
   expect(raw.tokenDecimals).toEqual(Array(10).fill(0));
@@ -214,8 +221,8 @@ test("sync maps every operational field and token program with full-width balanc
   }
   expect(info.needsLayoutMigration).toBe(false);
   expect(info.liquidityFeesLocked).toBe(true);
-  expect(info.pendingActions).toHaveLength(11);
-  expect(info.pendingActionsMask).toBe(0b11010101011);
+  expect(info.pendingActions).toHaveLength(12);
+  expect(info.pendingActionsMask).toBe(0b111010101011);
   expect(info.lpMetadata).toBeNull(); // 82-byte legacy mint in this fixture
   expect(info.tokens).toHaveLength(state.token_count);
   for (let i=0;i<state.token_count;i++) {

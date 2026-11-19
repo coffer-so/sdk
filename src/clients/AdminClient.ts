@@ -19,6 +19,7 @@ import { deriveTreasuryPda } from "../utils/pda";
 import { PoolInfo } from "../types/pool";
 import { ProtocolAction, proposeActionRemainingAccounts, protocolActionKindName, protocolActionKindOf } from "./cooldown";
 import { buildCollectProtocolFeesIx, treasuryVaultPda } from "./feeClaim";
+import { buildExecutePoolSetLpTransferFeeProtocolShareIx, buildPoolRedeemLpTransferFeesIx, buildPoolSetLpTransferFeeProtocolShareIx } from "./lpTransferFee";
 import { PROTOCOL_ACTION_KIND, type ProtocolActionKindName } from "../parsers/layout";
 
 /** Upstream BPF upgradeable loader; ProgramData PDA = findPda([programId]). */
@@ -613,6 +614,37 @@ export class AdminClient {
     return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_enable_range_manager", {}, {
       treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
     });
+  }
+
+  // ── LP transfer fee (2026-11-19) ─────────────────────────────────────────
+
+  /**
+   * `pool_set_lp_transfer_fee_protocol_share(bps)`: the protocol share
+   * (0..=10_000 bps) of every LP transfer fee `collect_lp_transfer_fees`
+   * books for `pool`; the rest is burned. Admin only, D-class: direct while
+   * `Treasury.delay_secs == 0`, else queue
+   * `ProtocolActions.poolSetLpTransferFeeProtocolShare` (kind 15) and run
+   * `executePoolSetLpTransferFeeProtocolShareIx`. Never retroactive.
+   */
+  poolSetLpTransferFeeProtocolShareIx(admin: PublicKey, config: PublicKey, pool: PublicKey, bps: number) {
+    return buildPoolSetLpTransferFeeProtocolShareIx(this.config, { admin, config, pool, bps });
+  }
+
+  /** `execute_pool_set_lp_transfer_fee_protocol_share` for a ready kind-15 slot (`pool` must hash to the slot's `pool_tag`). */
+  executePoolSetLpTransferFeeProtocolShareIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildExecutePoolSetLpTransferFeeProtocolShareIx(this.config, { admin, config, pool });
+  }
+
+  /**
+   * `pool_redeem_lp_transfer_fees`: burn the pool's
+   * `lp_transfer_fees_owed_protocol` LP from its LP fee account and pay the
+   * pro-rata reserves + surge bucket (no withdraw fee) into the Treasury
+   * vault PDAs (`InvalidVault` for any other recipient). Instant like
+   * `pool_collect_protocol_fees`; register every pool mint first
+   * (`registerTokenIx`). `tail` = Token-2022 transfer-hook / memo accounts.
+   */
+  poolRedeemLpTransferFeesIx(admin: PublicKey, pool: PoolInfo, tail: AccountMeta[] = []) {
+    return buildPoolRedeemLpTransferFeesIx(this.config, { admin, pool, tail });
   }
 
   // ── v6.1 (T3) protocol-admin cooldown queue ──────────────────────────────

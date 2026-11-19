@@ -28,4 +28,4 @@ for (const name of names) {
   result.push({ program: name, matches, sdkIdlSha256: sha(path.join(sdk,'src/idl',`${name}.json`)), contractsIdlSha256: sha(path.resolve(contracts,idlDir,`${name}.json`)), instructions: actual.instructions.length, events: actual.events.length, accounts: actual.accounts.map(a => a.name) });
   if (!matches) process.exitCode = 1;
 }
-process.stdout.write(JSON.stringify({ sourceEpoch: "concentration-factor-20261102", contracts, idlDirectory: path.resolve(contracts,idlDir), ignoreAddress, programs: result }, null, 2) + '\n');
+process.stdout.write(JSON.stringify({ sourceEpoch: "lp-transfer-fee-20261119", contracts, idlDirectory: path.resolve(contracts,idlDir), ignoreAddress, programs: result }, null, 2) + '\n');

@@ -119,7 +119,7 @@ describe("removed / renamed ABI is unreachable", () => {
     expect(() => (buildContractInstruction as any)(cfg, "cofferPool", "initialize_pool", {
       normalized_weights: [new BN(5000), new BN(5000)], initial_virtual_balances: [new BN(1), new BN(1)],
       swap_fee_rate: 3000, pool_id: new BN(1), lp_metadata: { name: "x", symbol: "x", uri: "https://x" }, creator_fee_bps: 0, deposit_fee_bps: 0,
-      withdraw_fee_bps: 0, hook_config: null, banned_extensions_override: null,
+      withdraw_fee_bps: 0, hook_config: null, lp_transfer_fee_bps: 0, banned_extensions_override: null,
     }, { config: pk(), pool, lp_mint: deriveLpMint(cfg.programs.cofferPool, pool)[0], payer: pk(), lp_token_program: TOKEN_PROGRAM_ID,
          associated_token_program: pk(), system_program: pk() })).toThrow(/banned_extensions_override is not in the contract ABI/);
   });

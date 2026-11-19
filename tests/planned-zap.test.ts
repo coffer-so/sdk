@@ -192,6 +192,38 @@ function mockClient(n: number, feeIndices: number[] = []) {
 }
 
 describe("PlannedZapClient.quote", () => {
+  test("refuses excessive final-join rounding at tiny supply and a positive custom floor cannot bypass it", async () => {
+    const m = mockClient(2);
+    m.infos.set(m.lpMint.toBase58(), { data: plainMint(9, 2n, m.address), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
+    // Like Rust, search discards every infeasible basket, including 6110.
+    for (const slippageHundredthsBps of [50_000, 500_000, 1_000_000]) {
+      expect(await m.client.quote(0, 3_000_000_000n, { slippageHundredthsBps })).toMatchObject({ ok: false, error: { code: "deposit_rounding_search_incomplete" } });
+    }
+    const ordinary = mockClient(2);
+    const accepted = await ordinary.client.quote(0, 3_000_000_000n, { slippageHundredthsBps: 500_000 });
+    if (!accepted.ok) throw new Error(accepted.error.humanMessage);
+    const quote = accepted.data;
+    expect(ordinary.client.buildTx(quote, key(9)).ok).toBe(true);
+    // Re-price allocations rather than trusting mutable displayed economics.
+    quote.slippageHundredthsBps = 0;
+    quote.quotePool.lpSupply = 2n;
+    quote.minimumLp = bn(1);
+    quote.economics.creditedNet = quote.economics.creditedNet.map(() => 0n);
+    expect(() => m.client.buildIx(quote, key(9))).toThrow(/DepositRoundingLoss/);
+    expect(m.client.buildTx(quote, key(9))).toMatchObject({ ok: false, error: { code: "deposit_rounding_loss" } });
+    expect(m.client.replayAt(quote, Number(quote.quotePool.now))).toMatchObject({ ok: false, error: { code: "deposit_rounding_loss" } });
+  });
+
+  test("zero tolerance refuses fractional rounding; invalid slippage is rejected before RPC", async () => {
+    const m = mockClient(2);
+    expect(await m.client.quote(0, 50_000_000n, { slippageHundredthsBps: 0 })).toMatchObject({ ok: false, error: { code: "deposit_rounding_loss" } });
+    m.calls.length = 0;
+    for (const slip of [-1, 0.5, 1_000_001]) {
+      expect(await m.client.quote(0, 50_000_000n, { slippageHundredthsBps: slip })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    }
+    expect(m.calls).toEqual([]);
+  });
+
   test("one bank snapshot → plan, hash, timestamps and economics", async () => {
     const m = mockClient(3);
     const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000, validForSlots: 100 });
@@ -225,7 +257,7 @@ describe("PlannedZapClient.quote", () => {
 
   test("Token-2022 fee mints are netted and the tail resolves to [] without hooks", async () => {
     const m = mockClient(3, [1]);
-    const res = await m.client.quote(1, 10_000_000n, { slippageHundredthsBps: 0 });
+    const res = await m.client.quote(1, 10_000_000n, { slippageHundredthsBps: 100 });
     if (!res.ok) throw new Error(res.error.humanMessage);
     const q = res.data;
     expect(q.quotePool.tokens[1].transferFee).toMatchObject({ transferFeeBasisPoints: 100, maximumFee: 10_000n });

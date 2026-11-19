@@ -35,6 +35,7 @@ import { grossOfTransferFee, netOfTransferFee } from "./transferFee";
 import { computeAllocations } from "./singleToken";
 import { nav, splitDepositCredit } from "./surgeBucket";
 import { applyDepositFee } from "./liquidityFee";
+import { assertDepositRoundingLoss, checkDepositRounding, DepositRoundingLossError } from "./liquidityRounding";
 
 /** STLD-program failure (`StldError` name) raised by the planner's checks. */
 export class SimError extends Error {
@@ -46,7 +47,7 @@ export class SimError extends Error {
 
 /** `true` for the failures the search treats as "candidate infeasible". */
 export function isSimFailure(e: unknown): boolean {
-  return e instanceof MathError || e instanceof SimError;
+  return e instanceof MathError || e instanceof SimError || (e instanceof DepositRoundingLossError && e.onchainBound);
 }
 
 /** Pool snapshot the planner works on (`planner.rs::QuotePool`). */
@@ -107,6 +108,10 @@ export interface PlannerSwapQuote {
 }
 
 export interface ZapQuote {
+  /** A feasible plan was found, but the non-monotone LP grid stopped search.
+   * No exhaustive search or optimal aligned plan is promised.
+   */
+  searchLimitation?: "deposit_rounding_grid";
   allocations: bigint[];
   swaps: PlannerSwapQuote[];
   /** Per token, what the user holds for the join: the reserved input, or a leg's `netOutput`. */
@@ -128,6 +133,12 @@ export interface ZapQuote {
   /** Limiting join ratio (18-decimal fixed point), over NAV. */
   ratio: bigint;
   stateAfter: QuotePool;
+}
+
+/** Client policy on the FINAL join, priced after every swap; replay stays contract-exact. */
+export function assertZapDepositRoundingLoss(pool: QuotePool, quote: ZapQuote, slippageHundredthsBps: number): void {
+  const navBeforeJoin = navOf(quote.stateAfter).map((nav, i) => nav - quote.creditedNet[i]);
+  assertDepositRoundingLoss(navBeforeJoin, quote.creditedNet, pool.lpSupply, quote.lpGross, slippageHundredthsBps);
 }
 
 const MIN_TOKENS = 2, MAX_TOKENS = 10;
@@ -230,6 +241,8 @@ export function replay(pool: QuotePool, input: number, amount: bigint, allocatio
   for (let i = 0; i < n; i++) {
     const leg = splitDepositCredit(actual[i], tokens[i].surgeFeesOwed ?? 0n, ratio);
     const credit = leg.totalCredit;
+    // Same position as Rust planner::replay: credit, bound, fee gross-up.
+    checkDepositRounding(navs[i], credit, lpGross, state.lpSupply, i);
     const charged = grossOfTransferFee(tokens[i].transferFee, credit);
     if (credit > net[i] || charged > available[i]) throw new SimError("TokenBudgetExceeded");
     const oldVb = tokens[i].virtualBalance;
@@ -314,8 +327,11 @@ function better(candidate: ZapQuote, best: ZapQuote | undefined): boolean {
  * `planner::quote`: bisect the common join ratio (on NAV) over the ordered
  * route. Bounded (≤ 128 outer iterations); every returned basket is fully
  * replayed, and the legacy linear split is also evaluated so the result is
- * never worse than that baseline. Throws `SimError("AmountTooSmall")` when
- * no candidate is feasible — including a pool with a bucket-only slot
+ * never worse than a feasible baseline. A non-monotone 6110 stops bisection:
+ * a feasible result has `searchLimitation`, otherwise the distinct
+ * `DepositRoundingSearchIncomplete` reason is raised. Aligned plans are not
+ * exhaustively searched. Other search dead ends raise `AmountTooSmall`,
+ * including a pool with a bucket-only slot
  * (`actual == 0 < surge`), which must be joined but cannot be bought (T10).
  */
 export function quoteZap(pool: QuotePool, input: number, amount: bigint): ZapQuote {
@@ -328,10 +344,12 @@ export function quoteZap(pool: QuotePool, input: number, amount: bigint): ZapQuo
     const actual = actualOf(pool);
     const navs = navOf(pool);
     let best: ZapQuote | undefined;
+    let roundingSeen = false;
     try {
       const legacy = computeAllocations({ actualBalances: actual, virtualBalances: pool.tokens.map((t) => t.virtualBalance), weightsBps: pool.tokens.map((t) => Number(t.weightBps)), amountIn: amount, tokenInIndex: input });
       best = replay(pool, input, amount, legacy.allocations);
     } catch (e) {
+      if (e instanceof DepositRoundingLossError && e.onchainBound) roundingSeen = true;
       if (!isSimFailure(e)) throw e;
     }
     let lo = 1n;
@@ -342,6 +360,12 @@ export function quoteZap(pool: QuotePool, input: number, amount: bigint): ZapQuo
       try {
         candidate = replay(pool, input, amount, basketForRatio(pool, input, amount, ratio));
       } catch (e) {
+        if (e instanceof DepositRoundingLossError && e.onchainBound) {
+          // 6110 is not a monotone "ratio too high" predicate. Stop this
+          // bisection rather than discard an unsearched aligned region.
+          roundingSeen = true;
+          break;
+        }
         if (!isSimFailure(e)) throw e;
       }
       if (candidate) {
@@ -351,7 +375,10 @@ export function quoteZap(pool: QuotePool, input: number, amount: bigint): ZapQuo
         hi = ratio - 1n;
       }
     }
-    if (!best) throw new SimError("AmountTooSmall");
-    return best;
+    if (!best) {
+      if (roundingSeen) throw new SimError("DepositRoundingSearchIncomplete", "Deposit rounding grid interrupted search; no feasible quote established. An aligned plan may exist; exhaustive aligned search is not implemented.");
+      throw new SimError("AmountTooSmall");
+    }
+    return roundingSeen ? { ...best, searchLimitation: "deposit_rounding_grid" } : best;
   });
 }

@@ -212,7 +212,7 @@ describe("builders and quotes mirror the gates", () => {
     expect(ex.keys[0].isWritable).toBe(true);
     expect(rescaleMultiplierArg(2).toString()).toBe("2");
   });
-  test("[P22] cooldown kind 13: ProtocolAction tag 12, execute table, Treasury slot @1499 (48 B) and rc2 reserve 37 B @1587", () => {
+  test("[P22] cooldown kind 13: ProtocolAction tag 12, execute table, Treasury slot @1499 (48 B) and the reserve 11 B @1613 after the kind-15 slot", () => {
     const action = ProtocolActions.poolRescaleVirtualBalances(pk(), 1_000_000_000n);
     expect(protocolActionKindOf(action)).toBe(13); expect(PROTOCOL_ACTION_KIND.PoolRescaleVirtualBalances).toBe(13); expect(PROTOCOL_ACTION_KINDS[13]).toBe("PoolRescaleVirtualBalances");
     const coder = new BorshCoder(IDLS.protocolAdmin as unknown as Idl);
@@ -220,13 +220,13 @@ describe("builders and quotes mirror the gates", () => {
     expect(encoded[0]).toBe(12); expect(encoded.length).toBe(1 + 32 + 8);
     expect(PROTOCOL_EXECUTE_INSTRUCTIONS.PoolRescaleVirtualBalances).toEqual(["execute_pool_rescale_virtual_balances"]);
     expect(TREASURY_LAYOUT.PENDING_POOL_RESCALE_VIRTUAL_BALANCES).toEqual({ offset: 1499, size: 48 });
-    expect(TREASURY_LAYOUT.RESERVED_V61).toEqual({ offset: 1587, size: 37 });
+    expect(TREASURY_LAYOUT.RESERVED_V61).toEqual({ offset: 1613, size: 11 });
     const pending = (IDLS.protocolAdmin as any).types.find((t: any) => t.name === "PendingPoolRescale").type.fields.map((f: any) => `${f.name}:${f.type}`);
     expect(pending).toEqual(["eta:i64", "pool:pubkey", "multiplier:u64"]);
     const treasury = (IDLS.protocolAdmin as any).types.find((t: any) => t.name === "Treasury").type.fields;
-    expect(treasury.at(-3).name).toBe("pending_pool_rescale_virtual_balances");
-    expect(treasury.at(-2).name).toBe("pending_pool_enable_range_manager");
-    expect(treasury.at(-1).type).toEqual({ array: ["u8", 37] });
+    expect(treasury.at(-4).name).toBe("pending_pool_rescale_virtual_balances");
+    expect(treasury.at(-3).name).toBe("pending_pool_enable_range_manager"); expect(treasury.at(-2).name).toBe("pending_pool_set_lp_transfer_fee_protocol_share");
+    expect(treasury.at(-1).type).toEqual({ array: ["u8", 11] });
   });
   test("[P23] decodeTreasuryAccount reads the kind-13 slot {pool, multiplier} and sets bit 13 of the mask", () => {
     const b = Buffer.alloc(1624); TREASURY_DISCRIMINATOR.copy(b, 0);
@@ -385,8 +385,8 @@ describe("refusals", () => {
     expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(10), new BN(10)], minimumLpAmount: new BN(1) })).not.toThrow();
     expect(fail(clientFor(pool).quoteAddLiquidity([new BN(10), new BN(10)])).code).toBe("concentration_factor_invariant");
   });
-  test("[N17] unknown error 6110 stays unknown; 6104 on protocol_admin is not a concentrationFactor error", () => {
-    expect(describeProgramError(6110)).toBeUndefined();
+  test("[N17] unknown error 6111 stays unknown; 6104 on protocol_admin is not a concentrationFactor error", () => {
+    expect(describeProgramError(6116)).toBeUndefined();
     expect(describeProgramError(6104, "protocolAdmin")).toBeUndefined();
     expect(toSdkError(new Error("Error Number: 6104"), "protocolAdmin").code).toBe("unknown");
   });

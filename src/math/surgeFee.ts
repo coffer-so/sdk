@@ -14,7 +14,7 @@
  * code; `fill_ratio` rounds UP so fixed-point truncation can never place a
  * trade below its real rate.
  */
-import { ONE, MathError, assertInteger, assertU64, ceilDiv } from "./fixedPoint";
+import { ONE, assertInteger, assertU64, ceilDiv } from "./fixedPoint";
 
 /** `PERCENT_SCALE`: curve points and the threshold are basis points of window fill. */
 const SCALE = 10_000n;
@@ -141,13 +141,12 @@ export function calcSurgeFeeAmount(p: SurgeFeeAmountParams): bigint {
     // Repeated raw boundaries carry no output and no fee.
     if (u === previousU) continue;
     const y = k === SURGE_FEE_SEGMENTS ? amountOut : p.cumulativeOut(u);
-    if (y < previousY) throw new MathError("MathUnderflow");
-    const segmentOut = y - previousY;
+    const segmentOut = y > previousY ? y - previousY : 0n;
     if (segmentOut > 0n) {
       feeNumerator += segmentOut * calcSurgeFeeRate(previousU, u, cap, curve);
     }
     previousU = u;
-    previousY = y;
+    previousY = y > previousY ? y : previousY;
   }
   return min(ceilDiv(feeNumerator, ONE), amountOut);
 }

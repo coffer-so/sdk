@@ -76,8 +76,17 @@ export interface HookedParams {
 
 // ─── Deploy (T1 / T7 / T9 / T14) ─────────────────────────────────────────────
 
-/** `initialize_pool` v6.1 parameters: the v6 shape plus the five appended arguments. */
+/** `initialize_pool` v6.1 parameters: the v6 shape plus the six appended arguments. */
 export interface DeployPoolParamsV61 extends DeployPoolParams {
+  /**
+   * LP transfer fee (2026-11-19): the Token-2022 transfer fee written into
+   * the LP mint's `TransferFeeConfig`, bps `0..=1_000` (10 %;
+   * `LpTransferFeeMaxExceeded` 6111). Charged on holder-to-holder LP
+   * transfers only (mint / burn are free). Default 0; the pool admin can
+   * change it later with `set_lp_transfer_fee` until the liquidity fees are
+   * locked. The protocol share starts at `DEFAULT_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS`.
+   */
+  lpTransferFeeBps?: number;
   /** Immutable LP token metadata (validated client-side with the program's rules). */
   lpMetadata: LpMetadataArgs;
   /** T14: pool admin's share of the LP fee remainder, bps 0..=10_000. Default 0. */
@@ -284,6 +293,8 @@ export interface AtomicDeployParams {
   depositFeeBps?: number;
   /** T7: withdraw fee bps. Default 0. */
   withdrawFeeBps?: number;
+  /** LP transfer fee bps `0..=1_000` written into the LP mint's `TransferFeeConfig`. Default 0. */
+  lpTransferFeeBps?: number;
   /** T9: immutable native hook (default none) and its account slice. */
   hookConfig?: HookConfigArgs | null;
   hookAccounts?: AccountMeta[];

@@ -499,6 +499,50 @@
       "args": []
     },
     {
+      "name": "execute_pool_set_lp_transfer_fee_protocol_share",
+      "docs": [
+        "Execute the pending `PoolSetLpTransferFeeProtocolShare` (kind 15) for",
+        "the pool whose `sha256(pool)[..16]` the slot pins."
+      ],
+      "discriminator": [
+        4,
+        3,
+        202,
+        230,
+        128,
+        237,
+        172,
+        31
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ],
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "execute_pool_set_pool_enabled",
       "docs": [
         "Execute the pending `PoolSetPoolEnabled` (kind 7): re-enables the pool."
@@ -899,7 +943,7 @@
       "name": "execute_upgrade_program",
       "docs": [
         "Execute the pending `UpgradeProgram` (kind 11): program and buffer",
-        "pinned, buffer authority re-checked."
+        "pinned, buffer authority and liveness re-checked."
       ],
       "discriminator": [
         85,
@@ -1517,8 +1561,11 @@
     {
       "name": "pool_enable_range_manager",
       "docs": [
-        "Restore the same range manager disabled by the protocol circuit",
-        "breaker. Admin-only, D-class; cannot appoint a different manager."
+        "Release the protocol circuit breaker on the pool's range manager.",
+        "Admin-only, D-class; cannot appoint a different manager. The manager",
+        "returns to the state the pool admin left it in: enabled only if it",
+        "was enabled when suspended and the pool admin has not disabled or",
+        "cleared it since (`PoolRangeManagerEnabled.new_enabled` reports it)."
       ],
       "discriminator": [
         57,
@@ -1799,6 +1846,67 @@
       ]
     },
     {
+      "name": "pool_redeem_lp_transfer_fees",
+      "docs": [
+        "Redeem a pool's collected LP transfer fees (`lp_transfer_fees_owed_protocol`)",
+        "into the Treasury vault PDAs through `coffer_pool::redeem_lp_transfer_fees`:",
+        "`remaining_accounts` = `[vault_i, recipient_i]×n, mint×n, token_program×n`",
+        "(+ Token-2022 tail); every live slot's recipient is pinned to",
+        "`PDA([b\"vault\", mint_i])`. Instant, like `pool_collect_protocol_fees`:",
+        "value can only move INTO the Treasury.",
+        "",
+        "# Authority",
+        "`treasury.admin` only."
+      ],
+      "discriminator": [
+        196,
+        5,
+        56,
+        248,
+        200,
+        141,
+        37,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "lp_mint",
+          "writable": true
+        },
+        {
+          "name": "lp_fee_account",
+          "writable": true
+        },
+        {
+          "name": "lp_token_program"
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "pool_rescale_virtual_balances",
       "docs": [
         "v6.1 (T22): price-neutral repair of a pool that violates the strict",
@@ -1912,6 +2020,60 @@
         {
           "name": "disabled",
           "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "pool_set_lp_transfer_fee_protocol_share",
+      "docs": [
+        "Set a pool's protocol share (0..=100%) of collected LP transfer fees,",
+        "signing `coffer_pool::set_lp_transfer_fee_protocol_share` as the Treasury",
+        "PDA. D-class — direct only at `delay_secs == 0`, otherwise",
+        "`propose_action(PoolSetLpTransferFeeProtocolShare { pool, bps })` →",
+        "`execute_pool_set_lp_transfer_fee_protocol_share` (same `apply`).",
+        "",
+        "# Authority",
+        "`treasury.admin` only."
+      ],
+      "discriminator": [
+        68,
+        94,
+        214,
+        117,
+        177,
+        179,
+        5,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA that owns the vaults and signs privileged CPIs."
+          ]
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Current treasury administrator; must sign and match the stored admin key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "coffer_pool_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "bps",
+          "type": "u16"
         }
       ]
     },
@@ -2184,7 +2346,9 @@
         "wrapper, stored in its typed `pending_*` slot with `eta = now +",
         "delay_secs` (`SetDelay`: `now + max(old, new)`). Re-proposing a",
         "kind overwrites its slot. `UpgradeProgram` takes the buffer as",
-        "remaining account 0 (its authority must be the Treasury PDA). Emits",
+        "remaining account 0: a rent-exempt loader `Buffer` with a program",
+        "image whose authority is the Treasury PDA (`BufferAuthorityMismatch`,",
+        "`UpgradeBufferNotLive`). Emits",
         "`ActionProposed { kind, payload: borsh(action), eta }`.",
         "",
         "# Authority",
@@ -2403,7 +2567,7 @@
     {
       "name": "stld_withdraw_sol",
       "docs": [
-        "Withdraw lamports from the STLD helper while preserving its rent floor.",
+        "Recover lamports from the dataless STLD helper, which may be drained to zero.",
         "Current treasury admin only; direct-path cooldown, account-validation and CPI errors propagate."
       ],
       "discriminator": [
@@ -2577,7 +2741,9 @@
       "docs": [
         "Upgrade an arbitrary on-chain program via the BPF Loader. v6.1 (T3):",
         "D-class — direct only at `delay_secs == 0`, otherwise",
-        "`propose_action(UpgradeProgram)` → `execute_upgrade_program`."
+        "`propose_action(UpgradeProgram)` → `execute_upgrade_program`. The",
+        "buffer a pending `UpgradeProgram` proposal names is refused here",
+        "(`PendingAccountsMismatch`): only its own execution may consume it."
       ],
       "discriminator": [
         38,
@@ -2926,6 +3092,32 @@
         5,
         102,
         120
+      ]
+    },
+    {
+      "name": "PoolLpTransferFeeProtocolShareSet",
+      "discriminator": [
+        83,
+        48,
+        214,
+        23,
+        142,
+        247,
+        40,
+        194
+      ]
+    },
+    {
+      "name": "PoolLpTransferFeesRedeemed",
+      "discriminator": [
+        230,
+        18,
+        43,
+        220,
+        74,
+        51,
+        46,
+        145
       ]
     },
     {
@@ -3349,6 +3541,11 @@
       "code": 6018,
       "name": "InvalidPendingAdmin",
       "msg": "Invalid pending admin: default pubkey or the current admin"
+    },
+    {
+      "code": 6019,
+      "name": "UpgradeBufferNotLive",
+      "msg": "Upgrade buffer must hold a program image and be rent-exempt"
     }
   ],
   "types": [
@@ -3489,7 +3686,7 @@
           {
             "name": "kind",
             "docs": [
-              "`ProtocolActionKind` as `u8` (1 = SetDelay … 14 = PoolEnableRangeManager)."
+              "`ProtocolActionKind` as `u8` (1 = SetDelay … 15 = PoolSetLpTransferFeeProtocolShare)."
             ],
             "type": "u8"
           },
@@ -3544,7 +3741,7 @@
           {
             "name": "admin",
             "docs": [
-              "Human treasury administrator recorded for this operation."
+              "Canceller: `treasury.admin`, or through `cancel_action(0)` its signer — admin OR supervisor."
             ],
             "type": "pubkey"
           },
@@ -3850,6 +4047,47 @@
               "Integer factor applied equally to every virtual balance."
             ],
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingPoolSetLpTransferFeeProtocolShare",
+      "docs": [
+        "`pool_set_lp_transfer_fee_protocol_share(pool, bps)`. The reserve left",
+        "37 bytes, two short of a `PendingPoolSetProtocolFeeRate`-shaped slot, so",
+        "the pool is pinned by `pool_tag = sha256(pool)[..16]` (128-bit second",
+        "preimage resistance; `Treasury::pool_tag`) and `execute_*` recomputes it",
+        "from the passed pool account."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "eta",
+            "docs": [
+              "Earliest execution time in Unix seconds; zero marks an empty slot."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bps",
+            "docs": [
+              "Proposed protocol share of collected LP transfer fees, in basis points."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "pool_tag",
+            "docs": [
+              "`sha256(pool)[..16]` of the targeted pool."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
           }
         ]
       }
@@ -4443,6 +4681,108 @@
       }
     },
     {
+      "name": "PoolLpTransferFeeProtocolShareSet",
+      "docs": [
+        "`pool_set_lp_transfer_fee_protocol_share` /",
+        "`execute_pool_set_lp_transfer_fee_protocol_share` (actor: `admin`) →",
+        "`LpTransferFeeProtocolShareUpdated`. `old_bps` read pre-CPI."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "old_bps",
+            "docs": [
+              "Protocol share before the change, in basis points."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "new_bps",
+            "docs": [
+              "Protocol share after the change, in basis points."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolLpTransferFeesRedeemed",
+      "docs": [
+        "`pool_redeem_lp_transfer_fees` (actor: `admin`) → `LpTransferFeesRedeemed`",
+        "(amounts + recipients). `lp_owed_before` read pre-CPI."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury PDA that owns the vaults and signs privileged CPIs."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Human treasury administrator recorded for this operation."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "docs": [
+              "Pool account targeted by this operation."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_owed_before",
+            "docs": [
+              "`lp_transfer_fees_owed_protocol` before the redemption."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "PoolMigratedToV5ViaTreasury",
       "docs": [
         "`pool_migrate_to_v5` (actor: `admin`) → `PoolMigrationV5Applied`. New",
@@ -4738,8 +5078,11 @@
     {
       "name": "PoolRangeManagerEnabled",
       "docs": [
-        "S-05: protocol admin restores the existing range manager after its",
-        "emergency restriction. Emitted by both direct and delayed execution."
+        "S-05: protocol admin releases its emergency restriction on the existing",
+        "range manager. Emitted by both direct and delayed execution. The release",
+        "restores what the pool admin left, so `new_enabled` is read back from the",
+        "pool after the CPI and can be `false` (same value as the inner",
+        "`RangeManagerSetV2.new_enabled`)."
       ],
       "type": {
         "kind": "struct",
@@ -4782,7 +5125,7 @@
           {
             "name": "new_enabled",
             "docs": [
-              "Enabled state after the operation."
+              "Enabled state of the pool after the operation (actual, not requested)."
             ],
             "type": "bool"
           },
@@ -5100,14 +5443,14 @@
           {
             "name": "authority",
             "docs": [
-              "Operation signer; account constraints and the handler determine the permitted role."
+              "Operation signer: always `treasury.admin` (the supervisor may freeze, never unfreeze)."
             ],
             "type": "pubkey"
           },
           {
             "name": "actor_kind",
             "docs": [
-              "Signer role encoded by the `actor_kind` constants."
+              "Always `actor_kind::PROTOCOL_ADMIN` (2); kept so the payload mirrors `PoolsFrozenV2`."
             ],
             "type": "u8"
           },
@@ -5577,6 +5920,25 @@
                 "type": "pubkey"
               }
             ]
+          },
+          {
+            "name": "PoolSetLpTransferFeeProtocolShare",
+            "fields": [
+              {
+                "name": "pool",
+                "docs": [
+                  "Pool account targeted by this operation."
+                ],
+                "type": "pubkey"
+              },
+              {
+                "name": "bps",
+                "docs": [
+                  "Proposed protocol share of collected LP transfer fees, in basis points."
+                ],
+                "type": "u16"
+              }
+            ]
           }
         ]
       }
@@ -5832,7 +6194,8 @@
         "`supervisor` (`delay_secs`, `admin_epoch`, `pending_admin_eta`, twelve",
         "typed `pending_*` slots, `reserved_v61[125]`; T22 carved the 48-byte",
         "kind-13 slot from the reserve's front, then S-05 adds the 40-byte",
-        "range-manager restoration slot → `reserved_v61[37]`, `LEN`",
+        "range-manager restoration slot, then the LP transfer fee adds the",
+        "26-byte kind-15 slot → `reserved_v61[11]`, `LEN`",
         "unchanged). Existing v1 / v2",
         "accounts are grown in place by the admin-paid",
         "`migrate_treasury_layout_v61` instruction (zero tail ⇒ delay 0, epoch",
@@ -5860,7 +6223,8 @@
         "| 12 ProgramOp | `pending_program_op` | `op: u8, program, target: Pubkey` | 1426 | 73 |",
         "| 13 PoolRescaleVirtualBalances (T22) | `pending_pool_rescale_virtual_balances` | `pool: Pubkey, multiplier: u64` | 1499 | 48 |",
         "| 14 PoolEnableRangeManager (S-05) | `pending_pool_enable_range_manager` | `pool: Pubkey` | 1547 | 40 |",
-        "| | `reserved_v61` | | 1587 | 37 |"
+        "| 15 PoolSetLpTransferFeeProtocolShare | `pending_pool_set_lp_transfer_fee_protocol_share` | `bps: u16, pool_tag: [u8; 16]` (= `sha256(pool)[..16]`) | 1587 | 26 |",
+        "| | `reserved_v61` | | 1613 | 11 |"
       ],
       "type": {
         "kind": "struct",
@@ -6142,6 +6506,18 @@
             }
           },
           {
+            "name": "pending_pool_set_lp_transfer_fee_protocol_share",
+            "docs": [
+              "kind 15: `pool_set_lp_transfer_fee_protocol_share` (compact slot, see",
+              "`PendingPoolSetLpTransferFeeProtocolShare`)."
+            ],
+            "type": {
+              "defined": {
+                "name": "PendingPoolSetLpTransferFeeProtocolShare"
+              }
+            }
+          },
+          {
             "name": "reserved_v61",
             "docs": [
               "v6.1 reserve (zero). Later tasks carve from its front; `LEN` stays."
@@ -6149,7 +6525,7 @@
             "type": {
               "array": [
                 "u8",
-                37
+                11
               ]
             }
           }

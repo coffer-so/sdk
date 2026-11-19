@@ -160,6 +160,7 @@ const TYPED: ReadonlySet<string> = new Set<TypedEventName>([
   "SwapV2", "LiquidityAddedV2", "LiquidityRemovedV2", "PoolInitializedV2", "PoolInfoV2", "ProtocolFeesCollectedV2", "CreatorFeesClaimedV2",
   "SidelinedTokenFunded", "VirtualBalancesRescaled", "HookInvoked", "HookDisabledSet", "PoolEnabledUpdated", "SwapsEnabledUpdatedV2", "TokenActiveSetV2",
   "RangeManagerUpdatedV2", "MaxSelloffSetV2", "SingleTokenDepositDirectV2",
+  "LpTransferFeeUpdated", "LpTransferFeeProtocolShareUpdated", "LpTransferFeesCollected", "LpTransferFeesRedeemed",
 ]);
 
 /** Event names the hand-written (strict, typed) decoders cover; every other event goes through the IDL coder. */
@@ -266,6 +267,23 @@ function decodeTyped(name: string, buf: Buffer): CofferPoolEvent | null {
         kind: "SingleTokenDepositDirectV2", pool: r.pubkey(), user: r.pubkey(), tokenInIndex: r.u8(), amountIn: r.u64(), minimumLpAmount: r.u64(),
         allocations: r.vecU64(), planExpectedState: r.u8Array(32), planQuotedAt: ts(), planValidUntilSlot: r.u64(), innerSwapCount: r.u8(),
         depositedAmounts: r.vecU64(), lpReceived: r.u64(), dustRemaining: r.vecU64(), lpSupplyBefore: r.u64(), lpSupplyAfter: r.u64(), timestamp: ts(),
+      };
+    // ── LP transfer fee (2026-11-19) ──
+    case "LpTransferFeeUpdated":
+      return { kind: "LpTransferFeeUpdated", pool: r.pubkey(), lpMint: r.pubkey(), authority: r.pubkey(), oldBps: r.u16(), newBps: r.u16(), timestamp: ts() };
+    case "LpTransferFeeProtocolShareUpdated":
+      return { kind: "LpTransferFeeProtocolShareUpdated", pool: r.pubkey(), authority: r.pubkey(), oldBps: r.u16(), newBps: r.u16(), timestamp: ts() };
+    case "LpTransferFeesCollected":
+      return {
+        kind: "LpTransferFeesCollected", pool: r.pubkey(), lpMint: r.pubkey(), lpFeeAccount: r.pubkey(),
+        collected: r.u64(), protocolPart: r.u64(), scheduledBurn: r.u64(), burnedNow: r.u64(), protocolOwedAfter: r.u64(), pendingBurnAfter: r.u64(), lpSupplyAfter: r.u64(), timestamp: ts(),
+        burnEndTs: r.i64(),
+      };
+    case "LpTransferFeesRedeemed":
+      return {
+        kind: "LpTransferFeesRedeemed", pool: r.pubkey(), authority: r.pubkey(), lpBurned: r.u64(),
+        tokenAmounts: r.vecU64(), surgeAmounts: r.vecU64(), transferFeesOut: r.vecU64(), recipients: r.vecPubkey(),
+        protocolOwedAfter: r.u64(), lpSupplyBefore: r.u64(), lpSupplyAfter: r.u64(), timestamp: ts(),
       };
   }
 }

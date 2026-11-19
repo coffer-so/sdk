@@ -12,3 +12,4 @@ export * from "./cooldown";
 export * from "./feeClaim";
 export * from "./poolIdentity";
 export * from "./atomicDeploy";
+export * from "./lpTransferFee";

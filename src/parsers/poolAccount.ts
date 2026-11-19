@@ -12,7 +12,7 @@ import {
   TOKEN_SLOT_LEN,
   PoolActionKindName,
 } from "./layout";
-import { SAFETY_FLAGS_KNOWN_MASK } from "../config";
+import { MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS, SAFETY_FLAGS_KNOWN_MASK } from "../config";
 
 /**
  * Raw binary layout of `CofferPool` (see
@@ -140,7 +140,7 @@ export interface RawPoolAccount {
   poolAdminEpoch: number;
   /** v6.1 (T3): eta of the pending admin transfer (kind 0; nominee = `pendingPoolAdmin`); 0 = none. */
   pendingPoolAdminEta: BN;
-  /** v6.1 (T3): the eleven typed pending slots in kind order (kind 0 = admin transfer). */
+  /** v6.1 (T3): the twelve typed pending slots in kind order (kind 0 = admin transfer; kind 11 = `SetLpTransferFee` @2150). */
   pendingActions: RawPendingPoolAction[];
   /** v6.1 (T3): bit `kind` set ⇔ that slot is live (`CofferPool::pending_actions_mask`). */
   pendingActionsMask: number;
@@ -160,7 +160,25 @@ export interface RawPoolAccount {
   /** rc2: seed history and protocol-imposed restrictions (bit 0 seed, 1..10 tokens, 11 swaps, 12 range manager). */
   safetyFlags: number;
   rangeManagerWeightAnchors: number[];
-  /** rc2: `reserved_v61` @2124 (180 bytes, zero); empty on an unmigrated account. */
+  /**
+   * LP transfer fee: protocol share (bps) of every collected LP transfer fee
+   * @2124; the rest is burned by `collect_lp_transfer_fees`. `0` on an
+   * unmigrated / migrated pool (its LP mint has no fee extension anyway).
+   */
+  lpTransferFeeProtocolShareBps: number;
+  /** LP transfer fee: LP units collected for the protocol and still held in the pool's LP fee account @2126 (raw). */
+  lpTransferFeesOwedProtocol: BN;
+  /**
+   * LP transfer fee (L-1): burn part of collected fees still in the fee
+   * account, streamed out by `collect_lp_transfer_fees` over 24 h @2134 (raw).
+   * Fee-account invariant: `amount == owed + pendingBurn`.
+   */
+  lpTransferFeesPendingBurn: BN;
+  /** LP transfer fee (L-1): start of the stream's current linear segment (the last `collect_lp_transfer_fees` that burned) @2142; 0 before the first. */
+  lpTransferFeeBurnLastTs: BN;
+  /** LP transfer fee (X1): Unix time at which `lpTransferFeesPendingBurn` is fully burnable @2160 (after slot 11); `== lastTs` while nothing is pending, 0 on a migrated pool. */
+  lpTransferFeeBurnEndTs: BN;
+  /** `reserved_v61` @2168 (136 bytes, zero); empty on an unmigrated account. */
   reservedV61: Buffer;
   /**
    * Non-empty when a 2304-byte account carries bytes the v6.1 layout does
@@ -432,7 +450,8 @@ function v61Defaults(): Pick<RawPoolAccount,
   | "withdrawFeeBps" | "liquidityFeeLock" | "rangeManagerLocked" | "poolAdminDelaySecs" | "poolAdminEpoch"
   | "pendingPoolAdminEta" | "pendingActions" | "pendingActionsMask" | "hookProgram" | "hookFlags" | "hookDisabled"
   | "hookFeeMin" | "hookFeeMax" | "hookMaxCu" | "hookAccountsLen" | "reservedV61" | "layoutDrift"
-  | "safetyFlags" | "rangeManagerWeightAnchors"
+  | "safetyFlags" | "rangeManagerWeightAnchors" | "lpTransferFeeProtocolShareBps" | "lpTransferFeesOwedProtocol"
+  | "lpTransferFeesPendingBurn" | "lpTransferFeeBurnLastTs" | "lpTransferFeeBurnEndTs"
 > {
   const zeros = () => Array.from({ length: MAX_TOKENS }, () => new BN(0));
   return {
@@ -459,6 +478,11 @@ function v61Defaults(): Pick<RawPoolAccount,
     hookAccountsLen: 0,
     safetyFlags: 0,
     rangeManagerWeightAnchors: Array(MAX_TOKENS).fill(0),
+    lpTransferFeeProtocolShareBps: 0,
+    lpTransferFeesOwedProtocol: new BN(0),
+    lpTransferFeesPendingBurn: new BN(0),
+    lpTransferFeeBurnLastTs: new BN(0),
+    lpTransferFeeBurnEndTs: new BN(0),
     reservedV61: Buffer.alloc(0),
     layoutDrift: [],
   };
@@ -505,6 +529,15 @@ function decodeV61Block(data: Buffer, tokenCount: number): ReturnType<typeof v61
   const reservedV61 = Buffer.from(data.subarray(L.RESERVED_V61.offset, L.RESERVED_V61.offset + L.RESERVED_V61.size));
   const safetyFlags = data.readUInt16LE(L.SAFETY_FLAGS.offset);
   const rangeManagerWeightAnchors = Array.from({ length: MAX_TOKENS }, (_, i) => data.readUInt16LE(L.RANGE_MANAGER_WEIGHT_ANCHORS.offset + 2 * i));
+  // LP transfer fee block @2124..2150 (carved from the reserve's front); slot 11 @2150 is read by the cooldown block; the stream end @2160 (X1) sits after it.
+  const lpTransferFeeProtocolShareBps = data.readUInt16LE(L.LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS.offset);
+  const lpTransferFeesOwedProtocol = readU64LE(data, L.LP_TRANSFER_FEES_OWED_PROTOCOL.offset);
+  const lpTransferFeesPendingBurn = readU64LE(data, L.LP_TRANSFER_FEES_PENDING_BURN.offset);
+  const lpTransferFeeBurnLastTs = readI64LE(data, L.LP_TRANSFER_FEE_BURN_LAST_TS.offset);
+  const lpTransferFeeBurnEndTs = readI64LE(data, L.LP_TRANSFER_FEE_BURN_END_TS.offset);
+  if (lpTransferFeeProtocolShareBps > MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS) drift.push(`lp_transfer_fee_protocol_share_bps is ${lpTransferFeeProtocolShareBps}, above 10_000`);
+  if (lpTransferFeeBurnLastTs.isNeg()) drift.push(`lp_transfer_fee_burn_last_ts is negative (${lpTransferFeeBurnLastTs.toString()})`);
+  if (lpTransferFeeBurnEndTs.isNeg()) drift.push(`lp_transfer_fee_burn_end_ts is negative (${lpTransferFeeBurnEndTs.toString()})`);
   if ((safetyFlags & ~SAFETY_FLAGS_KNOWN_MASK) !== 0) drift.push("unknown safety_flags bits");
   if (reservedV61.some((b) => b !== 0)) drift.push("reserved_v61 is not all zero");
   if (L.RESERVED_V61.offset + L.RESERVED_V61.size !== POOL_LEN_V61) {
@@ -531,12 +564,17 @@ function decodeV61Block(data: Buffer, tokenCount: number): ReturnType<typeof v61
     hookAccountsLen,
     safetyFlags,
     rangeManagerWeightAnchors,
+    lpTransferFeeProtocolShareBps,
+    lpTransferFeesOwedProtocol,
+    lpTransferFeesPendingBurn,
+    lpTransferFeeBurnLastTs,
+    lpTransferFeeBurnEndTs,
     reservedV61,
     layoutDrift: drift,
   };
 }
 
-/** v6.1 (T3): decode the pool-admin cooldown block @1862..2054 of a 2304-byte account. */
+/** v6.1 (T3): decode the pool-admin cooldown block @1862..2054 of a 2304-byte account, plus slot 11 (`SetLpTransferFee`, I-1) @2150. */
 export function decodePoolCooldownBlock(data: Buffer): Pick<RawPoolAccount, "poolAdminDelaySecs" | "poolAdminEpoch" | "pendingPoolAdminEta" | "pendingActions" | "pendingActionsMask"> {
   if (data.length !== POOL_LEN_V61) throw new Error(`decodePoolCooldownBlock: needs a ${POOL_LEN_V61}-byte account`);
   const slot = (kind: number, off: number, payload: RawPendingPoolAction["payload"]): RawPendingPoolAction =>
@@ -561,6 +599,7 @@ export function decodePoolCooldownBlock(data: Buffer): Pick<RawPoolAccount, "poo
     }),
     slot(9, L.PENDING_SET_MAX_SELLOFF.offset, { paramsHash: data.subarray(L.PENDING_SET_MAX_SELLOFF.offset + 8, L.PENDING_SET_MAX_SELLOFF.offset + 40).toString("hex") }),
     slot(10, L.PENDING_SET_TOKEN_ACTIVE.offset, { tokenIndex: data.readUInt8(L.PENDING_SET_TOKEN_ACTIVE.offset + 8) }),
+    slot(11, L.PENDING_SET_LP_TRANSFER_FEE.offset, { bps: data.readUInt16LE(L.PENDING_SET_LP_TRANSFER_FEE.offset + 8) }),
   ];
   return {
     poolAdminDelaySecs: data.readUInt32LE(L.POOL_ADMIN_DELAY_SECS.offset),

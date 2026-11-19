@@ -83,13 +83,13 @@ const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
 test("generated public types match all shipped IDLs", () => {
-  // v6.1-rc2: coffer_pool 51 ix / 41 events, protocol_admin 55 / 38, STLD 4 / 2
+  // LP transfer fee (2026-11-19): coffer_pool 56 ix / 45 events (I-1 appended execute_set_lp_transfer_fee), protocol_admin 58 / 40, STLD 4 / 2
   // (T19 removed 2 + 2; L0/T2/T10/T14/T6/T7/T3/T9/T22 appended the rest; T11
   // retired PoolStateLog / MaxSelloffWindowAdvanced / SingleTokenDeposit and
   // re-cut 45 payloads under new names; rc2 added close_upgrade_buffer /
   // UpgradeBufferClosed and dropped the never-deployed batch route).
-  expect(instructions).toHaveLength(110);
-  expect(events).toHaveLength(81);
+  expect(instructions).toHaveLength(118);
+  expect(events).toHaveLength(87);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
 
@@ -257,6 +257,10 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     execute_transfer_upgrade_authority: () => client.executeTransferUpgradeAuthorityIx(a, cfg.programs.cofferPool, other),
     execute_freeze_pool_program: () => client.executeFreezePoolProgramIx(a, cfg.programs.cofferPool),
     execute_close_pool_program: () => client.executeClosePoolProgramIx(a, cfg.programs.cofferPool, recipient),
+    // LP transfer fee (2026-11-19)
+    pool_set_lp_transfer_fee_protocol_share: () => client.poolSetLpTransferFeeProtocolShareIx(a, config, pool, 2_500),
+    execute_pool_set_lp_transfer_fee_protocol_share: () => client.executePoolSetLpTransferFeeProtocolShareIx(a, config, pool),
+    pool_redeem_lp_transfer_fees: () => client.poolRedeemLpTransferFeesIx(a, { ...poolFixture(), lpTransferFeesOwedProtocol: new BN(5) }),
   };
   expect(Object.keys(calls).sort()).toEqual(IDLS.protocolAdmin.instructions.map(ix => ix.name).sort());
   for (const schema of IDLS.protocolAdmin.instructions) {

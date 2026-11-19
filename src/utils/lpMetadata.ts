@@ -16,14 +16,14 @@
  */
 
 import { Connection, PublicKey, type AccountInfo, type Commitment } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { ExtensionType, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAccountLen, getAccountTypeOfMintType } from "@solana/spl-token";
 import {
   LP_METADATA_POOL_KEY,
   LP_NAME_MAX_LEN,
   LP_SYMBOL_MAX_LEN,
   LP_URI_MAX_LEN,
 } from "../config";
-import { decodeMintAccount } from "../parsers/mintAccount";
+import { decodeMintAccount, type RawMintAccount } from "../parsers/mintAccount";
 import type { LpMetadata } from "../types/pool";
 import type { LpMetadataArgs, LpMetadataField } from "../types/tx-v61";
 
@@ -133,24 +133,67 @@ export function lpMetadataArgsSize(args: LpMetadataArgs): number {
 }
 export const LP_METADATA_ARGS_MAX_SIZE = 12 + LP_NAME_MAX_LEN + LP_SYMBOL_MAX_LEN + LP_URI_MAX_LEN;
 
+/** `MetadataPointer` TLV on the LP mint (4 + 64). */
+export const LP_MINT_METADATA_POINTER_TLV_SIZE = 4 + 64;
+/** `TransferFeeConfig` TLV on every LP mint created since the LP transfer fee (4 + 108). */
+export const LP_MINT_TRANSFER_FEE_TLV_SIZE = 4 + 108;
+
 /**
  * Final LP mint account size: base Token-2022 mint + account type (166) +
- * `MetadataPointer` TLV (4 + 64) + `TokenMetadata` TLV (4 + Borsh body with
- * the `("pool", <pool base58>)` pair). Rent is `(size + 128) × 6960`
- * lamports at the default rate.
+ * `TransferFeeConfig` TLV (4 + 108, every mint since the LP transfer fee;
+ * pass `withTransferFee = false` for a pre-feature mint) + `MetadataPointer`
+ * TLV (4 + 64) + `TokenMetadata` TLV (4 + Borsh body with the
+ * `("pool", <pool base58>)` pair). Rent is `(size + 128) × 6960` lamports
+ * at the default rate.
  */
-export function lpMintAccountSize(args: LpMetadataArgs, pool: PublicKey): number {
+export function lpMintAccountSize(args: LpMetadataArgs, pool: PublicKey, withTransferFee = true): number {
   const body =
     32 + 32 +
     (4 + byteLength(args.name)) + (4 + byteLength(args.symbol)) + (4 + byteLength(args.uri)) +
     4 + (4 + LP_METADATA_POOL_KEY.length) + (4 + pool.toBase58().length);
-  return 166 + (4 + 64) + (4 + body);
+  return 166 + (withTransferFee ? LP_MINT_TRANSFER_FEE_TLV_SIZE : 0) + LP_MINT_METADATA_POINTER_TLV_SIZE + (4 + body);
 }
-/** Anchor's allocation before the handler grows the mint. */
-export const LP_MINT_BASE_SIZE = 234;
+/**
+ * `lp_mint_initial_len`: the handler's `create_account` size before the
+ * metadata CPIs grow the mint — base + `TransferFeeConfig` + `MetadataPointer`
+ * (346; 234 for a pre-feature mint, `LP_MINT_BASE_SIZE_PRE_FEE`).
+ */
+export const LP_MINT_BASE_SIZE = 166 + LP_MINT_TRANSFER_FEE_TLV_SIZE + LP_MINT_METADATA_POINTER_TLV_SIZE;
+export const LP_MINT_BASE_SIZE_PRE_FEE = 166 + LP_MINT_METADATA_POINTER_TLV_SIZE;
 export function rentExemptLamports(size: number, lamportsPerByteYear = 3480, years = 2): number {
   return (size + 128) * lamportsPerByteYear * years;
 }
+
+/**
+ * Token account size for a Token-2022 mint with `mintExtensions`
+ * (`ExtensionType::try_calculate_account_len` / `getAccountLenForMint`
+ * semantics): base 165 + account type 1 + one TLV per REQUIRED account
+ * extension (`TransferFeeConfig → TransferFeeAmount` 4 + 8,
+ * `TransferHook → TransferHookAccount` 4 + 1, `NonTransferable →
+ * NonTransferableAccount` 4 + 0, `PausableConfig → PausableAccount` 4 + 0,
+ * `ConfidentialTransferMint → ConfidentialTransferAccount`). An ATA
+ * (`ata = true`, default) also carries `ImmutableOwner` (4 + 0). A plain
+ * SPL Token mint (`[]`, `ata = false`) is the 165-byte base account.
+ *
+ * The LP ATA of a fee-bearing LP mint is therefore 182 bytes (178 without
+ * the ATA's `ImmutableOwner`); the ATA program sizes it automatically —
+ * use this for rent estimates / `createAccount`-style flows only.
+ */
+export function lpTokenAccountSize(mintExtensions: readonly number[], ata = true): number {
+  const required = mintExtensions
+    .map((t) => getAccountTypeOfMintType(t as ExtensionType))
+    .filter((t) => t !== ExtensionType.Uninitialized);
+  const types = ata ? [...required, ExtensionType.ImmutableOwner] : required;
+  return getAccountLen(Array.from(new Set(types)));
+}
+
+/** `lpTokenAccountSize` for a decoded mint (`decodeMintAccount(...).extensions`). */
+export function lpTokenAccountSizeForMint(mint: Pick<RawMintAccount, "extensions">, ata = true): number {
+  return lpTokenAccountSize(mint.extensions, ata);
+}
+
+/** Size of the LP ATA every pool created since the LP transfer fee needs (`TransferFeeAmount` + `ImmutableOwner`). */
+export const LP_TOKEN_ACCOUNT_SIZE_WITH_TRANSFER_FEE = 165 + 1 + (4 + 8) + (4 + 0);
 
 /**
  * Test / tooling default. Production deployers (frontend, CLI) MUST pass an

@@ -142,11 +142,12 @@ describe("proportional liquidity quotes", () => {
     expect(c.quoteAddLiquidity([bn(0), bn(1000)]).ok).toBe(true);
   });
 
-  test("v6: a thin live leg is credited UP from the ratio instead of being refused", () => {
+  test("v6: thin-leg credit rounds UP; client policy requires explicit tolerance for its 50% loss", () => {
     const state = pool(); state.tokens[0].actualBalance = bn(1); state.tokens[1].actualBalance = bn(2);
     state.tokens[0].virtualBalance = bn(5); state.tokens[1].virtualBalance = bn(4);
     // ratio = min(1/1, 1/2) = 0.5, LP = 500m; credits ceil(1·0.5) = 1 and ceil(2·0.5) = 1.
-    const q = result(client(state).quoteAddLiquidity([bn(1), bn(1)], 0));
+    expect(client(state).quoteAddLiquidity([bn(1), bn(1)], 0)).toMatchObject({ ok: false, error: { code: "deposit_rounding_loss" } });
+    const q = result(client(state).quoteAddLiquidity([bn(1), bn(1)], 500_000));
     expect(q.lpOut.toString()).toBe("500000000");
     expect(q.creditedAmounts.map(String)).toEqual(["1", "1"]);
     expect(q.chargedAmounts.map(String)).toEqual(["1", "1"]);

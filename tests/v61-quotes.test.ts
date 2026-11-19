@@ -316,15 +316,15 @@ describe("LP price / position value (T2 / T12)", () => {
 describe("pendingActionsStatus (T3)", () => {
   test("[P30] none / waiting / ready / expired at the chain clock, readyKinds, directPathOpen", () => {
     const now = 1_700_000_000;
-    const etas = Array(11).fill(0); etas[2] = now + 100; etas[4] = now; etas[9] = now - GRACE_PERIOD_SECS - 1;
+    const etas = Array(12).fill(0); etas[2] = now + 100; etas[4] = now; etas[9] = now - GRACE_PERIOD_SECS - 1; etas[11] = now + 5;
     const pool = mockPool({ pendingEtas: etas, chainTimestamp: now, poolAdminDelaySecs: 3600, poolAdminEpoch: 2 });
     const s = unwrap(clientFor(pool).pendingActionsStatus());
     expect(s.now).toBe(now); expect(s.delaySecs).toBe(3600); expect(s.epoch).toBe(2); expect(s.directPathOpen).toBe(false);
-    expect(s.actions.map((a) => a.status)).toEqual(["none", "none", "waiting", "none", "ready", "none", "none", "none", "none", "expired", "none"]);
-    expect(s.actions[2].secondsUntilReady).toBe(100); expect(s.readyKinds).toEqual([4]); expect(s.mask).toBe((1 << 2) | (1 << 4) | (1 << 9));
+    expect(s.actions.map((a) => a.status)).toEqual(["none", "none", "waiting", "none", "ready", "none", "none", "none", "none", "expired", "none", "waiting"]);
+    expect(s.actions[2].secondsUntilReady).toBe(100); expect(s.readyKinds).toEqual([4]); expect(s.mask).toBe((1 << 2) | (1 << 4) | (1 << 9) | (1 << 11)); expect(s.actions[11].name).toBe("SetLpTransferFee");
   });
   test("[P31] an explicit chainNow overrides the synced clock; delay 0 opens the direct path", () => {
-    const pool = mockPool({ pendingEtas: [0, 0, 1_700_000_100, 0, 0, 0, 0, 0, 0, 0, 0], chainTimestamp: 1_700_000_000 });
+    const pool = mockPool({ pendingEtas: [0, 0, 1_700_000_100, 0, 0, 0, 0, 0, 0, 0, 0, 0], chainTimestamp: 1_700_000_000 });
     expect(unwrap(clientFor(pool).pendingActionsStatus(1_700_000_200)).actions[2].status).toBe("ready");
     expect(unwrap(clientFor(pool).pendingActionsStatus()).directPathOpen).toBe(true);
   });

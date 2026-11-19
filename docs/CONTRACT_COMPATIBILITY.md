@@ -1,16 +1,16 @@
 # Contract compatibility: v6.1
 
-Source: `contracts-v6.1` branch `v6.1` at the `v6.1-rc2` ABI (the commit is
+Source: `contracts-v6.1` branch `v6.1` at the LP-transfer-fee ABI after the review fixes L-1 / I-1 / I-2 and the X1 linear burn stream (commit `c9f8f1c`, 2026-11-19, on top of the `v6.1-rc2` ABI; the rc2 commit is
 tagged `v6.1-rc2` on release). The vendored IDLs are byte-for-byte the
 `anchor build` output of that source (`idl/*.json`, addresses included):
 
 | Program | Instructions | Events | IDL sha256 |
 | --- | ---: | ---: | --- |
-| coffer_pool | 51 | 41 | `f031d8b14636b35c69397549b1eafffe0f554c6924f1aed92ae0e45a095389b2` |
-| protocol_admin | 55 | 38 | `c797bba6a1a1fa8388822240e0fe96bafd29c833d3e8842b0fc04180bddf3534` |
-| single_token_liquidity | 4 | 2 | `413ea7dabbc0dc0ec16339c37a78834a8d587530b5f8064ec9512794afcff55b` |
+| coffer_pool | 56 | 45 | `6ecaaba5a708923c6b47371e80aa9b7859b059584e919032228f5b3f34582333` |
+| protocol_admin | 58 | 40 | `885d0fe42ecfbf775fd51fac07258e385787e4a1ee7f41c07aaebae3bed85f0c` |
+| single_token_liquidity | 4 | 2 | `c95c5aff211ebc9232c38b3136d566d56a9e77929cd4b059b82a267ed2c8fabc` |
 
-110 instructions / 81 events. `npm run abi:check` compares `../contracts-v6.1/idl`
+118 instructions / 87 events. `npm run abi:check` compares `../contracts-v6.1/idl`
 with the vendored IDLs, ignoring addresses. Repeated command-line path options
 use the last value. A wire comparison does not establish complete instruction
 support. The never-deployed "N10 batch" route (`batch_single_token_planned_v1`,

@@ -66,6 +66,10 @@ export type CofferPoolEvent =
   | RangeManagerUpdatedV2Event
   | MaxSelloffSetV2Event
   | SingleTokenDepositDirectV2Event
+  | LpTransferFeeUpdatedEvent
+  | LpTransferFeeProtocolShareUpdatedEvent
+  | LpTransferFeesCollectedEvent
+  | LpTransferFeesRedeemedEvent
   | AdditionalContractEvent
   | UnknownEvent;
 
@@ -422,6 +426,84 @@ export interface SingleTokenDepositDirectV2Event {
   timestamp: number;
 }
 
+// ─── LP transfer fee (2026-11-19) ────────────────────────────────────────────
+
+/**
+ * `initialize_pool` (`oldBps = 0`, `authority` = the payer) and
+ * `set_lp_transfer_fee` (`authority` = the pool admin): the LP mint's
+ * scheduled `TransferFeeConfig` rate. Token-2022 applies `newBps` from the
+ * epoch after next; `oldBps` is the previously scheduled (`newer`) rate.
+ */
+export interface LpTransferFeeUpdatedEvent {
+  kind: "LpTransferFeeUpdated";
+  pool: PublicKey;
+  lpMint: PublicKey;
+  authority: PublicKey;
+  oldBps: number;
+  newBps: number;
+  timestamp: number;
+}
+
+/** `set_lp_transfer_fee_protocol_share` (protocol admin): `lp_transfer_fee_protocol_share_bps` old → new; never retroactive. */
+export interface LpTransferFeeProtocolShareUpdatedEvent {
+  kind: "LpTransferFeeProtocolShareUpdated";
+  pool: PublicKey;
+  authority: PublicKey;
+  oldBps: number;
+  newBps: number;
+  timestamp: number;
+}
+
+/**
+ * `collect_lp_transfer_fees` (permissionless): `collected = protocolPart +
+ * scheduledBurn`; the burn stream (L-1) advanced by `burnedNow`, which comes
+ * from EARLIER collections — nothing of `scheduledBurn` burns in this call.
+ * `lpSupplyAfter` is the mint supply after `burnedNow` left it; the stream
+ * vests linearly up to `burnEndTs` (`lpTransferFeeDrip`).
+ */
+export interface LpTransferFeesCollectedEvent {
+  kind: "LpTransferFeesCollected";
+  pool: PublicKey;
+  lpMint: PublicKey;
+  lpFeeAccount: PublicKey;
+  /** LP units collected in this call (withheld fees swept + any donation to the fee account). */
+  collected: BN;
+  /** LP units booked to the protocol (`lp_transfer_fees_owed_protocol += protocolPart`). */
+  protocolPart: BN;
+  /** LP units of this collection queued for the burn stream (`lp_transfer_fees_pending_burn += scheduledBurn`). */
+  scheduledBurn: BN;
+  /** LP units burned in this call: `lpTransferFeeDrip(pendingBefore, lastTs, endTs, timestamp)` (raises every LP unit's NAV). */
+  burnedNow: BN;
+  protocolOwedAfter: BN;
+  /** `lp_transfer_fees_pending_burn` after the call. */
+  pendingBurnAfter: BN;
+  lpSupplyAfter: BN;
+  timestamp: number;
+  /** `lp_transfer_fee_burn_end_ts` after the call: when `pendingBurnAfter` is fully burnable (`== timestamp` when nothing is pending). */
+  burnEndTs: BN;
+}
+
+/**
+ * `redeem_lp_transfer_fees` (protocol admin): `lpBurned` LP from the pool's
+ * LP fee account redeemed pro rata (no withdraw fee) into `recipients`
+ * (`PublicKey.default` for a zero-payout slot). The recipient receives
+ * `tokenAmounts_i + surgeAmounts_i − transferFeesOut_i`.
+ */
+export interface LpTransferFeesRedeemedEvent {
+  kind: "LpTransferFeesRedeemed";
+  pool: PublicKey;
+  authority: PublicKey;
+  lpBurned: BN;
+  tokenAmounts: BN[];
+  surgeAmounts: BN[];
+  transferFeesOut: BN[];
+  recipients: PublicKey[];
+  protocolOwedAfter: BN;
+  lpSupplyBefore: BN;
+  lpSupplyAfter: BN;
+  timestamp: number;
+}
+
 /**
  * A `Program data:` line the SDK could not decode as a current event. `name`
  * is the pinned legacy / retired name when the discriminator is a known
@@ -446,7 +528,8 @@ type CamelEventData<T> = { [K in keyof T as K extends "kind" ? "actionKind" : K 
 export type TypedEventName =
   | "SwapV2" | "LiquidityAddedV2" | "LiquidityRemovedV2" | "PoolInitializedV2" | "PoolInfoV2" | "ProtocolFeesCollectedV2" | "CreatorFeesClaimedV2"
   | "SidelinedTokenFunded" | "VirtualBalancesRescaled" | "HookInvoked" | "HookDisabledSet" | "PoolEnabledUpdated" | "SwapsEnabledUpdatedV2" | "TokenActiveSetV2"
-  | "RangeManagerUpdatedV2" | "MaxSelloffSetV2" | "SingleTokenDepositDirectV2";
+  | "RangeManagerUpdatedV2" | "MaxSelloffSetV2" | "SingleTokenDepositDirectV2"
+  | "LpTransferFeeUpdated" | "LpTransferFeeProtocolShareUpdated" | "LpTransferFeesCollected" | "LpTransferFeesRedeemed";
 export type AdditionalContractEvent = {
   [P in keyof import("./contracts").ContractEventMap]: {
     [E in Exclude<keyof import("./contracts").ContractEventMap[P], TypedEventName>]:

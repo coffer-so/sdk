@@ -3,6 +3,121 @@
 Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 `cubic_pool`); they were not rewritten.
 
+## Unreleased
+
+### 2026-11-19 LP transfer fee burn stream is true linear vesting (contracts `c9f8f1c`: X1)
+
+- IDLs re-synced (coffer_pool / single_token_liquidity changed: the embedded `CofferPool`
+  type and `LpTransferFeesCollected`; counts unchanged at 118 ix / 87 events); generated
+  types and event fixtures regenerated; `abi:check` green against `contracts-v6.1@c9f8f1c`.
+- New pool field `lp_transfer_fee_burn_end_ts` (i64 @2160, carved AFTER cooldown slot 11;
+  `reserved_v61` 144 → 136 B @2168, LEN 2304) decoded as `RawPoolAccount` /
+  `PoolInfo.lpTransferFeeBurnEndTs` (`layoutDrift` flags a negative value). The stream is
+  the triple `(pending @2134, last_ts @2142, end_ts @2160)`; `lpBurnStreamOf(pool)` reads
+  it from a `PoolInfo` / `RawPoolAccount` (zero-filled on a migrated pool).
+- Stream math re-cut as an exact mirror of `math/lp_transfer_fee.rs`:
+  `lpTransferFeeDrip(pending, lastTs, endTs, now)` (BREAKING: 4-arg; `0` at
+  `now ≤ lastTs` or nothing pending, everything at `now ≥ endTs`, else
+  `floor(pending · (now − lastTs) / (endTs − lastTs))`), new `lpTransferFeeSettle`
+  (`lastTs` moves to `now` only when something burned; an emptied stream collapses to
+  `now`; `MathUnderflow` past `pending`) and `lpTransferFeeSchedule` (amount-weighted end
+  `floor((P · rem + A · W) / (P + A))`, carried accrual `δ = min(ceil(g · D / (d · T − g)),
+  floor((D − 1) / (T − 1)))`, `MathOverflow` where the program errs), plus
+  `collectLpTransferFeeStep` — the handler's bookkeeping (sweep → drip → settle → split →
+  schedule) that `previewLpTransferFeeCollection` and `quoteLpTransferFeeBurnStream` are
+  built on. Both take `burnEndTs` now (BREAKING); the preview returns `burnEndTsAfter`
+  (the event's `burn_end_ts`), the quote returns `streamAfter` and `fullyReleasedAt =
+  endTs`. `quoteRedeemLpTransferFees(...).streamBurnNow` drips over the pool's segment.
+- `LpTransferFeesCollected` (unreleased event, discriminator unchanged) appends
+  `burnEndTs: BN` (i64).
+- Tests: `tests/v61-lp-transfer-fee-stream.test.ts` ports the native vectors
+  (`v61_lp_transfer_fee.rs` 28 / 29 / 30 / 34–38 / neg 25, python-verified constants
+  included) and the proptests 31 / 32 / 33 / 39 over a fixed-seed generator.
+
+### 2026-11-19 LP transfer fee review fixes (contracts `a622faa`: L-1 / I-1 / I-2)
+
+- IDLs re-synced (coffer_pool now 56 ix / 45 events — 118 / 87 overall); generated types
+  and event fixtures regenerated; `abi:check` green against `contracts-v6.1@a622faa`.
+- L-1 burn stream: `collect_lp_transfer_fees` no longer burns at collection. New pool
+  fields `lp_transfer_fees_pending_burn` (u64 @2134) and `lp_transfer_fee_burn_last_ts`
+  (i64 @2142) are decoded (`RawPoolAccount` / `PoolInfo.lpTransferFeesPendingBurn` /
+  `lpTransferFeeBurnLastTs`). New `LP_TRANSFER_FEE_BURN_WINDOW_SECS` (86_400),
+  `lpTransferFeeDrip(pending, lastTs, now)` (exact mirror of `lp_transfer_fee_drip`:
+  `min(pending, floor(pending · max(0, now − lastTs) / 86_400)`, i64-saturating),
+  `quoteLpTransferFeeBurnStream` (effective burn / LP supply at a chain time) and a
+  re-cut `previewLpTransferFeeCollection` (program order: sweep → drip burn → re-base →
+  `collected = amount − (owed + pending)` → split, the burn part queued). The fee-account
+  invariant is now `amount == owed + pending_burn`; `quoteRedeemLpTransferFees` is
+  pending-aware (`feeAccountReserved = owed + pending`, `LpFeeAccountUnderfunded` below
+  it, `FullExitRequiredBelowFloor` at `supply ≤ 1000` with a pending stream; the redeem
+  builders refuse the latter client-side).
+- `LpTransferFeesCollected` re-shaped (unreleased event, discriminator unchanged):
+  `collected`, `protocolPart`, `scheduledBurn`, `burnedNow`, `protocolOwedAfter`,
+  `pendingBurnAfter`, `lpSupplyAfter`, `timestamp` (`burned` is gone).
+- I-1: `set_lp_transfer_fee` is D-class — `pool` is writable, the direct builder refuses
+  a snapshot with `pool_admin_delay_secs > 0` (`CooldownRequired` 6089). Pool-admin
+  cooldown kind 11 `SetLpTransferFee` (`POOL_ACTION_KINDS` is 12 long, Borsh tag 10,
+  slot `{ eta: i64, bps: u16 }` @2150, `pendingActions[11]`, mask bit 11, reserve now
+  144 B @2160): `PoolActions.setLpTransferFee`, `buildExecutePoolActionIx(.., 11)` →
+  `execute_set_lp_transfer_fee` (`e35b25e5e4e08a9b`, `[pool w, lp_mint w, authority s,
+  Token-2022]`), plus `buildProposeSetLpTransferFeeIx` / `buildCancelSetLpTransferFeeIx` /
+  `buildExecuteSetLpTransferFeeIx` and `SET_LP_TRANSFER_FEE_KIND`.
+- I-2: `initialize_pool` emits `PoolInitializedV2` before `LpTransferFeeUpdated`; the
+  parser keeps log order (test pinned), nothing in the SDK assumed the old order.
+
+### 2026-11-19 LP transfer fee (contracts `0815207`)
+
+- Vendored IDLs re-synced from `contracts-v6.1/idl` (coffer_pool 55 ix / 45 events,
+  protocol_admin 58 / 40, STLD 4 / 2 — 117 / 87); generated types and event fixtures
+  regenerated (epoch `lp-transfer-fee-20261119`). Wire pins unchanged; `initialize_pool`
+  gained a trailing `lp_transfer_fee_bps: u16` (re-cut args, same discriminator).
+- `initialize_pool` / `buildDeployPoolTx` / `buildAtomicDeploy`: new `lpTransferFeeBps`
+  (default 0, `0..=1_000`, `LpTransferFeeMaxExceeded` 6111) written into the LP mint's
+  Token-2022 `TransferFeeConfig` (both authorities = the pool PDA, `maximum_fee = u64::MAX`).
+- New `clients/lpTransferFee.ts`: `deriveLpFeeAccount` (`ATA(pool, lp_mint, Token-2022)`),
+  `treasuryPoolTag` (`sha256(pool)[..16]`), `buildSetLpTransferFeeIx`,
+  `buildSetLpTransferFeeProtocolShareIx` (raw) + `buildPoolSetLpTransferFeeProtocolShareIx` /
+  `buildExecutePoolSetLpTransferFeeProtocolShareIx` (protocol-admin wrapper, kind-15 queue),
+  `buildCollectLpTransferFeesIx` / `buildCollectLpTransferFeesTx` (idempotent fee-account
+  create + source sweep), `buildRedeemLpTransferFeesIx` (raw) +
+  `buildPoolRedeemLpTransferFeesIx` (recipients pinned to the Treasury vault PDAs),
+  `quoteRedeemLpTransferFees`, `readLpTransferFeeConfig` / `fetchLpTransferFeeConfig`.
+  `AdminClient` gained `poolSetLpTransferFeeProtocolShareIx`,
+  `executePoolSetLpTransferFeeProtocolShareIx`, `poolRedeemLpTransferFeesIx`;
+  `ProtocolActions.poolSetLpTransferFeeProtocolShare` (kind 15, tag 14).
+- New `math/lpTransferFee.ts`: Token-2022 fee math (`ceil(amount · bps / 10_000)` capped at
+  `maximumFee`, epoch-aware `older` / `newer`), inverse (`lpGrossForNet`),
+  `splitLpTransferFee` (floor on the protocol part) and `previewLpTransferFeeCollection`.
+- Decoders: `CofferPool.lp_transfer_fee_protocol_share_bps` @2124 and
+  `lp_transfer_fees_owed_protocol` @2126 (reserve now 170 B @2134); Treasury kind-15 slot
+  `pending_pool_set_lp_transfer_fee_protocol_share` @1587 (`{ bps, poolTag }`, reserve 11 B
+  @1613); `PoolInfo.lpTransferFeeConfig` / `lpTransferFee` / `lpTransferFeeProtocolShareBps` /
+  `lpTransferFeesOwedProtocol`.
+- Events: typed `LpTransferFeeUpdated`, `LpTransferFeeProtocolShareUpdated`,
+  `LpTransferFeesCollected`, `LpTransferFeesRedeemed`; protocol-admin
+  `PoolLpTransferFeeProtocolShareSet` / `PoolLpTransferFeesRedeemed` through the generic path.
+- Errors 6111–6115 (`LpTransferFeeMaxExceeded`, `LpTransferFeeUnsupported`,
+  `LpTransferFeeProtocolShareMaxExceeded`, `NoLpTransferFeesOwed`, `LpFeeAccountUnderfunded`)
+  with user-facing messages.
+- LP account sizing: `lpTokenAccountSize` (`getAccountLenForMint` semantics: a fee-bearing
+  LP ATA is 182 B), `LP_MINT_BASE_SIZE` is now 346 (`LP_MINT_BASE_SIZE_PRE_FEE` = 234),
+  `lpMintAccountSize(args, pool, withTransferFee = true)`. `validatePlannedZapLpMint` admits
+  `TransferFeeConfig` next to the metadata pair (mirrors STLD `token_validation.rs`).
+
+### 2026-11-13 candidate
+
+- Mirror the proposed per-leg deposit rounding bound before transfer-fee gross-up; retain caller policy. D6 owner ratification remains pending.
+- Regenerate all three IDLs; append pool 6110 (`deposit_rounding_loss`) and protocol-admin 6019 (`invalid_input`). Existing wire layouts/discriminators are preserved.
+- Export `checkDepositRounding` and `sizeDepositForLp`; raw encoders still require callers to validate state.
+
+- Add and planned-zap clients refuse excessive per-leg token-credit / LP-mint
+  rounding loss using the caller's slippage tolerance (`deposit_rounding_loss`).
+  Add builders now price against NAV, including surge buckets, and reject
+  deposits consumed by the deposit fee. LP quote minima stay positive.
+  See [scope, formula, costs and low-level boundaries](docs/LIQUIDITY_ROUNDING.md).
+- Match rc2 surge quadrature's saturating segment output and running maximum
+  when cumulative output dips through integer rounding.
+
 ## 0.4.0 — v6.1-rc2
 
 Targets `contracts-v6.1` at the `v6.1-rc2` ABI. The vendored IDLs are the

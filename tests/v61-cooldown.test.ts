@@ -4,6 +4,7 @@
  * the pendingStatus state machine.
  */
 import { Keypair, PublicKey } from "@solana/web3.js";
+import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import { BorshCoder } from "@coral-xyz/anchor";
 import {
@@ -14,6 +15,7 @@ import {
 import { POOL_ACTION_KINDS, POOL_ACTION_KIND, PROTOCOL_ACTION_KINDS, PROTOCOL_ACTION_KIND, pendingStatus, GRACE_PERIOD_SECS, POOL_LAYOUT, TREASURY_LAYOUT } from "../src/parsers/layout";
 import { decodePoolCooldownBlock } from "../src/parsers/poolAccount";
 import { decodeTreasuryCooldownBlock, treasuryNeedsLayoutMigration } from "../src/parsers/treasuryAccount";
+import { deriveLpMint } from "../src/utils/pda";
 import cofferPoolIdl from "../src/idl/coffer_pool.json";
 import protocolAdminIdl from "../src/idl/protocol_admin.json";
 import { cfg } from "./helpers/poolFixture";
@@ -24,16 +26,16 @@ const adminCoder = new BorshCoder(protocolAdminIdl as any);
 const ixName = (idl: any, data: Buffer) => (idl.instructions as any[]).find((i) => Buffer.from(i.discriminator).equals(data.subarray(0, 8)))?.name;
 
 describe("PoolAction payloads and kinds", () => {
-  test("[P01] every constructor maps to its kind 1..10 (tag = kind − 1) and the kind table is 11 long", () => {
-    expect(POOL_ACTION_KINDS.length).toBe(11); expect(POOL_ACTION_KINDS[0]).toBe("TransferPoolAdmin");
+  test("[P01] every constructor maps to its kind 1..11 (tag = kind − 1) and the kind table is 12 long", () => {
+    expect(POOL_ACTION_KINDS.length).toBe(12); expect(POOL_ACTION_KINDS[11]).toBe("SetLpTransferFee"); expect(POOL_ACTION_KINDS[0]).toBe("TransferPoolAdmin");
     const all = [
       PoolActions.setDelay(1), PoolActions.setSwapFeeRate(2), PoolActions.setCreatorFeeBps(3), PoolActions.setLiquidityFees(4, 5),
       PoolActions.lockLiquidityFees(), PoolActions.lockRangeManager(), PoolActions.setRangeManager(pk(), true),
       PoolActions.setRangeManagerConfig({ maxVbChangePct: 1, maxWeightChangePct: 2, minUpdateIntervalSecs: 3, maxConcentrationFactorBps: 4, minConcentrationFactorBps: 5 }),
       PoolActions.setMaxSelloff([{ maxSelloffPct: 1, periodLength: 2, feeThresholdPct: 3, feeSlopeLowPct: 4, feeSlopeHighPct: 5, feeSlopeMidPct: 6, feeKinkPct: 7 }]),
-      PoolActions.setTokenActive(1),
+      PoolActions.setTokenActive(1), PoolActions.setLpTransferFee(250),
     ];
-    expect(all.map(poolActionKindOf)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(all.map(poolActionKindOf)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     all.forEach((a, i) => {
       const encoded = poolCoder.types.encode("PoolAction", a);
       expect(encoded[0]).toBe(i); // Borsh enum tag
@@ -41,7 +43,7 @@ describe("PoolAction payloads and kinds", () => {
     });
   });
   test("[P02] kind ↔ name round trip and the execute-instruction table covers every kind", () => {
-    for (let k = 0; k < 11; k++) { expect(poolActionKindName(k)).toBe(POOL_ACTION_KINDS[k]); expect(poolActionKindName(POOL_ACTION_KINDS[k])).toBe(POOL_ACTION_KINDS[k]); }
+    for (let k = 0; k < 12; k++) { expect(poolActionKindName(k)).toBe(POOL_ACTION_KINDS[k]); expect(poolActionKindName(POOL_ACTION_KINDS[k])).toBe(POOL_ACTION_KINDS[k]); }
     for (const name of POOL_ACTION_KINDS) {
       const ix = POOL_EXECUTE_INSTRUCTION[name];
       expect((cofferPoolIdl.instructions as any[]).some((i) => i.name === ix)).toBe(true);
@@ -57,7 +59,7 @@ describe("PoolAction payloads and kinds", () => {
   });
   test("[P04] cancel_pool_action(kind) by number or name, kind 0 included", () => {
     const pool = pk(), auth = pk();
-    for (const [arg, kind] of [[0, 0], [3, 3], ["SetMaxSelloff", 9], ["SetTokenActive", 10]] as const) {
+    for (const [arg, kind] of [[0, 0], [3, 3], ["SetMaxSelloff", 9], ["SetTokenActive", 10], ["SetLpTransferFee", 11], [11, 11]] as const) {
       const ix = buildCancelPoolActionIx(cfg, pool, auth, arg);
       expect(ixName(cofferPoolIdl, ix.data)).toBe("cancel_pool_action");
       expect((poolCoder.instruction.decode(ix.data) as any).data.kind).toBe(kind);
@@ -78,6 +80,13 @@ describe("PoolAction payloads and kinds", () => {
     const accept = buildExecutePoolActionIx(cfg, pool, auth, 0);
     expect(ixName(cofferPoolIdl, accept.data)).toBe("accept_pool_admin_transfer");
     expect(accept.keys.some((k) => k.pubkey.equals(auth) && k.isSigner)).toBe(true);
+    // kind 11 carries the direct setter's accounts: [pool w, lp_mint w, authority s, Token-2022]
+    const lp = buildExecutePoolActionIx(cfg, pool, auth, 11);
+    expect(ixName(cofferPoolIdl, lp.data)).toBe("execute_set_lp_transfer_fee"); expect(lp.data.length).toBe(8);
+    expect(lp.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual([
+      [pool.toBase58(), false, true], [deriveLpMint(cfg.programs.cofferPool, pool)[0].toBase58(), false, true], [auth.toBase58(), true, false], [TOKEN_2022_PROGRAM_ID.toBase58(), false, false],
+    ]);
+    expect(() => buildExecutePoolActionIx(cfg, pool, auth, 11, [])).toThrow(/takes no params/);
   });
   test("[P06] the proposed SetMaxSelloff payload and the executed params use the same IDL shape", () => {
     const p = [{ maxSelloffPct: 1, periodLength: 2, feeThresholdPct: 3, feeSlopeLowPct: 4, feeSlopeHighPct: 5, feeSlopeMidPct: 6, feeKinkPct: 7 }];
@@ -93,31 +102,34 @@ describe("PoolAction payloads and kinds", () => {
     expect(() => buildProposePoolActionIx(cfg, pk(), pk(), { Bogus: {} } as any)).toThrow();
   });
   test("[N02] cancel / execute kind out of range or wrong params", () => {
-    expect(() => buildCancelPoolActionIx(cfg, pk(), pk(), 11)).toThrow(/out of range/);
+    expect(() => buildCancelPoolActionIx(cfg, pk(), pk(), 12)).toThrow(/out of range/);
     expect(() => buildCancelPoolActionIx(cfg, pk(), pk(), -1)).toThrow(/out of range/);
     expect(() => buildCancelPoolActionIx(cfg, pk(), pk(), "Nope" as any)).toThrow(/unknown pool action kind/);
     expect(() => buildExecutePoolActionIx(cfg, pk(), pk(), 9)).toThrow(/pass the proposed SelloffParams/);
     expect(() => buildExecutePoolActionIx(cfg, pk(), pk(), 9, [])).toThrow(/pass the proposed SelloffParams/);
     expect(() => buildExecutePoolActionIx(cfg, pk(), pk(), 2, [])).toThrow(/takes no params/);
-    expect(() => buildExecutePoolActionIx(cfg, pk(), pk(), 11)).toThrow(/out of range/);
+    expect(() => buildExecutePoolActionIx(cfg, pk(), pk(), 12)).toThrow(/out of range/);
   });
   test("[N03] the IDL coder rejects out-of-range payloads (u16 / u32 overflow) at build time", () => {
     expect(() => buildProposePoolActionIx(cfg, pk(), pk(), PoolActions.setCreatorFeeBps(70_000))).toThrow();
     expect(() => buildProposePoolActionIx(cfg, pk(), pk(), PoolActions.setDelay(-1))).toThrow();
+    expect(() => PoolActions.setLpTransferFee(1_001)).toThrow(/LpTransferFeeMaxExceeded, 6111/);
   });
 });
 
 describe("ProtocolAction payloads and kinds", () => {
   test("[P07] every constructor maps to kind 1..13 and the tag is kind − 1", () => {
-    expect(PROTOCOL_ACTION_KINDS.length).toBe(15); expect(PROTOCOL_ACTION_KINDS[0]).toBe("TransferAdmin"); expect(PROTOCOL_ACTION_KINDS[13]).toBe("PoolRescaleVirtualBalances");
+    expect(PROTOCOL_ACTION_KINDS.length).toBe(16); expect(PROTOCOL_ACTION_KINDS[0]).toBe("TransferAdmin"); expect(PROTOCOL_ACTION_KINDS[13]).toBe("PoolRescaleVirtualBalances");
+    expect(PROTOCOL_ACTION_KINDS[15]).toBe("PoolSetLpTransferFeeProtocolShare");
     const all = [
       ProtocolActions.setDelay(1), ProtocolActions.setSupervisor(pk()), ProtocolActions.withdraw(pk(), pk(), new BN(1)),
       ProtocolActions.withdrawSol(1, pk(), pk(), new BN(2)), ProtocolActions.poolDebugWithdraw(pk(), [new BN(1), new BN(2)], [pk(), pk()]),
       ProtocolActions.poolSetProtocolFeeRate(pk(), 1000), ProtocolActions.poolSetPoolEnabled(pk()), ProtocolActions.poolSetTokenActive(pk(), 1),
       ProtocolActions.unfreezePools([pk()]), ProtocolActions.poolProtocolAdminTransfer(pk(), pk()), ProtocolActions.upgradeProgram(pk(), pk()),
       ProtocolActions.programOp(2, pk(), pk()), ProtocolActions.poolRescaleVirtualBalances(pk(), 1_000_000_000n), ProtocolActions.poolEnableRangeManager(pk()),
+      ProtocolActions.poolSetLpTransferFeeProtocolShare(pk(), 2_500),
     ];
-    expect(all.map(protocolActionKindOf)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    expect(all.map(protocolActionKindOf)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
     all.forEach((a, i) => {
       expect(adminCoder.types.encode("ProtocolAction", a)[0]).toBe(i);
       expect(PROTOCOL_ACTION_KIND[Object.keys(a)[0] as keyof typeof PROTOCOL_ACTION_KIND]).toBe(i + 1);
@@ -128,8 +140,9 @@ describe("ProtocolAction payloads and kinds", () => {
       expect((protocolAdminIdl.instructions as any[]).some((i) => i.name === ix)).toBe(true);
     }
     expect(PROTOCOL_EXECUTE_INSTRUCTIONS.WithdrawSol.length).toBe(3); expect(PROTOCOL_EXECUTE_INSTRUCTIONS.ProgramOp.length).toBe(3);
-    for (let k = 0; k < 15; k++) expect(protocolActionKindName(k)).toBe(PROTOCOL_ACTION_KINDS[k]);
+    for (let k = 0; k < 16; k++) expect(protocolActionKindName(k)).toBe(PROTOCOL_ACTION_KINDS[k]);
     expect(PROTOCOL_EXECUTE_INSTRUCTIONS.PoolRescaleVirtualBalances).toEqual(["execute_pool_rescale_virtual_balances"]);
+    expect(PROTOCOL_EXECUTE_INSTRUCTIONS.PoolSetLpTransferFeeProtocolShare).toEqual(["execute_pool_set_lp_transfer_fee_protocol_share"]);
   });
   test("[P09] UpgradeProgram needs the buffer as remaining account 0; others none", () => {
     const buffer = pk();
@@ -139,7 +152,7 @@ describe("ProtocolAction payloads and kinds", () => {
   test("[N04] malformed protocol actions", () => {
     expect(() => protocolActionKindOf({ TransferAdmin: {} } as any)).toThrow(/not a ProtocolAction/);
     expect(() => protocolActionKindOf([] as any)).toThrow(/exactly one variant/);
-    expect(() => protocolActionKindName(15)).toThrow(/out of range/);
+    expect(() => protocolActionKindName(16)).toThrow(/out of range/);
     expect(() => ProtocolActions.poolRescaleVirtualBalances(pk(), 1)).toThrow(/InvalidVirtualRescale/);
     expect(() => ProtocolActions.poolRescaleVirtualBalances(pk(), -2)).toThrow(/unsigned/);
     expect(() => protocolActionKindName("Nope" as any)).toThrow(/unknown/);
@@ -170,16 +183,18 @@ describe("pending slots and pendingStatus", () => {
     const mgr = pk();
     b.writeBigInt64LE(BigInt(now), POOL_LAYOUT.PENDING_SET_RANGE_MANAGER.offset); mgr.toBuffer().copy(b, POOL_LAYOUT.PENDING_SET_RANGE_MANAGER.offset + 8); b[POOL_LAYOUT.PENDING_SET_RANGE_MANAGER.offset + 40] = 1;
     b.writeBigInt64LE(BigInt(now), POOL_LAYOUT.PENDING_SET_TOKEN_ACTIVE.offset); b[POOL_LAYOUT.PENDING_SET_TOKEN_ACTIVE.offset + 8] = 3;
+    b.writeBigInt64LE(BigInt(now + 7), POOL_LAYOUT.PENDING_SET_LP_TRANSFER_FEE.offset); b.writeUInt16LE(777, POOL_LAYOUT.PENDING_SET_LP_TRANSFER_FEE.offset + 8);
     const blk = decodePoolCooldownBlock(b);
     expect(blk.poolAdminDelaySecs).toBe(3600); expect(blk.poolAdminEpoch).toBe(7);
-    expect(blk.pendingActions.length).toBe(11);
+    expect(blk.pendingActions.length).toBe(12);
     expect(blk.pendingActions[0].eta.toString()).toBe(String(now + 50));
+    expect(blk.pendingActions[11]).toMatchObject({ kind: 11, name: "SetLpTransferFee", payload: { bps: 777 } }); expect(blk.pendingActions[11].eta.toString()).toBe(String(now + 7));
     expect(blk.pendingActions[2].payload).toEqual({ rate: 1234 });
     expect(blk.pendingActions[3].payload).toEqual({ bps: 2500 });
     expect(blk.pendingActions[4].payload).toEqual({ depositFeeBps: 10, withdrawFeeBps: 20 });
     expect((blk.pendingActions[7].payload as any).manager.toBase58()).toBe(mgr.toBase58()); expect((blk.pendingActions[7].payload as any).enabled).toBe(true);
     expect(blk.pendingActions[10].payload).toEqual({ tokenIndex: 3 });
-    expect(blk.pendingActionsMask).toBe((1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 7) | (1 << 10));
+    expect(blk.pendingActionsMask).toBe((1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 7) | (1 << 10) | (1 << 11));
     expect(blk.pendingActions.filter((a) => a.eta.isZero()).length).toBe(5);
   });
   test("[P13] decodeTreasuryCooldownBlock on a 1624-byte Treasury image; v2 (818) needs migration", () => {
@@ -188,7 +203,7 @@ describe("pending slots and pendingStatus", () => {
     b.writeBigInt64LE(BigInt(now), TREASURY_LAYOUT.PENDING_SET_DELAY.offset); b.writeUInt32LE(600, TREASURY_LAYOUT.PENDING_SET_DELAY.offset + 8);
     const blk = decodeTreasuryCooldownBlock(b);
     expect(blk.delaySecs).toBe(86_400); expect(blk.adminEpoch).toBe(2);
-    expect(blk.pendingActions.length).toBe(15); expect(blk.pendingActions[1].payload).toEqual({ secs: 600 });
+    expect(blk.pendingActions.length).toBe(16); expect(blk.pendingActions[1].payload).toEqual({ secs: 600 });
     expect(blk.pendingActionsMask).toBe(1 << 1);
     expect(treasuryNeedsLayoutMigration({ length: 818 })).toBe(true); expect(treasuryNeedsLayoutMigration(Buffer.alloc(1624))).toBe(false);
   });

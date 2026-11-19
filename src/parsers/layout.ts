@@ -98,7 +98,18 @@ export const POOL_LAYOUT = {
   /** rc2 reserve after the safety flags and range-manager weight anchors. */
   SAFETY_FLAGS:                    { offset: 2102, size: 2 },
   RANGE_MANAGER_WEIGHT_ANCHORS:    { offset: 2104, size: 20 },
-  RESERVED_V61:                     { offset: 2124, size: 180 },
+  // ── LP transfer fee block (26 B), carved from the front of the reserve ──
+  LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS: { offset: 2124, size: 2 },
+  LP_TRANSFER_FEES_OWED_PROTOCOL:  { offset: 2126, size: 8 },
+  /** L-1 burn stream: LP queued for burning (`u64`). */
+  LP_TRANSFER_FEES_PENDING_BURN:   { offset: 2134, size: 8 },
+  /** L-1 burn stream: start of the current linear segment (`i64`, the last collect that burned; 0 before the first collect). */
+  LP_TRANSFER_FEE_BURN_LAST_TS:    { offset: 2142, size: 8 },
+  // ── I-1: pool-admin cooldown slot 11 (`SetLpTransferFee`, outside the T3 block): `eta: i64` + `bps: u16` ──
+  PENDING_SET_LP_TRANSFER_FEE:     { offset: 2150, size: 10 },
+  /** X1 burn stream end (`i64`, carved AFTER slot 11: 2150 was taken first); `== last_ts` while nothing is pending, 0 on migrated pools. */
+  LP_TRANSFER_FEE_BURN_END_TS:     { offset: 2160, size: 8 },
+  RESERVED_V61:                     { offset: 2168, size: 136 },
   TOTAL:                            2304,
 } as const;
 
@@ -128,20 +139,27 @@ export const TOKEN_SLOT_LAYOUT = {
 /**
  * Pool-admin pending-slot kinds (v6.1 T3): the bit index of
  * `pending_actions_mask`, the `cancel_pool_action(kind)` argument and the
- * `PoolActionProposed.kind` value. Kind 0 is the admin transfer; kinds 1..10
- * map to the `PoolAction` enum variants in order (`tag = kind − 1`).
+ * `PoolActionProposed.kind` value. Kind 0 is the admin transfer; kinds 1..11
+ * map to the `PoolAction` enum variants in order (`tag = kind − 1`). Kind 11
+ * (`SetLpTransferFee`, I-1) lives in its own slot @2150, outside the T3 block.
  */
 export const POOL_ACTION_KINDS = [
   "TransferPoolAdmin", "SetDelay", "SetSwapFeeRate", "SetCreatorFeeBps", "SetLiquidityFees", "LockLiquidityFees",
-  "LockRangeManager", "SetRangeManager", "SetRangeManagerConfig", "SetMaxSelloff", "SetTokenActive",
+  "LockRangeManager", "SetRangeManager", "SetRangeManagerConfig", "SetMaxSelloff", "SetTokenActive", "SetLpTransferFee",
 ] as const;
 export type PoolActionKindName = (typeof POOL_ACTION_KINDS)[number];
 export const POOL_ACTION_KIND = Object.fromEntries(POOL_ACTION_KINDS.map((n, i) => [n, i])) as Record<PoolActionKindName, number>;
 
-/** Protocol-admin (Treasury) pending-slot kinds (`cancel_action(kind)`; `ProtocolAction` tag = kind − 1). Kind 13 (`PoolRescaleVirtualBalances`) is v6.1 T22. */
+/**
+ * Protocol-admin (Treasury) pending-slot kinds (`cancel_action(kind)`;
+ * `ProtocolAction` tag = kind − 1). Kind 13 (`PoolRescaleVirtualBalances`) is
+ * v6.1 T22, kind 14 (`PoolEnableRangeManager`) rc2, kind 15
+ * (`PoolSetLpTransferFeeProtocolShare`) the LP transfer fee.
+ */
 export const PROTOCOL_ACTION_KINDS = [
   "TransferAdmin", "SetDelay", "SetSupervisor", "Withdraw", "WithdrawSol", "PoolDebugWithdraw", "PoolSetProtocolFeeRate",
   "PoolSetPoolEnabled", "PoolSetTokenActive", "UnfreezePools", "PoolProtocolAdminTransfer", "UpgradeProgram", "ProgramOp", "PoolRescaleVirtualBalances", "PoolEnableRangeManager",
+  "PoolSetLpTransferFeeProtocolShare",
 ] as const;
 export type ProtocolActionKindName = (typeof PROTOCOL_ACTION_KINDS)[number];
 export const PROTOCOL_ACTION_KIND = Object.fromEntries(PROTOCOL_ACTION_KINDS.map((n, i) => [n, i])) as Record<ProtocolActionKindName, number>;
@@ -150,7 +168,7 @@ export const PROTOCOL_ACTION_KIND = Object.fromEntries(PROTOCOL_ACTION_KINDS.map
 
 export const TREASURY_LEN_V1 = 786;
 export const TREASURY_LEN_V2 = 818;
-/** v3 (v6.1 T3): the cooldown block is appended after `supervisor`; T22 carved the kind-13 slot from its reserve (125 → 77 B). */
+/** v3 (v6.1 T3): the cooldown block is appended after `supervisor`; T22 carved the kind-13 slot from its reserve (125 → 77 B), rc2 the kind-14 slot (→ 37 B), the LP transfer fee the kind-15 slot (→ 11 B). */
 export const TREASURY_LEN_V3 = 1624;
 export const TREASURY_DECODABLE_LENS: readonly number[] = [TREASURY_LEN_V1, TREASURY_LEN_V2, TREASURY_LEN_V3];
 export const TREASURY_MAX_TOKENS = 10;
@@ -185,7 +203,9 @@ export const TREASURY_LAYOUT = {
   // ── v6.1 (T22) kind 13: `eta: i64` + `pool` + `multiplier: u64` ──
   PENDING_POOL_RESCALE_VIRTUAL_BALANCES: { offset: 1499, size: 48 },
   PENDING_POOL_ENABLE_RANGE_MANAGER:     { offset: 1547, size: 40 },
-  RESERVED_V61:                          { offset: 1587, size: 37 },
+  // ── LP transfer fee, kind 15: `eta: i64` + `bps: u16` + `pool_tag: [u8; 16]` (= `sha256(pool)[..16]`) ──
+  PENDING_POOL_SET_LP_TRANSFER_FEE_PROTOCOL_SHARE: { offset: 1587, size: 26 },
+  RESERVED_V61:                          { offset: 1613, size: 11 },
   TOTAL:           1624,
   TOTAL_V2:        818,
   TOTAL_V1:        786,

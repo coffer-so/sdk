@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
-import type { TransferFee } from "@solana/spl-token";
+import type { TransferFee, TransferFeeConfig } from "@solana/spl-token";
 import { TokenInfo } from "../config/tokens";
 import type { PoolActionKindName } from "../parsers/layout";
 
@@ -317,6 +317,40 @@ export interface PoolInfo {
    * label. `undefined` when the snapshot did not fetch it.
    */
   lpMetadata?: LpMetadata | null;
+
+  // ── LP transfer fee (2026-11-19) ──────────────────────────────────────────
+
+  /**
+   * The LP mint's Token-2022 `TransferFeeConfig` (both authorities = the pool
+   * PDA, `maximumFee = u64::MAX`); `null` for a pre-feature LP mint (no
+   * extension: every `*_lp_transfer_fee*` instruction fails with
+   * `LpTransferFeeUnsupported` 6112). `undefined` when not fetched.
+   */
+  lpTransferFeeConfig?: TransferFeeConfig | null;
+  /**
+   * The LP transfer-fee schedule in force at `chainEpoch`
+   * (`selectEpochFee(lpTransferFeeConfig)`); `null` without the extension.
+   * Charged on holder-to-holder LP transfers only — mint (`add_liquidity`,
+   * `seed_liquidity`) and burn (`remove_liquidity`) are fee-free.
+   */
+  lpTransferFee?: TransferFee | null;
+  /** Protocol share (bps) of every collected LP transfer fee; the rest is streamed into burns over 24 h. `0` before the feature. */
+  lpTransferFeeProtocolShareBps?: number;
+  /** LP units collected for the protocol, still held in the pool's LP fee account (`deriveLpFeeAccount`), raw. `0` before the feature. */
+  lpTransferFeesOwedProtocol?: BN;
+  /**
+   * LP units queued for the burn stream (L-1), still in the LP fee account,
+   * raw. They vest linearly over `[lpTransferFeeBurnLastTs,
+   * lpTransferFeeBurnEndTs]`; `collect_lp_transfer_fees` burns
+   * `lpTransferFeeDrip(pendingBurn, burnLastTs, burnEndTs, now)` per call
+   * (`quoteLpTransferFeeBurnStream`, `lpBurnStreamOf`). Invariant: fee
+   * account amount == `lpTransferFeesOwedProtocol + lpTransferFeesPendingBurn`.
+   */
+  lpTransferFeesPendingBurn?: BN;
+  /** Start of the stream's current linear segment (the last `collect_lp_transfer_fees` that burned); `0` before the first collect. */
+  lpTransferFeeBurnLastTs?: BN;
+  /** Unix seconds at which `lpTransferFeesPendingBurn` is fully burnable (X1); `== lpTransferFeeBurnLastTs` while nothing is pending, `0` on a migrated pool. */
+  lpTransferFeeBurnEndTs?: BN;
 }
 
 export interface PoolSummary {

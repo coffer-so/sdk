@@ -176,7 +176,7 @@ describe("paused launch, Jito marker, hooks", () => {
     expect(hookAccounts.length).toBe(2);
     const p = params(2, { hookConfig, hookAccounts, externalCpiTraceBudget: 2 }); const r = await buildAtomicDeploy(cfg, fakeConnection(p.config, { occupied: new Map([[hookProgram.toBase58(), { owner: SystemProgram.programId, data: Buffer.alloc(0), executable: true }]]) }), p);
     const init = r.instructions[0].find((ix) => ix.data.subarray(0, 8).toString("hex") === INIT_DISC)!;
-    expect(init.data[init.data.length - 48]).toBe(1);
+    expect(init.data[init.data.length - 50]).toBe(1); expect(init.data.readUInt16LE(init.data.length - 2)).toBe(0);
     expect(init.keys.slice(-2).map((k) => k.pubkey.toBase58())).toEqual(hookAccounts.map((a) => a.pubkey.toBase58()));
     const seed = r.instructions[0].find((ix) => ix.data.subarray(0, 8).toString("hex") === SEED_DISC)!;
     expect(seed.keys.slice(-2).map((k) => k.pubkey.toBase58())).toEqual(hookAccounts.map((a) => a.pubkey.toBase58()));
@@ -186,8 +186,8 @@ describe("paused launch, Jito marker, hooks", () => {
   test("[P11] fee parameters reach initialize_pool", async () => {
     const p = params(2, { creatorFeeBps: 2500, depositFeeBps: 5, withdrawFeeBps: 7 }); const r = await buildAtomicDeploy(cfg, fakeConnection(p.config), p);
     const init = r.instructions[0].find((ix) => ix.data.subarray(0, 8).toString("hex") === INIT_DISC)!;
-    const o = init.data.length - 7;
-    expect([init.data.readUInt16LE(o), init.data.readUInt16LE(o + 2), init.data.readUInt16LE(o + 4), init.data[o + 6]]).toEqual([2500, 5, 7, 0]);
+    const o = init.data.length - 9;
+    expect([init.data.readUInt16LE(o), init.data.readUInt16LE(o + 2), init.data.readUInt16LE(o + 4), init.data[o + 6], init.data.readUInt16LE(o + 7)]).toEqual([2500, 5, 7, 0, 0]);
   });
 });
 

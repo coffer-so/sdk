@@ -24,6 +24,14 @@ const sum = (xs: bigint[]) => xs.reduce((a, b) => a + b, 0n);
 const withFee = (p: QuotePool, i: number, f: TransferFee | null): QuotePool => ({ ...p, tokens: p.tokens.map((t, j) => (j === i ? { ...t, transferFee: f } : t)) });
 
 describe("planner (planner.rs ports)", () => {
+  test("FI-03: replay rejects a fractional LP grid, aligned replay passes, quote has a distinct incomplete-search reason", () => {
+    const p=pool(2);p.lpSupply=1n;p.tokens[1]={...p.tokens[1],actualBalance:0n};
+    expect(()=>replay(p,0,1_900_000_000n,[1_900_000_000n,0n])).toThrow(/6110/);
+    expect(replay(p,0,2_000_000_000n,[2_000_000_000n,0n]).lpGross).toBe(2n);
+    try {quoteZap(p,0,1_900_000_000n);throw new Error("expected search diagnostic");}
+    catch(e){expect(e).toBeInstanceOf(SimError);expect((e as SimError).code).toBe("DepositRoundingSearchIncomplete");}
+    expect(quoteZap(p,0,2_000_000_000n).lpGross).toBe(2n);
+  });
   test("nonlinear_m07_case_improves_lp_and_preserves_budget", () => {
     const p = pool(2);
     const old = replay(p, 0, 500_000_000n, [250_000_000n, 250_000_000n]);
