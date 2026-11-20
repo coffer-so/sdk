@@ -1,5 +1,5 @@
 // Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.
-// Epoch lp-transfer-fee-20261119; cofferPool=6ecaaba5a708923c6b47371e80aa9b7859b059584e919032228f5b3f34582333; protocolAdmin=885d0fe42ecfbf775fd51fac07258e385787e4a1ee7f41c07aaebae3bed85f0c; singleTokenLiquidity=c95c5aff211ebc9232c38b3136d566d56a9e77929cd4b059b82a267ed2c8fabc
+// Epoch lp-transfer-fee-20261119; cofferPool=a2376b7df6db9a60a6ab8eb908cc28bda494066672abb0edde7a057fb17b24c1; protocolAdmin=7de8e983782cdb37d7c9d05ea5cd1d342f7f6061cb7120451cb340107d3fe228; singleTokenLiquidity=b2d5e31bb5c0832846bc8e25c758c101a313cda81e5c9bf598da582707ad0f08
 import BN from "bn.js";
 import { PublicKey } from "@solana/web3.js";
 
