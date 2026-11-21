@@ -114,5 +114,9 @@ export function calculateExitPayout(actual: bigint[], surge: bigint[], requested
   const grossSurge = calcTokensOutGivenLpIn(surge, effective, supply);
   const legs = grossActual.map((g, i) => splitExitPayout(g, grossSurge[i], withdrawFeeBps));
   if (legs.some(l => l.grossTotal > 0n) && legs.every(l => l.transferAmount === 0n)) throw new MathError("WithdrawFeeConsumesAll");
+  // rc5 (6116): a burn too small to earn one raw unit of any slot is refused
+  // while the pool holds assets (it would still move sidelined virtual balances).
+  const poolHoldsAssets = actual.some((a, i) => a > 0n || surge[i] > 0n);
+  if (poolHoldsAssets && legs.every(l => l.transferAmount === 0n)) throw new MathError("ExitPaysNothing");
   return { effective, grossActual, grossSurge, legs };
 }

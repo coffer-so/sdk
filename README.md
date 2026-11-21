@@ -18,13 +18,14 @@ Pick by the program version you talk to:
 | Package | Contracts | Status |
 | --- | --- | --- |
 | `@coffer_so/sdk` 1.x | v5 (`main`, mainnet since 2026-09-07) | stable |
-| `@coffer_so/sdk-v6` 0.x | v6.1 (`../contracts-v6.1`: Token-2022 transfer fees, hooks and memos; planned single-token deposits; 100 % fee ceilings; v6 rounding) | deployment verification required |
+| `@coffer_so/sdk-v6` 0.x | v6.1 (`../contracts-v6.1`: Token-2022 transfer fees, hooks and memos; planned and rc5 routed single-token deposits; 100 % fee ceilings; v6 rounding) | deployment verification required |
 
 ## Contract compatibility
 
-Source: `contracts-v6.1` at `c9f8f1c` (LP transfer fee + review fixes + X1 linear burn stream on the `v6.1-rc2` ABI; IDL sha256 pins in
+Source: `contracts-v6.1-n10` at `b9fc7e9` (rc5 candidate: the LP-transfer-fee ABI plus `swap_route_join_v1`,
+`deposit_single_token_routed` and errors 6116–6119 / STLD 6040; IDL sha256 pins in
 [CONTRACT_COMPATIBILITY.md](docs/CONTRACT_COMPATIBILITY.md)). Vendored IDLs
-contain 118 instructions (56 + 58 + 4) and 87 events (45 + 40 + 2); raw
+contain 120 instructions (57 + 58 + 5) and 87 events (45 + 40 + 2); raw
 builders, generated types and event decoding cover that ABI.
 Program addresses are configuration values; this checkout has no verified owner
 deployment receipt for installed devnet v6.1. Final stable contract integration
@@ -259,7 +260,7 @@ insufficient funds) short-circuit.
 | `PlannedZapClient` | `quote`, `replayAt`, `ensureUserTokenAccountIxs`, `resolveExtraAccounts`, `buildIx`, `buildTx`, `walletLookupAddresses`, `prepareWalletLookupTable`, `waitForWalletLookupTable`, `poolLookupTable`, `compileTransaction`; see [PLANNED_ZAP.md](docs/PLANNED_ZAP.md) |
 | `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializePoolIx` |
 | `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 55 protocol-admin instructions |
-| Generic ABI | `buildContractInstruction` for all 118 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 87 events; `parseTransactionEvents` with invoke-stack attribution ([EVENTS.md](docs/EVENTS.md)) |
+| Generic ABI | `buildContractInstruction` for all 120 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 87 events; `parseTransactionEvents` with invoke-stack attribution ([EVENTS.md](docs/EVENTS.md)) |
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation; `buildPlannedZapIx`, `stateCommitment`, `compilePlannedZapTransaction`; `resolveTransferExtraAccounts` |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 | XP snapshots | Frozen results of finished epochs and campaigns — `getLeaderboardEpochSnapshot`, `getCampaignSnapshotTop`, …; see [XP snapshots guide](docs/XP_SNAPSHOTS.md) |

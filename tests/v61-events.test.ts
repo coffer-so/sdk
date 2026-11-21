@@ -326,7 +326,7 @@ describe("error code map (v6.1 incl. T22)", () => {
   test("[P23] proposed tables append only: pool through 6110, protocol-admin through 6019", () => {
     const table = contractErrorMapForTests("cofferPool");
     for (let c = 6000; c <= 6109; c++) expect(table[c]).toBeDefined();
-    expect(Object.keys(table)).toHaveLength(116);
+    expect(Object.keys(table)).toHaveLength(120); // rc5 appended 6116–6119
     expect(describeProgramError(6110)).toMatchObject({ name: "DepositRoundingLossTooLarge", sdkCode: "deposit_rounding_loss" });
     expect(toSdkError(new Error("Error Number: 6110")).code).toBe("deposit_rounding_loss");
     // rc2 appended 6107..6109.
@@ -450,11 +450,12 @@ describe("legacy / retired / malformed logs", () => {
       expect(camel.kind).toBe("Unknown"); expect((camel as any).name).toBe(f.name);
     }
   });
-  test("[N15] unknown error codes map to undefined / unknown (6111, PA 6020)", () => {
-    expect(describeProgramError(6116)).toBeUndefined();
+  test("[N15] unknown error codes map to undefined / unknown (6120, PA 6020)", () => {
+    expect(describeProgramError(6120)).toBeUndefined();
     expect(describeProgramError(6020, "protocolAdmin")).toBeUndefined();
     expect(toSdkError(new Error("custom program error: 0x17df")).code).toBe("invalid_input"); // 6111 LpTransferFeeMaxExceeded
-    expect(toSdkError(new Error("custom program error: 0x17e4")).code).toBe("unknown"); // 6116: past the table
+    expect(toSdkError(new Error("custom program error: 0x17e4")).code).toBe("amount_too_small"); // 6116 ExitPaysNothing (rc5)
+    expect(toSdkError(new Error("custom program error: 0x17e8")).code).toBe("unknown"); // 6120: past the table
   });
   test("[N16] every pinned legacy name is absent from the IDLs and every typed name is present", () => {
     for (const pin of LEGACY_EVENT_DISCRIMINATORS.values()) {

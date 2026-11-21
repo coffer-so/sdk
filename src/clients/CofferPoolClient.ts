@@ -771,7 +771,8 @@ export class CofferPoolClient {
    * from `receivedAmounts`. Zero-payout slots (sidelined with an empty
    * bucket, or dust) report `0` and need no user token account.
    * `WithdrawFeeConsumesAll` (gross > 0 somewhere, nothing paid anywhere)
-   * is `amount_too_small`.
+   * and rc5 `ExitPaysNothing` (6116: nothing paid anywhere while the pool
+   * holds assets) are `amount_too_small`.
    */
   quoteRemove(lpIn: BN): SdkResult<RemoveLiquidityQuote> {
     const poolRes = this.requireCache();
@@ -792,6 +793,7 @@ export class CofferPoolClient {
       try { payout = calculateExitPayout(actual, surge, requested, supply, withdrawFeeBps); }
       catch (e) {
         if (e instanceof Error && /WithdrawFeeConsumesAll/.test(e.message)) return err("amount_too_small", "WithdrawFeeConsumesAll: the withdraw fee withholds every payout");
+        if (e instanceof Error && /ExitPaysNothing/.test(e.message)) return err("amount_too_small", "ExitPaysNothing: this LP amount is too small to withdraw one raw unit of any token");
         throw e;
       }
       const { effective, grossActual, grossSurge, legs } = payout;

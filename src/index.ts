@@ -93,10 +93,10 @@ export type { SurgeFeeAmountParams } from "./math/surgeFee";
 export { RpcClient } from "./clients/RpcClient";
 export { CofferBackendClient } from "./clients/CofferBackendClient";
 export { CofferPoolClient } from "./clients/CofferPoolClient";
-export { PlannedZapClient } from "./clients/plannedZap/PlannedZapClient";
-export type { PlannedZapClientParams, PlannedZapQuote, PlannedZapExtraAccounts } from "./clients/plannedZap/PlannedZapClient";
-export { buildPlannedZapIx, plannedZapAccounts, encodeAllocationPlan, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS, PLANNED_ZAP_DISCRIMINATOR_HEX } from "./clients/plannedZap/instruction";
-export type { AllocationPlan, PlannedZapAccounts, PlannedZapArgs } from "./clients/plannedZap/instruction";
+export { PlannedZapClient, planHasSwapLeg, probeInstructionPresence, classifyInstructionProbe } from "./clients/plannedZap/PlannedZapClient";
+export type { PlannedZapClientParams, PlannedZapQuote, PlannedZapExtraAccounts, PlannedZapRoute, RoutedSupport, RoutedProbeStatus, BuiltDirectZapTx } from "./clients/plannedZap/PlannedZapClient";
+export { buildPlannedZapIx, buildRoutedZapIx, buildRoutedZapInstruction, buildDirectZapIx, routedZapComputeBudgetIxs, plannedZapAccounts, encodeAllocationPlan, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS, PLANNED_ZAP_DISCRIMINATOR_HEX, ROUTED_ZAP_DISCRIMINATOR_HEX, ROUTED_ZAP_HEAP_FRAME_BYTES } from "./clients/plannedZap/instruction";
+export type { AllocationPlan, PlannedZapAccounts, PlannedZapArgs, DirectZapRoute } from "./clients/plannedZap/instruction";
 export { stateCommitment, PLAN_DOMAIN, MAX_PLAN_AGE_SECONDS, MAX_VALID_FOR_SLOTS, V6_PLAN_HASH_VECTOR } from "./clients/plannedZap/stateCommitment";
 export type { SnapshotAccount } from "./clients/plannedZap/stateCommitment";
 export { buildWalletLookupPreparation, resolveWalletLookupTable, waitForWalletLookupTable, compilePlannedZapTransaction, PACKET_BYTES, DEFAULT_SETUP_WALLET_RESERVE, DEFAULT_FINANCIAL_WALLET_RESERVE } from "./clients/plannedZap/walletAlt";
@@ -108,6 +108,9 @@ export {
   buildSwapTx,
   buildAddLiquidityIx,
   buildAddLiquidityTx,
+  buildSwapRouteJoinV1Ix,
+  buildSwapRouteJoinV1Tx,
+  SWAP_ROUTE_JOIN_HEAP_FRAME_BYTES,
   buildRemoveLiquidityIx,
   buildRemoveLiquidityTx,
   buildInitializeConfigIx,
@@ -121,6 +124,7 @@ export {
   buildRangeManagerUpdateIx,
   deriveAltAddress,
 } from "./clients/tx-builders";
+export type { SwapRouteJoinParams } from "./clients/tx-builders";
 export { buildVersionedTx, compileBuiltTx } from "./clients/versioned";
 export { resolveSwapExtraAccounts, resolveAddLiquidityExtraAccounts, resolveRemoveLiquidityExtraAccounts } from "./clients/extra-accounts";
 export type { ResolveExtraAccountsParams } from "./clients/extra-accounts";

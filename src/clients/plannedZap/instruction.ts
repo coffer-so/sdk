@@ -1,5 +1,6 @@
 /**
- * `deposit_single_token_planned` instruction builder (browser-safe, no RPC).
+ * `deposit_single_token_planned` / rc5 `deposit_single_token_routed` instruction
+ * builders (browser-safe, no RPC). Both entry points share accounts and args.
  *
  * Account layout (`DepositSingleTokenDirect` + remaining accounts):
  *   [pool w, lp_mint w, user_lp w, user s, coffer_pool_program, lp_token_program]
@@ -8,7 +9,7 @@
  *   + hook/memo extras (never signers, never a core account)
  */
 import { sha256 } from "@noble/hashes/sha256";
-import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, ComputeBudgetProgram, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { CofferConfig } from "../../config";
 import { PoolInfo } from "../../types/pool";
@@ -22,6 +23,27 @@ const DISCRIMINATOR = Buffer.from(sha256(new TextEncoder().encode("global:deposi
 if (DISCRIMINATOR.toString("hex") !== PLANNED_ZAP_DISCRIMINATOR_HEX) {
   throw new Error("deposit_single_token_planned discriminator drifted from the pinned v6 value");
 }
+
+/**
+ * rc5: Anchor discriminator of `deposit_single_token_routed` — the same accounts
+ * and Borsh arguments as `deposit_single_token_planned`, executed as ONE
+ * coffer-pool `swap_route_join_v1` CPI instead of k `swap` CPIs + `add_liquidity`.
+ */
+export const ROUTED_ZAP_DISCRIMINATOR_HEX = "f782dde3cee774af";
+const ROUTED_DISCRIMINATOR = Buffer.from(sha256(new TextEncoder().encode("global:deposit_single_token_routed"))).subarray(0, 8);
+if (ROUTED_DISCRIMINATOR.toString("hex") !== ROUTED_ZAP_DISCRIMINATOR_HEX) {
+  throw new Error("deposit_single_token_routed discriminator drifted from the pinned rc5 value");
+}
+
+/**
+ * rc5: heap frame a routed transaction MUST request. One pool invocation runs
+ * every leg and the join; at N10 that exceeds the default 32 KiB bump heap (the
+ * pool's upward bump allocator makes the requested frame usable).
+ */
+export const ROUTED_ZAP_HEAP_FRAME_BYTES = 64 * 1024;
+
+/** Which STLD entry point a direct (user-account) zap uses. */
+export type DirectZapRoute = "planned" | "routed";
 
 /** Runtime maximum requested by a planned zap. Simulate the exact route: N10 surge/hooks/guards can exceed this budget. */
 export const PLANNED_ZAP_CU_LIMIT = 1_400_000;
@@ -107,20 +129,47 @@ export interface PlannedZapArgs {
 }
 
 export function buildPlannedZapIx(cfg: CofferConfig, accounts: PlannedZapAccounts, args: PlannedZapArgs): TransactionInstruction {
+  return buildDirectZapIx(cfg, accounts, args, "planned");
+}
+
+/**
+ * rc5 `deposit_single_token_routed`: byte-for-byte `buildPlannedZapIx` (same
+ * keys, same Borsh body) with the routed discriminator. The transaction must
+ * also carry `ComputeBudgetProgram.requestHeapFrame({ bytes: ROUTED_ZAP_HEAP_FRAME_BYTES })`
+ * and a compute unit limit (see `routedZapComputeBudgetIxs`).
+ */
+export function buildRoutedZapIx(cfg: CofferConfig, accounts: PlannedZapAccounts, args: PlannedZapArgs): TransactionInstruction {
+  return buildDirectZapIx(cfg, accounts, args, "routed");
+}
+/** Alias matching the contracts' client naming (`buildPlannedZapInstruction`). */
+export const buildRoutedZapInstruction = buildRoutedZapIx;
+
+/** `[setComputeUnitLimit(units), requestHeapFrame(64 KiB)]` — the compute-budget prefix of a routed zap. */
+export function routedZapComputeBudgetIxs(units: number = PLANNED_ZAP_CU_LIMIT): TransactionInstruction[] {
+  return [
+    ComputeBudgetProgram.setComputeUnitLimit({ units }),
+    ComputeBudgetProgram.requestHeapFrame({ bytes: ROUTED_ZAP_HEAP_FRAME_BYTES }),
+  ];
+}
+
+/** Either direct-zap entry point; identical keys and argument bytes, only the discriminator differs. */
+export function buildDirectZapIx(cfg: CofferConfig, accounts: PlannedZapAccounts, args: PlannedZapArgs, route: DirectZapRoute): TransactionInstruction {
+  if (route !== "planned" && route !== "routed") throw new Error(`direct zap: unknown route ${String(route)}`);
+  const label = route === "routed" ? "deposit_single_token_routed" : "deposit_single_token_planned";
   const n = accounts.mints.length;
   if (n < PLANNED_ZAP_MIN_TOKENS || n > PLANNED_ZAP_MAX_TOKENS ||
       [accounts.userTokenAccounts, accounts.vaults, accounts.tokenPrograms, args.plan.allocations].some((a) => a.length !== n)) {
-    throw new Error("deposit_single_token_planned: requires 2..10 consistently ordered token slots");
+    throw new Error(`${label}: requires 2..10 consistently ordered token slots`);
   }
-  if (!Number.isInteger(args.tokenInIndex) || args.tokenInIndex < 0 || args.tokenInIndex >= n) throw new Error("deposit_single_token_planned: invalid tokenInIndex");
-  if (args.amountIn <= 0n) throw new Error("deposit_single_token_planned: amountIn must be positive");
-  if (args.minimumLp <= 0n) throw new Error("deposit_single_token_planned: minimumLp must be positive (the only slippage guard on the route)");
-  if (args.plan.expectedState.length !== 32) throw new Error("deposit_single_token_planned: expectedState must be 32 bytes");
-  if (args.plan.allocations.reduce((sum, v) => sum + v, 0n) !== args.amountIn) throw new Error("deposit_single_token_planned: allocations must sum to amountIn");
+  if (!Number.isInteger(args.tokenInIndex) || args.tokenInIndex < 0 || args.tokenInIndex >= n) throw new Error(`${label}: invalid tokenInIndex`);
+  if (args.amountIn <= 0n) throw new Error(`${label}: amountIn must be positive`);
+  if (args.minimumLp <= 0n) throw new Error(`${label}: minimumLp must be positive (the only slippage guard on the route)`);
+  if (args.plan.expectedState.length !== 32) throw new Error(`${label}: expectedState must be 32 bytes`);
+  if (args.plan.allocations.reduce((sum, v) => sum + v, 0n) !== args.amountIn) throw new Error(`${label}: allocations must sum to amountIn`);
   const programAllowed = (p: PublicKey) => p.equals(TOKEN_PROGRAM_ID) || p.equals(TOKEN_2022_PROGRAM_ID);
-  if (![accounts.lpTokenProgram, ...accounts.tokenPrograms].every(programAllowed)) throw new Error("deposit_single_token_planned: unsupported token program");
-  if (new Set(accounts.mints.map((k) => k.toBase58())).size !== n) throw new Error("deposit_single_token_planned: duplicate mint");
-  if (accounts.mints.some((m) => m.equals(accounts.lpMint))) throw new Error("deposit_single_token_planned: a pool mint cannot be the LP mint");
+  if (![accounts.lpTokenProgram, ...accounts.tokenPrograms].every(programAllowed)) throw new Error(`${label}: unsupported token program`);
+  if (new Set(accounts.mints.map((k) => k.toBase58())).size !== n) throw new Error(`${label}: duplicate mint`);
+  if (accounts.mints.some((m) => m.equals(accounts.lpMint))) throw new Error(`${label}: a pool mint cannot be the LP mint`);
 
   const meta = (pubkey: PublicKey, isWritable = false, isSigner = false): AccountMeta => ({ pubkey, isWritable, isSigner });
   const keys: AccountMeta[] = [
@@ -130,18 +179,18 @@ export function buildPlannedZapIx(cfg: CofferConfig, accounts: PlannedZapAccount
   for (let i = 0; i < n; i++) keys.push(meta(accounts.mints[i]), meta(accounts.userTokenAccounts[i], true), meta(accounts.vaults[i], true));
   // Exactly the token programs the pool uses that differ from the LP program: at most one.
   const others = [...new Map(accounts.tokenPrograms.filter((p) => !p.equals(accounts.lpTokenProgram)).map((p) => [p.toBase58(), p])).values()];
-  if (others.length > 1) throw new Error("deposit_single_token_planned: more than one non-LP token program");
+  if (others.length > 1) throw new Error(`${label}: more than one non-LP token program`);
   for (const program of others) keys.push(meta(program));
   const forbidden = new Set([accounts.user, accounts.pool, accounts.lpMint, accounts.userLpAccount].map((k) => k.toBase58()));
   const seen = new Set<string>();
   for (const extra of accounts.extraAccounts ?? []) {
-    if (extra.isSigner || forbidden.has(extra.pubkey.toBase58())) throw new Error("deposit_single_token_planned: the extension tail cannot carry signers or core accounts");
-    if (seen.has(extra.pubkey.toBase58())) throw new Error(`deposit_single_token_planned: duplicate extra account ${extra.pubkey.toBase58()}`);
+    if (extra.isSigner || forbidden.has(extra.pubkey.toBase58())) throw new Error(`${label}: the extension tail cannot carry signers or core accounts`);
+    if (seen.has(extra.pubkey.toBase58())) throw new Error(`${label}: duplicate extra account ${extra.pubkey.toBase58()}`);
     seen.add(extra.pubkey.toBase58());
     keys.push(meta(extra.pubkey, extra.isWritable));
   }
   const data = Buffer.concat([
-    DISCRIMINATOR,
+    route === "routed" ? ROUTED_DISCRIMINATOR : DISCRIMINATOR,
     u64(args.amountIn, "amountIn"), Buffer.from([args.tokenInIndex]), u64(args.minimumLp, "minimumLp"),
     encodeAllocationPlan(args.plan),
   ]);

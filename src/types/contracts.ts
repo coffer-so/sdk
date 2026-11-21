@@ -1,5 +1,5 @@
 // Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.
-// Epoch lp-transfer-fee-20261119; cofferPool=a2376b7df6db9a60a6ab8eb908cc28bda494066672abb0edde7a057fb17b24c1; protocolAdmin=7de8e983782cdb37d7c9d05ea5cd1d342f7f6061cb7120451cb340107d3fe228; singleTokenLiquidity=b2d5e31bb5c0832846bc8e25c758c101a313cda81e5c9bf598da582707ad0f08
+// Epoch rc5-route-20261122; cofferPool=9e3df59d9f636794f1e32690bfe7431e05d80efc8894466b341d853f40e97e6a; protocolAdmin=7de8e983782cdb37d7c9d05ea5cd1d342f7f6061cb7120451cb340107d3fe228; singleTokenLiquidity=87c764faa3726e7ffa47b2f5a88f683527c7784f3d59f119754a3b17d9196296
 import BN from "bn.js";
 import { PublicKey } from "@solana/web3.js";
 
@@ -61,6 +61,7 @@ export interface ContractTypes {
     "RangeManagerLocked": { "pool": PublicKey; "authority": PublicKey; "timestamp": BN };
     "RangeManagerSetV2": { "pool": PublicKey; "authority": PublicKey; "actor_kind": number; "old_manager": PublicKey; "new_manager": PublicKey; "old_enabled": boolean; "new_enabled": boolean; "timestamp": BN };
     "RangeManagerUpdatedV2": { "pool": PublicKey; "manager": PublicKey; "vb_indices": Buffer; "vb_old_values": Array<BN>; "vb_new_values": Array<BN>; "weight_indices": Buffer; "weight_old_values": Array<BN>; "weight_new_values": Array<BN>; "timestamp": BN };
+    "RouteReturnV1": { "received": Array<BN>; "charged": Array<BN>; "lp_amount": BN };
     "SelloffParams": { "max_selloff_pct": number; "period_length": number; "fee_threshold_pct": number; "fee_slope_low_pct": number; "fee_slope_high_pct": number; "fee_slope_mid_pct": number; "fee_kink_pct": number };
     "SelloffWindow": { "effective_selloff_before": BN; "effective_selloff": BN; "max_selloff_cap": BN; "vb_snapshot": BN; "previous_selloff": BN; "current_selloff": BN; "window_start_timestamp": BN };
     "SidelinedTokenFunded": { "pool": PublicKey; "authority": PublicKey; "token_index": number; "amount_charged": BN; "amount_credited": BN; "actual_after": BN; "virtual_balance": BN; "lp_supply": BN; "timestamp": BN };
@@ -209,6 +210,7 @@ export interface ContractInstructionMap {
     "set_swaps_enabled": { args: { "enabled": boolean }; accounts: { "config": PublicKey; "pool": PublicKey; "authority": PublicKey } };
     "set_token_active": { args: { "token_index": number; "is_active": boolean }; accounts: { "config": PublicKey; "pool": PublicKey; "authority": PublicKey } };
     "swap": { args: { "amount_in": BN; "minimum_amount_out": BN; "token_in_index": number; "token_out_index": number }; accounts: { "pool": PublicKey; "token_mint_in": PublicKey; "token_mint_out": PublicKey; "user_token_account_in": PublicKey; "user_token_account_out": PublicKey; "vault_in": PublicKey; "vault_out": PublicKey; "user": PublicKey; "token_program_in": PublicKey; "token_program_out": PublicKey } };
+    "swap_route_join_v1": { args: { "token_in_index": number; "allocations": Array<BN>; "minimum_lp_amount": BN }; accounts: { "pool": PublicKey; "lp_mint": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "token_program": PublicKey } };
     "withdraw_sol": { args: { "amount": BN }; accounts: { "config": PublicKey; "source": PublicKey; "recipient": PublicKey; "authority": PublicKey } };
   };
   "protocolAdmin": {
@@ -275,6 +277,7 @@ export interface ContractInstructionMap {
     "deposit_single_token": { args: { "amount_in": BN; "token_in_index": number; "minimum_lp_amount": BN }; accounts: { "pool": PublicKey; "helper": PublicKey; "lp_mint": PublicKey; "helper_lp_account": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "coffer_pool_program": PublicKey; "lp_token_program": PublicKey } };
     "deposit_single_token_direct": { args: { "amount_in": BN; "token_in_index": number; "minimum_lp_amount": BN }; accounts: { "pool": PublicKey; "lp_mint": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "coffer_pool_program": PublicKey; "lp_token_program": PublicKey } };
     "deposit_single_token_planned": { args: { "amount_in": BN; "token_in_index": number; "minimum_lp_amount": BN; "plan": ContractTypes["singleTokenLiquidity"]["AllocationPlan"] }; accounts: { "pool": PublicKey; "lp_mint": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "coffer_pool_program": PublicKey; "lp_token_program": PublicKey } };
+    "deposit_single_token_routed": { args: { "amount_in": BN; "token_in_index": number; "minimum_lp_amount": BN; "plan": ContractTypes["singleTokenLiquidity"]["AllocationPlan"] }; accounts: { "pool": PublicKey; "lp_mint": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "coffer_pool_program": PublicKey; "lp_token_program": PublicKey } };
     "withdraw_sol": { args: { "amount": BN }; accounts: { "config": PublicKey; "pool": PublicKey; "source": PublicKey; "recipient": PublicKey; "authority": PublicKey; "system_program": PublicKey } };
   };
 }

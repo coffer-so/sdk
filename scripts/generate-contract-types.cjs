@@ -30,7 +30,7 @@ const enumType = (variants, program) => variants.map(v => {
   return `{ ${prop(v.name)}: ${fields(v.fields || [], program)} }`;
 }).join(' | ');
 const pins = Object.entries(programs).map(([key,name]) => `${key}=${crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'src/idl',name+'.json'))).digest('hex')}`).join('; ');
-const lines = ['// Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.', '// Epoch lp-transfer-fee-20261119; ' + pins, 'import BN from "bn.js";', 'import { PublicKey } from "@solana/web3.js";', '', 'export interface ContractTypes {'];
+const lines = ['// Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.', '// Epoch rc5-route-20261122; ' + pins, 'import BN from "bn.js";', 'import { PublicKey } from "@solana/web3.js";', '', 'export interface ContractTypes {'];
 for (const [program, idl] of Object.entries(idls)) {
   lines.push(`  ${prop(program)}: {`);
   for (const type of idl.types || []) {

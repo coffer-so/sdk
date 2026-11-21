@@ -17,7 +17,7 @@ function metadataMint(pointerTarget = key(2), extra: Array<[number, Buffer]> = [
   const metadata = Buffer.from(pack({ mint: key(2), updateAuthority: PublicKey.default, name: "LP", symbol: "LP", uri: "https://x", additionalMetadata: [] }));
   return extended([[18, pointer], [19, metadata], ...extra]);
 }
-describe("STLD LP policy from token_validation.rs (epoch lp-transfer-fee-20261119)", () => {
+describe("STLD LP policy from token_validation.rs (epoch rc5-route-20261122)", () => {
   test("accepts legacy plain owners and the exact self-pointing metadata pair, including zero padding", () => {
     for (const owner of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) expect(validatePlannedZapLpMint(key(2), owner, base(), key(1)).extensions).toEqual([]);
     for (const padding of [0, 1, 16]) expect(validatePlannedZapLpMint(key(2), TOKEN_2022_PROGRAM_ID, Buffer.concat([metadataMint(), Buffer.alloc(padding)]), key(1)).extensions).toEqual([18, 19]);

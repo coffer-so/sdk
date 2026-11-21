@@ -63,6 +63,66 @@ const walletAlt = await zap.waitForWalletLookupTable(prep, user);
 const tx = zap.compileTransaction({ payer: user, blockhash, instructions: built.data.instructions, lookupTables: [poolAlt.data!, walletAlt] });
 ```
 
+## Routed entry point (contracts v6.1 rc5 / `v6.1-n10`)
+
+`deposit_single_token_routed` takes exactly the accounts and arguments of
+`deposit_single_token_planned` — the same quote, plan and `minimumLp` — and
+executes them as ONE coffer-pool CPI, `swap_route_join_v1(token_in_index,
+allocations, minimum_lp_amount) -> RouteReturnV1`, instead of k `swap` CPIs
+plus `add_liquidity`. The pool runs every leg (`minimum_amount_out = 0`) and
+the join in-process; STLD then checks every slot's floor once and ties the
+returned `received` / `charged` vectors to the real wallet deltas
+(`RoutedReturnDataInvalid`, STLD 6040, otherwise). The inner `SwapV2` ×
+k and `LiquidityAddedV2` events and the `SingleTokenDepositDirectV2` receipt
+are the same as on the planned route; only the CPI frame differs (all inner
+events sit under `swap_route_join_v1`). It saves one CPI frame per leg.
+
+The routed transaction MUST request a heap frame:
+`ComputeBudgetProgram.requestHeapFrame({ bytes: 64 * 1024 })`
+(`ROUTED_ZAP_HEAP_FRAME_BYTES`) — at N10 the single pool invocation exceeds
+the default 32 KiB heap — plus a compute unit limit. The pool also refuses
+to start a leg with too few compute units left
+(`RouteComputeBudgetInsufficient`, 6119), and a plan with no swap leg
+(`RouteNoLegs`, 6118): the SDK never routes such a plan.
+
+```ts
+// Same quote / tail as above.
+const routed = zap.depositRouted(q.data, user, tail.data);      // = buildRoutedTx: [CU limit, 64 KiB heap frame, routed ix]
+// or, compiling yourself:
+const ix = zap.buildRoutedIx(q.data, user, tail.data);
+const tx = zap.compileTransaction({ payer: user, blockhash, instructions: [ix], lookupTables, heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES });
+```
+
+Raw: `buildRoutedZapIx(cfg, accounts, args)` (alias `buildRoutedZapInstruction`)
+is byte-for-byte `buildPlannedZapIx` with discriminator `f782dde3cee774af`
+(`ROUTED_ZAP_DISCRIMINATOR_HEX`); `routedZapComputeBudgetIxs(units)` returns
+the `[setComputeUnitLimit, requestHeapFrame]` prefix. The pool-level
+instruction is `buildSwapRouteJoinV1Ix` / `buildSwapRouteJoinV1Tx`
+(`add_liquidity`'s account layout; the Tx variant adds the heap frame).
+
+### Capability and fallback
+
+The SDK had no capability mechanism before rc5. `PlannedZapClient` takes
+`route: "auto" | "planned" | "routed"`, default **`"planned"`** (works on
+every deployment, including programs that predate rc5):
+
+- `"planned"` — `buildDepositTx` is `buildTx`; no probe.
+- `"routed"` — always the routed entry point (fails with
+  `InstructionFallbackNotFound` on an older deployment); no probe.
+- `"auto"` — `probeRoutedSupport(payer)` simulates a discriminator-only
+  instruction (no accounts, `sigVerify: false`, `replaceRecentBlockhash`)
+  against the configured STLD (`deposit_single_token_routed`) and coffer-pool
+  (`swap_route_join_v1`) program IDs. Anchor 0.32 deserializes arguments
+  before accounts, so a deployed instruction answers
+  `InstructionDidNotDeserialize` (102) and a missing one
+  `InstructionFallbackNotFound` (101). Routed is used only when BOTH answer
+  102; absent, unknown errors or RPC failures fall back to planned
+  (`BuiltDirectZapTx.fallbackReason`). A conclusive answer is cached per
+  client (`probeRoutedSupport(payer, true)` re-probes); an inconclusive one
+  is not. `payer` must exist on chain for the simulation to run.
+
+A plan with no swap leg always resolves to planned.
+
 `PlannedZapQuote` carries the plan (`plan.allocations`, `plan.expectedState`,
 `plan.quotedAt`, `plan.validUntilSlot`), the exact replay (`economics`: swap
 legs with both transfer fees, `available`, `depositedGross`, `creditedNet`,

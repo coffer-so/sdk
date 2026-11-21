@@ -181,6 +181,18 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   /** The LP fee account holds less than `lp_transfer_fees_owed_protocol + lp_transfer_fees_pending_burn` (state corruption / foreign burn). */
   LpFeeAccountUnderfunded: "unsupported_pool_state",
 
+  // ── coffer-pool 6116–6119, v6.1 rc5 (exit gate + pool-native route) ──
+  /** rc5 (6116): `remove_liquidity` / `redeem_lp_transfer_fees` burn that pays zero raw units on every slot while the pool holds assets. */
+  ExitPaysNothing: "amount_too_small",
+  /** rc5 (6117): `swap_route_join_v1` `allocations.len() != token_count`. */
+  RouteAllocationsLength: "invalid_input",
+  /** rc5 (6118): `swap_route_join_v1` with no positive allocation outside the input slot. */
+  RouteNoLegs: "invalid_input",
+  /** rc5 (6119): fewer compute units left than one more route leg needs — raise the CU limit. */
+  RouteComputeBudgetInsufficient: "simulation_failed",
+  /** STLD rc5 (6040): the pool's `RouteReturnV1` was missing / foreign / inconsistent with the wallet deltas. */
+  RoutedReturnDataInvalid: "simulation_failed",
+
   // ── protocol-admin ───────────────────────────────────────────────────
   /** New admin cannot be the all-zero pubkey. */
   InvalidAdmin: "invalid_input",
@@ -225,6 +237,18 @@ const USER_MESSAGES: Record<string, string> = {
   NoLpTransferFeesOwed: "The protocol has no collected LP transfer fees to redeem on this pool — run collect_lp_transfer_fees first.",
   LpFeeAccountUnderfunded:
     "The pool's LP fee account holds less LP than the protocol is owed plus the unburned stream (lp_transfer_fees_owed_protocol + lp_transfer_fees_pending_burn); the pool's fee bookkeeping is inconsistent — do not redeem.",
+  // rc5 (6116–6119 coffer_pool, 6040 STLD)
+  ExitPaysNothing:
+    "This LP amount is too small to withdraw a single raw unit of any pool token. Withdraw a larger LP amount " +
+    "(for redeem_lp_transfer_fees: wait until more LP transfer fees are owed).",
+  RouteAllocationsLength: "The route needs exactly one allocation per pool token (allocations.length must equal the pool's token count).",
+  RouteNoLegs: "The route has no swap leg: at least one token other than the input needs a positive allocation (use add_liquidity otherwise).",
+  RouteComputeBudgetInsufficient:
+    "The transaction ran out of compute units before the next route leg. Request a higher compute unit limit (up to 1_400_000) " +
+    "or deposit through the planned (multi-CPI) route.",
+  RoutedReturnDataInvalid:
+    "The routed single-token deposit could not verify the pool's route result against your token balances; nothing was deposited. " +
+    "Retry, or use the planned single-token deposit.",
 };
 
 function buildErrorTable(errors: AnchorIdlError[]): ErrorTable {

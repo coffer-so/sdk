@@ -87,8 +87,9 @@ test("generated public types match all shipped IDLs", () => {
   // (T19 removed 2 + 2; L0/T2/T10/T14/T6/T7/T3/T9/T22 appended the rest; T11
   // retired PoolStateLog / MaxSelloffWindowAdvanced / SingleTokenDeposit and
   // re-cut 45 payloads under new names; rc2 added close_upgrade_buffer /
-  // UpgradeBufferClosed and dropped the never-deployed batch route).
-  expect(instructions).toHaveLength(118);
+  // UpgradeBufferClosed and dropped the never-deployed batch route; rc5 added
+  // swap_route_join_v1 (pool, 57) and deposit_single_token_routed (STLD, 5)).
+  expect(instructions).toHaveLength(120);
   expect(events).toHaveLength(87);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });

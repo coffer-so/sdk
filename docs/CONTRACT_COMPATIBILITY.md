@@ -1,16 +1,27 @@
 # Contract compatibility: v6.1
 
-Source: `contracts-v6.1` branch `v6.1` at the LP-transfer-fee ABI after the review fixes L-1 / I-1 / I-2 and the X1 linear burn stream (commit `c9f8f1c`, 2026-11-19, on top of the `v6.1-rc2` ABI; the rc2 commit is
-tagged `v6.1-rc2` on release; IDL `docs` strings refreshed from `v6.1-rc4` `5daef53`, ABI unchanged). The vendored IDLs are byte-for-byte the
-`anchor build` output of that source (`idl/*.json`, addresses included):
+Source: `contracts-v6.1-n10` branch `v6.1-n10` at `b9fc7e9` (2026-11-21, the rc5 candidate: `v6.1-rc5` merged into `v6.1-n10`).
+The vendored IDLs are byte-for-byte the `anchor build` output of that tree (`target/idl/*.json`, addresses included; the
+`idl/coffer_pool.json` / `idl/single_token_liquidity.json` COMMITTED at `b9fc7e9` predate the route — an uncommitted
+refresh in that working tree, seen 2026-11-22 00:01, has the same bytes as `target/idl`):
 
 | Program | Instructions | Events | IDL sha256 |
 | --- | ---: | ---: | --- |
-| coffer_pool | 56 | 45 | `a2376b7df6db9a60a6ab8eb908cc28bda494066672abb0edde7a057fb17b24c1` |
+| coffer_pool | 57 | 45 | `9e3df59d9f636794f1e32690bfe7431e05d80efc8894466b341d853f40e97e6a` |
 | protocol_admin | 58 | 40 | `7de8e983782cdb37d7c9d05ea5cd1d342f7f6061cb7120451cb340107d3fe228` |
-| single_token_liquidity | 4 | 2 | `b2d5e31bb5c0832846bc8e25c758c101a313cda81e5c9bf598da582707ad0f08` |
+| single_token_liquidity | 5 | 2 | `87c764faa3726e7ffa47b2f5a88f683527c7784f3d59f119754a3b17d9196296` |
 
-118 instructions / 87 events. `npm run abi:check` compares `../contracts-v6.1/idl`
+rc5 vs the previous vendored ABI (rc4 docs refresh of `c9f8f1c`): coffer_pool appends
+`swap_route_join_v1` (discriminator `c81d70ad5bfad0c2`, returns `RouteReturnV1 { received, charged, lp_amount }`)
+and errors 6116 `ExitPaysNothing`, 6117 `RouteAllocationsLength`, 6118 `RouteNoLegs`,
+6119 `RouteComputeBudgetInsufficient`; single_token_liquidity appends `deposit_single_token_routed`
+(`f782dde3cee774af`) and error 6040 `RoutedReturnDataInvalid`; protocol_admin is unchanged. No event,
+account layout or existing discriminator changed. The contracts' `idl/abi-pins.json` committed at `b9fc7e9` pins
+only 6116 of these; the uncommitted refresh in that working tree adds both instructions, 6117–6119 and STLD 6040 with
+the same values the SDK pins itself (`tx-builders.ts` `PINNED`, `ROUTED_ZAP_DISCRIMINATOR_HEX`). No rc5 program is
+verified as deployed anywhere.
+
+120 instructions / 87 events. `npm run abi:check` compares `../contracts-v6.1-n10/target/idl`
 with the vendored IDLs, ignoring addresses. Repeated command-line path options
 use the last value. A wire comparison does not establish complete instruction
 support. The never-deployed "N10 batch" route (`batch_single_token_planned_v1`,
@@ -42,6 +53,8 @@ No requirement to create new program IDs is inferred from an ABI rename.
 | T15: `pool_set_protocol_fee_rate` per pool (0..=10_000 bps) | `AdminClient.poolSetProtocolFeeRateIx` / cooldown payload |
 | T11: one primary event per instruction with actor / params / before-after; every changed payload re-cut (`SwapV2` with `SlotState` pairs + `Option<SelloffWindow>`, `LiquidityAddedV2` / `LiquidityRemovedV2` with `lp_supply_before/after` and the six vectors, `PoolInitializedV2`, `PoolInfoV2`, `SingleTokenDepositDirectV2`, 24 protocol-admin `…V2`); `PoolStateLog`, `MaxSelloffWindowAdvanced`, `SingleTokenDeposit` retired | strict typed decoders + IDL-coder path with re-encode check, `parseTransactionEvents` (invoke-stack attribution), legacy / retired discriminators → `Unknown { legacy }`, IDL-generated fixtures; see [EVENTS.md](EVENTS.md) |
 | T22: strict `virtual_balance > actual_balance` on every slot after every balance write; per-slot floor `max(10^decimals, 1000)` where `V` is chosen; `rescale_virtual_balances` (protocol admin, D-class cooldown kind 13) | `math/concentrationFactor.ts` (`checkConcentrationFactor`, `minVirtualBalance`, seed / fund gates, `applyRescale`, T22 exit normalisation in `virtualBalanceAfterWithdrawal`), create-pool / seed / fund builders and quotes mirror the gates, `PoolInfo.concentrationFactorViolations`, `buildRescaleVirtualBalancesIx`, `AdminClient.poolRescaleVirtualBalancesIx` / `executePoolRescaleVirtualBalancesIx`, `ProtocolActions.poolRescaleVirtualBalances` |
+| rc5: `swap_route_join_v1` (k swaps + one join in one instruction, `RouteReturnV1`) and STLD `deposit_single_token_routed` (same accounts / args as `_planned`, one pool CPI; the transaction must request a 64 KiB heap frame) | `buildRoutedZapIx` / `PlannedZapClient.buildRoutedTx` / `depositRouted` / `buildDepositTx` with `route: "auto" \| "planned" \| "routed"` (default `"planned"`; `"auto"` probes both programs by simulation and falls back to planned), `routedZapComputeBudgetIxs`, `compileTransaction({ heapFrameBytes })`, `buildSwapRouteJoinV1Ix/Tx`; see [PLANNED_ZAP.md](PLANNED_ZAP.md#routed-entry-point-contracts-v61-rc5--v61-n10) |
+| rc5: `remove_liquidity` refuses a burn that pays zero raw units on every slot while the pool holds assets (`ExitPaysNothing`, 6116; also `redeem_lp_transfer_fees` with too little owed LP) | `calculateExitPayout` / `quoteRemove` mirror it (`amount_too_small`) |
 | Errors 6070–6109 (coffer_pool) and 6010–6018 (protocol_admin) | `describeProgramError`, `CLAIM_ERROR_NAMES`, SDK codes `pool_layout_outdated`, `no_liquidity`, `cooldown`, `hook_rejected`, `concentration_factor_invariant` (6104–6106 carry user-facing messages; rc2 appends 6107 `WithdrawFeeNotLockable`, 6108 `RangeManagerKeyRequired`, 6109 `FullExitRequiredBelowFloor`) |
 
 Legacy rows (v6) still hold: `transfer_checked` everywhere with transfer-fee
@@ -138,7 +151,7 @@ npm run lint
 npm run build
 SKIP_MAINNET_TESTS=1 npm test -- --runInBand
 npm run types:check
-npm run abi:check                       # ../contracts-v6.1/idl, modulo addresses
+npm run abi:check                       # ../contracts-v6.1-n10/target/idl, modulo addresses
 npm run fixtures:events:check           # tests/fixtures/events/*.json still match src/idl
 SKIP_MAINNET_TESTS=1 npm test -- --maxWorkers=2  # finite offline fixtures; no fresh Rust execution
 ```

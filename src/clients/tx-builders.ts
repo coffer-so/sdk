@@ -117,6 +117,9 @@ const PINNED: Record<string, string> = {
   redeem_lp_transfer_fees: "33b96e8af96ebb32",
   // I-1: `set_lp_transfer_fee` is D-class — kind 11 of the pool-admin cooldown.
   execute_set_lp_transfer_fee: "e35b25e5e4e08a9b",
+  // rc5 (contracts v6.1-n10): pool-native route and the routed STLD zap.
+  swap_route_join_v1: "c81d70ad5bfad0c2",
+  deposit_single_token_routed: "f782dde3cee774af",
 };
 
 function computeDiscriminator(
@@ -152,6 +155,7 @@ const COFFER_POOL_DISC = {
   setHookDisabled: computeDiscriminator("set_hook_disabled"),
   rescaleVirtualBalances: computeDiscriminator("rescale_virtual_balances"),
   addLiquidity: computeDiscriminator("add_liquidity"),
+  swapRouteJoinV1: computeDiscriminator("swap_route_join_v1"),
   removeLiquidity: computeDiscriminator("remove_liquidity"),
   initializePool: computeDiscriminator("initialize_pool"),
   initializePoolAlt: computeDiscriminator("initialize_pool_alt"),
@@ -448,6 +452,99 @@ export function buildAddLiquidityTx(
         lpProgram(pool)
       ),
       buildAddLiquidityIx(cfg, pool, params),
+    ],
+    suggestedCuLimit: units,
+  };
+}
+
+// ============================================================
+// Pool-native route (rc5): swap × k + add_liquidity in one instruction
+// ============================================================
+
+/** Heap frame a `swap_route_join_v1` transaction should request (k legs + the join in one invocation). */
+export const SWAP_ROUTE_JOIN_HEAP_FRAME_BYTES = 64 * 1024;
+
+export interface SwapRouteJoinParams {
+  user: PublicKey;
+  tokenInIndex: number;
+  /** One entry per slot: `allocations[i]` (i ≠ input) is the gross input sold into slot i; `allocations[input]` is the input's own join amount. */
+  allocations: BN[];
+  /** Floor on the NET LP minted by the join (must be positive). */
+  minimumLpAmount: BN;
+  /** Token-2022 hook / memo tail for every leg and the join debits (after the native hook slice). */
+  extraAccounts?: AccountMeta[];
+}
+
+/**
+ * rc5 `swap_route_join_v1(token_in_index, allocations, minimum_lp_amount) -> RouteReturnV1`.
+ * Accounts are exactly `add_liquidity`'s (`[pool w, lp_mint w, user_lp w, user s,
+ * token_program]` + `[user_token_i w, vault_i w] × n`, `mint × n`, `token_program × n`,
+ * then the hook slice / Token-2022 extras). Legs run in slot order with
+ * `minimum_amount_out = 0`; only `minimumLpAmount` bounds the result. No client-side
+ * quote is run here: price the route with the planner (`quoteZap`) first.
+ */
+export function buildSwapRouteJoinV1Ix(
+  cfg: CofferConfig,
+  pool: PoolInfo,
+  params: SwapRouteJoinParams & HookedParams
+): TransactionInstruction {
+  const n = pool.tokenCount;
+  const input = params.tokenInIndex;
+  if (!Number.isInteger(input) || input < 0 || input >= n) throw new Error("swap_route_join_v1: InvalidTokenIndex");
+  if (params.allocations.length !== n) {
+    throw new Error(`swap_route_join_v1: RouteAllocationsLength (allocations ${params.allocations.length} != token count ${n})`);
+  }
+  if (params.allocations.some((a) => a.isNeg())) throw new Error("swap_route_join_v1: allocations must be u64");
+  if (!params.allocations.some((a, i) => i !== input && a.gtn(0))) throw new Error("swap_route_join_v1: RouteNoLegs (no positive allocation outside the input slot)");
+  const minLp = requirePositiveMinimumLp(params.minimumLpAmount, "swap_route_join_v1");
+  assertTokensSupported(pool, params.allocations.flatMap((a, i) => (a.gtn(0) || i === input ? [i] : [])), "swap_route_join_v1");
+  const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
+  const data = Buffer.concat([
+    COFFER_POOL_DISC.swapRouteJoinV1,
+    Buffer.from([input]),
+    encodeVecU64(params.allocations),
+    encodeU64(minLp),
+  ]);
+  const remaining: AccountMeta[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = pool.tokens[i];
+    remaining.push({ pubkey: deriveAta(params.user, t.mint, t.tokenProgram), isSigner: false, isWritable: true });
+    remaining.push({ pubkey: t.vault, isSigner: false, isWritable: true });
+  }
+  for (let i = 0; i < n; i++) remaining.push({ pubkey: pool.tokens[i].mint, isSigner: false, isWritable: false });
+  for (let i = 0; i < n; i++) remaining.push({ pubkey: pool.tokens[i].tokenProgram, isSigner: false, isWritable: false });
+  return new TransactionInstruction({
+    programId: cfg.programs.cofferPool,
+    keys: [
+      { pubkey: pool.address, isSigner: false, isWritable: true },
+      { pubkey: pool.lpMint, isSigner: false, isWritable: true },
+      { pubkey: userLp, isSigner: false, isWritable: true },
+      // IDL: `user` is a signer, not writable (the fee payer is writable at the message level anyway).
+      { pubkey: params.user, isSigner: true, isWritable: false },
+      { pubkey: lpProgram(pool), isSigner: false, isWritable: false },
+      ...remaining,
+      ...requireHookSlice(cfg, pool, params.hookAccounts, "swap_route_join_v1"),
+      ...tail(params.extraAccounts, "swap_route_join_v1"),
+    ],
+    data,
+  });
+}
+
+/** CU limit + 64 KiB heap frame + idempotent LP ATA + `swap_route_join_v1`. */
+export function buildSwapRouteJoinV1Tx(
+  cfg: CofferConfig,
+  pool: PoolInfo,
+  params: SwapRouteJoinParams & HookedParams & TxBuildOptionsV61
+): BuiltTx {
+  const userLp = deriveAta(params.user, pool.lpMint, lpProgram(pool));
+  const units = 1_400_000;
+  return {
+    instructions: [
+      ComputeBudgetProgram.setComputeUnitLimit({ units }),
+      ComputeBudgetProgram.requestHeapFrame({ bytes: SWAP_ROUTE_JOIN_HEAP_FRAME_BYTES }),
+      ...layoutMigrationPrefix(cfg, pool, params.user, params),
+      createAssociatedTokenAccountIdempotentInstruction(params.user, userLp, params.user, pool.lpMint, lpProgram(pool)),
+      buildSwapRouteJoinV1Ix(cfg, pool, params),
     ],
     suggestedCuLimit: units,
   };

@@ -263,9 +263,9 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(describeProgramError(6025)?.name).toBe("BannedExtension");
   });
 
-  test("ABI size after the LP transfer fee (I-1): 118 instructions and 87 events across the three programs (56+58+4 / 45+40+2)", () => {
+  test("ABI size after rc5 (swap_route_join_v1 + deposit_single_token_routed): 120 instructions and 87 events across the three programs (57+58+5 / 45+40+2)", () => {
     const programs = Object.values(IDLS) as any[];
-    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(118);
+    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(120);
     expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(87);
   });
 });

@@ -11,8 +11,12 @@
  * `compileTransaction()` → simulate → sign within the plan's validity
  * (≤ 90 s and ≤ `validForSlots` after the snapshot; any change to the pool,
  * LP supply, a mint or the epoch makes it `AllocationPlanStale`).
+ *
+ * rc5: the same quote can be sent as `deposit_single_token_routed` (one pool
+ * CPI, 64 KiB heap frame) — `buildRoutedTx` / `depositRouted`, or
+ * `buildDepositTx` with the constructor's `route: "auto" | "planned" | "routed"`.
  */
-import { AccountMeta, AddressLookupTableAccount, Commitment, ComputeBudgetProgram, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, AddressLookupTableAccount, Commitment, ComputeBudgetProgram, Connection, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { createAssociatedTokenAccountIdempotentInstruction, getExtraAccountMetaAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import { CofferConfig } from "../../config";
@@ -34,16 +38,85 @@ import { concentrationFactorViolations } from "../../math/concentrationFactor";
 import { SwapLeg } from "../../math/swapSim";
 import { resolveTransferExtraAccounts, TransferLeg, UnsupportedTransferProfileError } from "../../utils/transferProfile";
 import { MAX_VALID_FOR_SLOTS, SnapshotAccount, stateCommitment } from "./stateCommitment";
-import { AllocationPlan, buildPlannedZapIx, PlannedZapAccounts, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS } from "./instruction";
+import { AllocationPlan, buildDirectZapIx, DirectZapRoute, PlannedZapAccounts, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS, ROUTED_ZAP_DISCRIMINATOR_HEX, routedZapComputeBudgetIxs, ROUTED_ZAP_HEAP_FRAME_BYTES } from "./instruction";
 import { AltConnection, buildWalletLookupPreparation, compilePlannedZapTransaction, CompiledPlannedZap, resolveWalletLookupTable, waitForWalletLookupTable, WalletLookupPreparation } from "./walletAlt";
 
 const DEFAULT_VALID_FOR_SLOTS = 120;
 const bn = (v: bigint): BN => new BN(v.toString());
 
+/**
+ * rc5 route selection for the direct zap:
+ * - `"planned"` (default): `deposit_single_token_planned` (k swap CPIs + one join CPI), works on every v6 / v6.1 deployment.
+ * - `"routed"`: always `deposit_single_token_routed` (one `swap_route_join_v1` CPI + a 64 KiB heap frame); fails on a deployment without it.
+ * - `"auto"`: probe the deployed STLD and coffer-pool programs once ({@link PlannedZapClient.probeRoutedSupport}) and use the routed
+ *   entry point only when BOTH carry it; anything else (absent, unknown, RPC failure) falls back to `"planned"`.
+ */
+export type PlannedZapRoute = "auto" | DirectZapRoute;
+
 export interface PlannedZapClientParams {
   config: CofferConfig;
   poolAddress: PublicKey;
   rpc?: RpcClient | { endpoint?: string; endpoints?: string[]; fallbackEndpoints?: string[]; apiKey?: string; commitment?: Commitment; timeoutMs?: number };
+  /** rc5 entry-point selection; default `"planned"`. */
+  route?: PlannedZapRoute;
+}
+
+/** Outcome of one instruction-presence probe. */
+export type RoutedProbeStatus = "present" | "absent" | "unknown";
+
+/** {@link PlannedZapClient.probeRoutedSupport} result. */
+export interface RoutedSupport {
+  /** True only when both programs answered `present`. */
+  supported: boolean;
+  stld: RoutedProbeStatus;
+  cofferPool: RoutedProbeStatus;
+  /** Raw simulation errors / RPC failures, for logs. */
+  detail: { stld?: unknown; cofferPool?: unknown };
+}
+
+/** Built direct-zap transaction plus the entry point actually used. */
+export interface BuiltDirectZapTx extends BuiltTx {
+  route: DirectZapRoute;
+  /** Why `"auto"` / `"routed"` ended up on `"planned"` (absent on the requested route). */
+  fallbackReason?: string;
+}
+
+/** Anchor framework codes the presence probe distinguishes. */
+const ANCHOR_INSTRUCTION_FALLBACK_NOT_FOUND = 101;
+const ANCHOR_INSTRUCTION_DID_NOT_DESERIALIZE = 102;
+/** `swap_route_join_v1` discriminator (pinned in tx-builders as well). */
+const SWAP_ROUTE_JOIN_V1_DISCRIMINATOR_HEX = "c81d70ad5bfad0c2";
+/** Any 32-byte base58 value; `replaceRecentBlockhash` swaps it for a live one. */
+const PROBE_BLOCKHASH = PublicKey.default.toBase58();
+
+/**
+ * Classify a discriminator-only simulation. Anchor 0.32 dispatch: a known
+ * discriminator deserializes its arguments BEFORE touching accounts, so empty
+ * args fail with `InstructionDidNotDeserialize` (102); an unknown one is
+ * `InstructionFallbackNotFound` (101). No account is read, no state can move.
+ */
+export function classifyInstructionProbe(simulationErr: unknown): RoutedProbeStatus {
+  const ix = (simulationErr as { InstructionError?: [number, unknown] } | null)?.InstructionError;
+  const custom = (ix?.[1] as { Custom?: number } | undefined)?.Custom;
+  if (custom === ANCHOR_INSTRUCTION_DID_NOT_DESERIALIZE) return "present";
+  if (custom === ANCHOR_INSTRUCTION_FALLBACK_NOT_FOUND) return "absent";
+  return "unknown";
+}
+
+/** Simulate `[discriminator]` against `programId` with no accounts (no signature, no fee, no state). */
+export async function probeInstructionPresence(connection: Pick<Connection, "simulateTransaction">, payer: PublicKey, programId: PublicKey, discriminatorHex: string): Promise<{ status: RoutedProbeStatus; detail?: unknown }> {
+  try {
+    const message = new TransactionMessage({
+      payerKey: payer,
+      recentBlockhash: PROBE_BLOCKHASH,
+      instructions: [new TransactionInstruction({ programId, keys: [], data: Buffer.from(discriminatorHex, "hex") })],
+    }).compileToV0Message();
+    const res = await connection.simulateTransaction(new VersionedTransaction(message), { sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" });
+    const status = res.value.err ? classifyInstructionProbe(res.value.err) : "unknown";
+    return status === "present" ? { status } : { status, detail: res.value.err ?? "simulation unexpectedly succeeded" };
+  } catch (e) {
+    return { status: "unknown", detail: e };
+  }
 }
 
 /** Everything a caller needs to build, size and sign the planned deposit. */
@@ -110,10 +183,15 @@ export class PlannedZapClient {
   readonly config: CofferConfig;
   readonly poolAddress: PublicKey;
   readonly rpc: RpcClient;
+  readonly route: PlannedZapRoute;
+  private routedSupport?: Promise<RoutedSupport>;
 
   constructor(params: PlannedZapClientParams) {
     this.config = params.config;
     this.poolAddress = params.poolAddress;
+    const route = params.route ?? "planned";
+    if (route !== "auto" && route !== "planned" && route !== "routed") throw new Error(`PlannedZapClient: route must be "auto" | "planned" | "routed", got ${String(route)}`);
+    this.route = route;
     this.rpc =
       params.rpc instanceof RpcClient
         ? params.rpc
@@ -403,16 +481,99 @@ export class PlannedZapClient {
 
   /** The `deposit_single_token_planned` instruction for `user`. */
   buildIx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): TransactionInstruction {
+    return this.buildDirectIx(quote, user, tails, "planned");
+  }
+
+  /**
+   * rc5: the `deposit_single_token_routed` instruction for `user` — same quote,
+   * same plan, same `minimumLp`, same accounts as {@link buildIx}; only the
+   * discriminator differs. Its transaction MUST request a 64 KiB heap frame
+   * (use {@link buildRoutedTx} / {@link depositRouted}, or
+   * `compileTransaction({ heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES })`).
+   */
+  buildRoutedIx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): TransactionInstruction {
+    if (!planHasSwapLeg(quote)) throw new Error("deposit_single_token_routed: the plan has no swap leg (RouteNoLegs); use deposit_single_token_planned");
+    return this.buildDirectIx(quote, user, tails, "routed");
+  }
+
+  private buildDirectIx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts, route: DirectZapRoute): TransactionInstruction {
     // Re-run the signed allocations; a manual positive minimumLp or edited
     // displayed economics must not skip the client's rounding policy.
     const economics = replay(quote.quotePool, quote.tokenInIndex, BigInt(quote.amountIn.toString()), quote.plan.allocations);
     assertZapDepositRoundingLoss(quote.quotePool, economics, quote.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps);
-    return buildPlannedZapIx(this.config, this.accountsFor(quote, user, tails), {
+    return buildDirectZapIx(this.config, this.accountsFor(quote, user, tails), {
       amountIn: BigInt(quote.amountIn.toString()),
       tokenInIndex: quote.tokenInIndex,
       minimumLp: BigInt(quote.minimumLp.toString()),
       plan: quote.plan,
-    });
+    }, route);
+  }
+
+  /** rc5: compute limit + 64 KiB heap frame + `deposit_single_token_routed`. ATA creates are NOT included. */
+  buildRoutedTx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): SdkResult<BuiltTx> {
+    try {
+      return ok({
+        instructions: [...routedZapComputeBudgetIxs(PLANNED_ZAP_CU_LIMIT), this.buildRoutedIx(quote, user, tails)],
+        suggestedCuLimit: PLANNED_ZAP_CU_LIMIT,
+      });
+    } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
+      return err("tx_build_failed", `Failed to build the routed zap: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /** rc5 alias of {@link buildRoutedTx}: the routed deposit for an unchanged planned quote. */
+  depositRouted(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): SdkResult<BuiltTx> {
+    return this.buildRoutedTx(quote, user, tails);
+  }
+
+  /**
+   * rc5 capability probe: does the deployed STLD carry `deposit_single_token_routed`
+   * AND the deployed coffer-pool carry `swap_route_join_v1`? Two discriminator-only
+   * simulations (`sigVerify: false`, no accounts; `payer` only pays nothing — it must
+   * exist on chain for the simulation to run). Cached per client; `refresh` re-probes.
+   */
+  probeRoutedSupport(payer: PublicKey, refresh = false): Promise<RoutedSupport> {
+    if (!this.routedSupport || refresh) {
+      const conn = this.rpc.connection;
+      const pending = Promise.all([
+        probeInstructionPresence(conn, payer, this.config.programs.singleTokenLiquidity, ROUTED_ZAP_DISCRIMINATOR_HEX),
+        probeInstructionPresence(conn, payer, this.config.programs.cofferPool, SWAP_ROUTE_JOIN_V1_DISCRIMINATOR_HEX),
+      ]).then(([stld, pool]): RoutedSupport => ({
+        supported: stld.status === "present" && pool.status === "present",
+        stld: stld.status,
+        cofferPool: pool.status,
+        detail: { stld: stld.detail, cofferPool: pool.detail },
+      }));
+      // Do not cache an inconclusive answer: the next call may reach the RPC.
+      this.routedSupport = pending.then((r) => {
+        if (r.stld === "unknown" || r.cofferPool === "unknown") this.routedSupport = undefined;
+        return r;
+      });
+    }
+    return this.routedSupport;
+  }
+
+  /** The entry point the constructor's `route` resolves to for this quote (probing once in `"auto"`). */
+  async resolveRoute(quote: PlannedZapQuote, payer: PublicKey): Promise<{ route: DirectZapRoute; fallbackReason?: string }> {
+    if (this.route === "planned") return { route: "planned" };
+    if (!planHasSwapLeg(quote)) return { route: "planned", fallbackReason: "plan has no swap leg (routed would be RouteNoLegs)" };
+    if (this.route === "routed") return { route: "routed" };
+    const support = await this.probeRoutedSupport(payer);
+    if (support.supported) return { route: "routed" };
+    return { route: "planned", fallbackReason: `routed zap unavailable (stld: ${support.stld}, coffer_pool: ${support.cofferPool})` };
+  }
+
+  /**
+   * Build the deposit on the constructor's route: `"planned"` → {@link buildTx};
+   * `"routed"` → {@link buildRoutedTx}; `"auto"` → routed when the probe finds
+   * both instructions, else planned. Same quote, plan and `minimumLp` either way.
+   */
+  async buildDepositTx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): Promise<SdkResult<BuiltDirectZapTx>> {
+    const { route, fallbackReason } = await this.resolveRoute(quote, user);
+    const built = route === "routed" ? this.buildRoutedTx(quote, user, tails) : this.buildTx(quote, user, tails);
+    if (!built.ok) return built;
+    return ok({ ...built.data, route, ...(fallbackReason ? { fallbackReason } : {}) });
   }
 
   /** Compute budget + the zap. ATA creates are NOT included (see `ensureUserTokenAccountIxs`). */
@@ -460,7 +621,7 @@ export class PlannedZapClient {
   }
 
   /** Compile against the given ALTs and refuse when the packet budget is exceeded. */
-  compileTransaction(options: { payer: PublicKey; blockhash: string; instructions: TransactionInstruction[]; lookupTables: AddressLookupTableAccount[]; walletReserve?: number; computeUnits?: number }): SdkResult<CompiledPlannedZap> {
+  compileTransaction(options: { payer: PublicKey; blockhash: string; instructions: TransactionInstruction[]; lookupTables: AddressLookupTableAccount[]; walletReserve?: number; computeUnits?: number; heapFrameBytes?: number }): SdkResult<CompiledPlannedZap> {
     try {
       return ok(compilePlannedZapTransaction(options));
     } catch (e) {
@@ -472,6 +633,13 @@ export class PlannedZapClient {
     return this.rpc.connection;
   }
 }
+
+/** True when the plan sells into at least one slot other than the input (`swap_route_join_v1` refuses zero legs). */
+export function planHasSwapLeg(quote: Pick<PlannedZapQuote, "plan" | "tokenInIndex">): boolean {
+  return quote.plan.allocations.some((a, i) => i !== quote.tokenInIndex && a > 0n);
+}
+
+export { ROUTED_ZAP_HEAP_FRAME_BYTES };
 
 /** Convenience for callers holding a classic-token-only pool: a plain Token LP program. */
 export const DEFAULT_LP_TOKEN_PROGRAM = TOKEN_PROGRAM_ID;

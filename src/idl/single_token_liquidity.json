@@ -237,6 +237,85 @@
       ]
     },
     {
+      "name": "deposit_single_token_routed",
+      "docs": [
+        "Same plan and accounts as `deposit_single_token_planned`, executed as one",
+        "coffer-pool `swap_route_join_v1` CPI; floors are checked after the CPI on every slot.",
+        "The transaction should request a 64 KiB heap frame: one pool invocation runs every leg."
+      ],
+      "discriminator": [
+        247,
+        130,
+        221,
+        227,
+        206,
+        231,
+        116,
+        175
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
+          "writable": true
+        },
+        {
+          "name": "lp_mint",
+          "docs": [
+            "Pool LP mint whose supply prices proportional liquidity."
+          ],
+          "writable": true
+        },
+        {
+          "name": "user_lp_account",
+          "docs": [
+            "User-owned destination for newly minted LP tokens."
+          ],
+          "writable": true
+        },
+        {
+          "name": "user",
+          "docs": [
+            "User signer authorizing the gross input debit and LP destination."
+          ],
+          "signer": true
+        },
+        {
+          "name": "coffer_pool_program"
+        },
+        {
+          "name": "lp_token_program",
+          "docs": [
+            "Token program owning the LP mint and LP destination."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "token_in_index",
+          "type": "u8"
+        },
+        {
+          "name": "minimum_lp_amount",
+          "type": "u64"
+        },
+        {
+          "name": "plan",
+          "type": {
+            "defined": {
+              "name": "AllocationPlan"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "withdraw_sol",
       "docs": [
         "Recover lamports from a pool's helper PDA. Treasury PDA only.",
@@ -551,6 +630,11 @@
       "code": 6039,
       "name": "AllocationPlanStale",
       "msg": "Pool, LP supply, mint configuration or epoch changed since the quote"
+    },
+    {
+      "code": 6040,
+      "name": "RoutedReturnDataInvalid",
+      "msg": "Routed deposit: coffer-pool return data missing, foreign, malformed or inconsistent with the wallet"
     }
   ],
   "types": [

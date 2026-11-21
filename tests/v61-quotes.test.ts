@@ -263,9 +263,9 @@ describe("quoteRemove — bucket share and withdraw fee", () => {
     expect(c.quoteRemove(new BN("2000000000000")).ok).toBe(false);
     expect(client({ lpSupply: 0n }).client.quoteRemove(new BN(1)).ok).toBe(false);
   });
-  test("[N14] a dust burn that pays nothing anywhere with no fee is still allowed (pre-fee behaviour)", () => {
+  test("[N14] rc5: a dust burn that pays nothing anywhere is ExitPaysNothing (6116) while the pool holds assets", () => {
     const pool = mockPool({ balances: [[5n, 1_000n], [5n, 1_000n]], lpSupply: 1_000_000n });
-    expect(clientFor(pool).quoteRemove(new BN(1)).ok).toBe(true);
+    expect(clientFor(pool).quoteRemove(new BN(1))).toMatchObject({ ok: false, error: { code: "amount_too_small", humanMessage: expect.stringMatching(/^ExitPaysNothing/) } });
   });
 });
 

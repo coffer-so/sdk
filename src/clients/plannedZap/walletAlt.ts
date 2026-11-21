@@ -159,7 +159,7 @@ export interface CompiledPlannedZap {
 }
 
 /**
- * Compile the financial transaction (compute limit + the given instructions)
+ * Compile the financial transaction (compute limit [+ heap frame] + the given instructions)
  * against `lookupTables` and refuse it when the wire size plus the wallet
  * reserve exceeds the 1232-byte packet. The reserve does not control any
  * wallet's policy; always simulate the final transaction.
@@ -171,12 +171,22 @@ export function compilePlannedZapTransaction(options: {
   lookupTables: AddressLookupTableAccount[];
   walletReserve?: number;
   computeUnits?: number;
+  /** rc5: prepend `requestHeapFrame` (a routed zap needs `ROUTED_ZAP_HEAP_FRAME_BYTES` = 64 KiB). */
+  heapFrameBytes?: number;
 }): CompiledPlannedZap {
   const reserve = walletReserve(options.walletReserve ?? DEFAULT_FINANCIAL_WALLET_RESERVE);
+  const budget = [ComputeBudgetProgram.setComputeUnitLimit({ units: options.computeUnits ?? 1_400_000 })];
+  if (options.heapFrameBytes !== undefined) {
+    // Runtime rule: a multiple of 1 KiB in 32..256 KiB.
+    if (!Number.isInteger(options.heapFrameBytes) || options.heapFrameBytes % 1024 !== 0 || options.heapFrameBytes < 32 * 1024 || options.heapFrameBytes > 256 * 1024) {
+      throw new Error("heapFrameBytes must be a multiple of 1024 in 32768..262144");
+    }
+    budget.push(ComputeBudgetProgram.requestHeapFrame({ bytes: options.heapFrameBytes }));
+  }
   const message = new TransactionMessage({
     payerKey: options.payer,
     recentBlockhash: options.blockhash,
-    instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: options.computeUnits ?? 1_400_000 }), ...options.instructions],
+    instructions: [...budget, ...options.instructions],
   }).compileToV0Message(options.lookupTables);
   const transaction = new VersionedTransaction(message);
   let wireBytes: number;

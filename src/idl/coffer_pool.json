@@ -2502,6 +2502,84 @@
       ]
     },
     {
+      "name": "swap_route_join_v1",
+      "docs": [
+        "Swap `allocations[i]` of slot `token_in_index` into every slot `i` with a non-zero",
+        "allocation (slot order, no per-leg floor), then join with those receipts plus",
+        "`allocations[token_in_index]`; any user. Same accounts as `add_liquidity`; economics,",
+        "checks, hooks and events of `swap` × k + `add_liquidity`. Returns `RouteReturnV1`.",
+        "Every leg allocates on the never-freed bump heap: at N10 the transaction must request a",
+        "larger heap frame (64 KiB measured sufficient) or the join runs out of memory."
+      ],
+      "discriminator": [
+        200,
+        29,
+        112,
+        173,
+        91,
+        250,
+        208,
+        194
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "docs": [
+            "Pool account targeted by this operation."
+          ],
+          "writable": true
+        },
+        {
+          "name": "lp_mint",
+          "docs": [
+            "Pool LP mint whose supply prices proportional liquidity."
+          ],
+          "writable": true
+        },
+        {
+          "name": "user_lp_account",
+          "docs": [
+            "User-owned destination for newly minted LP tokens."
+          ],
+          "writable": true
+        },
+        {
+          "name": "user",
+          "docs": [
+            "User signer authorizing the gross input debit and LP destination."
+          ],
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token program of the LP mint; per-token programs come via `remaining_accounts`."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "token_in_index",
+          "type": "u8"
+        },
+        {
+          "name": "allocations",
+          "type": {
+            "vec": "u64"
+          }
+        },
+        {
+          "name": "minimum_lp_amount",
+          "type": "u64"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "RouteReturnV1"
+        }
+      }
+    },
+    {
       "name": "withdraw_sol",
       "docs": [
         "Recover lamports from a pool-owned account as protocol admin, down to its rent minimum."
@@ -3742,6 +3820,26 @@
       "code": 6115,
       "name": "LpFeeAccountUnderfunded",
       "msg": "LP fee account holds less than the protocol's owed LP"
+    },
+    {
+      "code": 6116,
+      "name": "ExitPaysNothing",
+      "msg": "LP amount is too small to withdraw anything"
+    },
+    {
+      "code": 6117,
+      "name": "RouteAllocationsLength",
+      "msg": "Route allocations length must equal the pool token count"
+    },
+    {
+      "code": 6118,
+      "name": "RouteNoLegs",
+      "msg": "Route has no swap leg"
+    },
+    {
+      "code": 6119,
+      "name": "RouteComputeBudgetInsufficient",
+      "msg": "Not enough compute units left for the next route leg"
     }
   ],
   "types": [
@@ -7914,6 +8012,43 @@
               "Operation time as Unix seconds."
             ],
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RouteReturnV1",
+      "docs": [
+        "Return data of `swap_route_join_v1`, set by the dispatcher after the handler returns."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "received",
+            "docs": [
+              "`received[i]`: what the user's wallet gained from the leg into slot `i`",
+              "(`amount_out` net of the Token-2022 transfer fee); 0 for the input and unallocated slots."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "charged",
+            "docs": [
+              "`charged[i]`: what the join debited from slot `i`, gross of any Token-2022 transfer fee."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "lp_amount",
+            "docs": [
+              "Net LP minted to the user."
+            ],
+            "type": "u64"
           }
         ]
       }

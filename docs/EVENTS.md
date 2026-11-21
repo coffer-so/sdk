@@ -80,7 +80,15 @@ known vectors at the two indices with `*After`).
 | any hooked ix / `set_hook_disabled` (T9) | `HookInvoked` / `HookDisabledSet` | `callback`, `verdict`, `hasFeeOverride`, `feeOverride` (raw, unclamped), `cuUsed` / `oldDisabled`, `newDisabled`, `pauseWhenDisabled` |
 | `set_pool_enabled` / `set_swaps_enabled` / `set_token_active` | `PoolEnabledUpdated` / `SwapsEnabledUpdatedV2` / `TokenActiveSetV2` | old / new (+ `actorKind`, `tokenIndex`) |
 | `range_manager_update` / `set_max_selloff` | `RangeManagerUpdatedV2` / `MaxSelloffSetV2` | sparse `vbIndices` / `weightIndices` with old (CAS) / new values; `oldParams` / `newParams: SelloffParams[]` |
-| STLD `deposit_single_token_planned` | `SingleTokenDepositDirectV2` | `amountIn`, `minimumLpAmount`, `allocations`, `planExpectedState` (32 B), `planQuotedAt`, `planValidUntilSlot`, `innerSwapCount`, `depositedAmounts`, `lpReceived`, `dustRemaining`, `lpSupplyBefore/After` — the last event of the tx, self-contained |
+| STLD `deposit_single_token_planned` / rc5 `deposit_single_token_routed` | `SingleTokenDepositDirectV2` | `amountIn`, `minimumLpAmount`, `allocations`, `planExpectedState` (32 B), `planQuotedAt`, `planValidUntilSlot`, `innerSwapCount`, `depositedAmounts`, `lpReceived`, `dustRemaining`, `lpSupplyBefore/After` — the last event of the tx, self-contained |
+
+rc5 `swap_route_join_v1` emits no new event: it logs `SwapV2` once per leg
+(leg into slot `i`: `amountIn == allocations[i]`, `tokenInIndex ==
+token_in_index`, slot order) and then one `LiquidityAddedV2`, all under the
+one pool frame. Called from `deposit_single_token_routed` that frame is at
+depth 2 under STLD, followed by the unchanged `SingleTokenDepositDirectV2`
+receipt; an indexer that attributes inner events by instruction name must
+accept `swap_route_join_v1` next to `swap` / `add_liquidity`.
 
 Everything else (`PoolAdminTransferInitiatedV2`, `PoolActionProposed`,
 `ConfigInitializedV2`, every protocol-admin wrapper, …) decodes through the

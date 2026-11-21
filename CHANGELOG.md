@@ -5,6 +5,30 @@ Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 
 ## Unreleased
 
+### 2026-11-22 rc5: routed single-token deposit, `swap_route_join_v1`, `ExitPaysNothing` (contracts `v6.1-n10` `b9fc7e9`)
+
+- IDLs re-synced from `contracts-v6.1-n10/target/idl` (coffer_pool `9e3df59d…`, single_token_liquidity
+  `87c764fa…`, protocol_admin unchanged): 120 ix / 87 events. New `swap_route_join_v1` (pool, returns
+  `RouteReturnV1`), `deposit_single_token_routed` (STLD), errors 6116 `ExitPaysNothing`, 6117
+  `RouteAllocationsLength`, 6118 `RouteNoLegs`, 6119 `RouteComputeBudgetInsufficient`, STLD 6040
+  `RoutedReturnDataInvalid`. Generated types / event fixtures regenerated (epoch `rc5-route-20261122`);
+  `abi:check` now targets `../contracts-v6.1-n10 --idl-dir target/idl`.
+- `buildRoutedZapIx` (alias `buildRoutedZapInstruction`), `buildDirectZapIx(…, "planned" | "routed")`,
+  `ROUTED_ZAP_DISCRIMINATOR_HEX`, `ROUTED_ZAP_HEAP_FRAME_BYTES` (64 KiB), `routedZapComputeBudgetIxs`.
+  Byte-for-byte the planned instruction with the routed discriminator (checked against the contracts'
+  raw routed builder, the IDL encoder and Anchor's coder).
+- `PlannedZapClient`: `route: "auto" | "planned" | "routed"` constructor option (default `"planned"`),
+  `buildRoutedIx` / `buildRoutedTx` / `depositRouted` (CU limit + 64 KiB heap frame + routed ix, same
+  quote / plan / `minimumLp`), `buildDepositTx` (resolves the route; `"auto"` probes both programs with a
+  discriminator-only simulation — 102 present / 101 absent — and falls back to planned), `resolveRoute`,
+  `probeRoutedSupport`. A plan without a swap leg never routes. `compileTransaction` /
+  `compilePlannedZapTransaction` accept `heapFrameBytes`.
+- `buildSwapRouteJoinV1Ix` / `buildSwapRouteJoinV1Tx` (pool-level route, `add_liquidity` account layout;
+  Tx adds the heap frame).
+- `calculateExitPayout` / `quoteRemove` mirror `ExitPaysNothing` (BEHAVIOUR: a dust burn on a funded pool
+  is now `amount_too_small` instead of a zero-payout quote). Error tables map 6116–6119 / STLD 6040 with
+  user-facing messages.
+
 ### 2026-11-19 LP transfer fee burn stream is true linear vesting (contracts `c9f8f1c`: X1)
 
 - IDLs re-synced (coffer_pool / single_token_liquidity changed: the embedded `CofferPool`
