@@ -5,6 +5,18 @@ Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 
 ## Unreleased
 
+### 2026-11-22 rc7: pool `vault_bump_cache` (contracts `v6.1` `e22707d`)
+
+- IDLs re-synced from `contracts-v6.1/target/idl` (coffer_pool `167baeb9…`, single_token_liquidity
+  `471c9500…`, protocol_admin unchanged `7de8e983…`): `CofferPool.vault_bump_cache: [u8; 10]` @2168 carved
+  from the front of `reserved_v61` (136 → 126 B, now @2178); account size 2304 unchanged, no instruction,
+  event or error change (plus two doc-only hook strings: `hook_max_cu` recorded, not enforced; `cu_used`
+  always 0).
+- `POOL_LAYOUT.VAULT_BUMP_CACHE` / `RESERVED_V61 { offset: 2178, size: 126 }`; `RawPoolAccount.vaultBumpCache`
+  (ten raw bytes, `bump + 1`, 0 = not cached; zeros on an unmigrated account); a non-zero byte past
+  `tokenCount` is `layoutDrift`. Not surfaced on `PoolInfo`. Generated types / event fixtures regenerated
+  (epoch `rc7-vault-bump-20261122`); `npm run abi:check` now points at `../contracts-v6.1`.
+
 ### 2026-11-22 rc5 fixes: compute-budget dedupe in `compileTransaction`, routed heap-frame error
 
 - FIX: `compileTransaction` / `compilePlannedZapTransaction` no longer prepend a second

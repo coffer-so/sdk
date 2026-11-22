@@ -1350,14 +1350,28 @@
             "type": "i64"
           },
           {
-            "name": "reserved_v61",
+            "name": "vault_bump_cache",
             "docs": [
-              "Zeroed reserve; shrinks as fields are appended before it. @2168"
+              "Per-slot canonical vault (ATA) bump, encoded `bump + 1`; `0` = not cached (bump 255 is",
+              "never cached: its `find` costs one attempt, same as `create`). Written only by this",
+              "program from `find_program_address`; a reader falls back to `find` on any mismatch. @2168"
             ],
             "type": {
               "array": [
                 "u8",
-                136
+                10
+              ]
+            }
+          },
+          {
+            "name": "reserved_v61",
+            "docs": [
+              "Zeroed reserve; shrinks as fields are appended before it. @2178"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                126
               ]
             }
           }

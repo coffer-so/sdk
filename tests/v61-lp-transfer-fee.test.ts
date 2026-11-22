@@ -220,7 +220,7 @@ describe("set_lp_transfer_fee (pool admin, D-class kind 11)", () => {
     const b = Buffer.alloc(POOL_LAYOUT.TOTAL); Buffer.from("89d22a16d19c2b4e", "hex").copy(b, 0); b[41] = 2; b[1683] = 1; Buffer.from("V5M1").copy(b, 1667);
     const o = POOL_LAYOUT.PENDING_SET_LP_TRANSFER_FEE.offset;
     expect(o).toBe(2150); expect(POOL_LAYOUT.PENDING_SET_LP_TRANSFER_FEE.size).toBe(10);
-    expect(POOL_LAYOUT.LP_TRANSFER_FEE_BURN_END_TS).toEqual({ offset: 2160, size: 8 }); expect(POOL_LAYOUT.RESERVED_V61).toEqual({ offset: 2168, size: 136 });
+    expect(POOL_LAYOUT.LP_TRANSFER_FEE_BURN_END_TS).toEqual({ offset: 2160, size: 8 }); expect(POOL_LAYOUT.VAULT_BUMP_CACHE).toEqual({ offset: 2168, size: 10 }); expect(POOL_LAYOUT.RESERVED_V61).toEqual({ offset: 2178, size: 126 });
     b.writeBigInt64LE(1_800_000_000n, o); b.writeUInt16LE(999, o + 8);
     const raw = decodePoolAccount(b);
     expect(raw.pendingActions).toHaveLength(12);
@@ -688,20 +688,21 @@ describe("LP mint TransferFeeConfig and LP account sizing", () => {
   test("[P33] pool decode at the raw offsets (2124 / 2126 / 2134 / 2142 / 2160) feeds PoolInfo's share / owed / pending-burn / last-ts / end-ts fields", () => {
     const b = Buffer.alloc(POOL_LAYOUT.TOTAL); Buffer.from("89d22a16d19c2b4e", "hex").copy(b, 0); b[41] = 2; b[1683] = 1; Buffer.from("V5M1").copy(b, 1667);
     expect([POOL_LAYOUT.LP_TRANSFER_FEES_PENDING_BURN, POOL_LAYOUT.LP_TRANSFER_FEE_BURN_LAST_TS, POOL_LAYOUT.LP_TRANSFER_FEE_BURN_END_TS, POOL_LAYOUT.RESERVED_V61])
-      .toEqual([{ offset: 2134, size: 8 }, { offset: 2142, size: 8 }, { offset: 2160, size: 8 }, { offset: 2168, size: 136 }]);
+      .toEqual([{ offset: 2134, size: 8 }, { offset: 2142, size: 8 }, { offset: 2160, size: 8 }, { offset: 2178, size: 126 }]);
     b.writeUInt16LE(4_200, POOL_LAYOUT.LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS.offset); b.writeBigUInt64LE(9_876_543_210n, POOL_LAYOUT.LP_TRANSFER_FEES_OWED_PROTOCOL.offset);
     b.writeBigUInt64LE(123_456n, 2134); b.writeBigInt64LE(1_700_000_000n, 2142); b.writeBigInt64LE(1_700_086_400n, 2160);
     const raw = decodePoolAccount(b);
     expect(raw.lpTransferFeeProtocolShareBps).toBe(4_200); expect(raw.lpTransferFeesOwedProtocol.toString()).toBe("9876543210"); expect(raw.layoutDrift).toEqual([]);
     expect(raw.lpTransferFeesPendingBurn.toString()).toBe("123456"); expect(raw.lpTransferFeeBurnLastTs.toString()).toBe("1700000000"); expect(raw.lpTransferFeeBurnEndTs.toString()).toBe("1700086400");
-    expect(raw.reservedV61.length).toBe(136);
+    expect(raw.reservedV61.length).toBe(126);
     expect(lpBurnStreamOf(raw)).toEqual({ pending: 123_456n, lastTs: 1_700_000_000n, endTs: 1_700_086_400n });
     // a full-width u64 pending burn and the reserve boundary right after the end ts (which sits after slot 11)
     b.writeBigUInt64LE((1n << 64n) - 1n, 2134); expect(decodePoolAccount(b).lpTransferFeesPendingBurn.toString()).toBe("18446744073709551615");
     b[2159] = 1; expect(decodePoolAccount(b).layoutDrift).toEqual([]); // last byte of slot 11's bps, not the reserve
     b[2160] = 1; expect(decodePoolAccount(b).layoutDrift).toEqual([]); // low byte of the end ts, not the reserve
     b[2167] = 0x7f; expect(decodePoolAccount(b).layoutDrift).toEqual([]); // top byte of the end ts (still non-negative)
-    b[2168] = 1; expect(decodePoolAccount(b).layoutDrift).toContain("reserved_v61 is not all zero");
+    b[2168] = 1; expect(decodePoolAccount(b).layoutDrift).toEqual([]); // rc7 vault_bump_cache[0] (populated slot), not the reserve
+    b[2178] = 1; expect(decodePoolAccount(b).layoutDrift).toContain("reserved_v61 is not all zero");
     const legacy = decodePoolAccount(b.subarray(0, 1683));
     expect(legacy.lpTransferFeesOwedProtocol.isZero() && legacy.lpTransferFeesPendingBurn.isZero() && legacy.lpTransferFeeBurnLastTs.isZero() && legacy.lpTransferFeeBurnEndTs.isZero()).toBe(true);
   });

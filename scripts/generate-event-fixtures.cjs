@@ -14,7 +14,7 @@ const { PublicKey } = require("@solana/web3.js");
 
 const root = path.resolve(__dirname, "..");
 const programs = { cofferPool: "coffer_pool", protocolAdmin: "protocol_admin", singleTokenLiquidity: "single_token_liquidity" };
-const SOURCE_EPOCH = "rc5-route-20261122";
+const SOURCE_EPOCH = "rc7-vault-bump-20261122";
 const crypto = require("crypto");
 /** i64 fields the typed decoders expose as JS numbers (Clock seconds): kept inside ±2^40. */
 const SMALL_I64 = new Set(["timestamp", "plan_quoted_at", "window_start_timestamp"]);

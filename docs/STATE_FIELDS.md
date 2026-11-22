@@ -93,7 +93,8 @@ Defaults on an unmigrated 1683-byte account: 0 / `[]` / `false` / `PublicKey.def
 | `lp_transfer_fee_burn_last_ts` | `i64` | 2142 | `lpTransferFeeBurnLastTs` | `lpTransferFeeBurnLastTs` (start of the stream's current linear segment — the last collect that burned; `lpTransferFeeDrip`) | LP transfer fee L-1 |
 | `pending_set_lp_transfer_fee` | `{eta, bps: u16}` | 2150 | `pendingActions[11]` | same | kind 11 (I-1, outside the T3 block) |
 | `lp_transfer_fee_burn_end_ts` | `i64` | 2160 | `lpTransferFeeBurnEndTs` | `lpTransferFeeBurnEndTs` (when `pending_burn` is fully burnable; `== last_ts` while nothing is pending, 0 on a migrated pool; `lpBurnStreamOf` builds the triple) | LP transfer fee X1 (carved AFTER slot 11: 2150 was taken first) |
-| `reserved_v61` | `[u8; 136]` | 2168 | `reservedV61: Buffer` | Omitted (`layoutDrift` lists a non-zero reserve) | — |
+| `vault_bump_cache` | `[u8; 10]` | 2168 | `vaultBumpCache: number[]` (raw: `bump + 1` of the slot's canonical vault ATA bump, `0` = not cached; all zero on an unmigrated account) | Omitted (program-internal; `layoutDrift` lists a non-zero byte past `tokenCount`) | rc7 (written by `initialize_pool` / `migrate_pool_layout_v61` only; pools created or migrated by an older build stay uncached and keep working at the old cost) |
+| `reserved_v61` | `[u8; 126]` | 2178 | `reservedV61: Buffer` | Omitted (`layoutDrift` lists a non-zero reserve) | — |
 
 Total size: **2304 bytes**. `pendingActionsMask` (bit `kind` ⇔ `eta != 0`) is derived; `pendingStatus(eta, chainNow)` classifies a slot as none / waiting / ready / expired against the Clock sysvar (14-day grace).
 

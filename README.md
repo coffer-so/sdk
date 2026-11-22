@@ -22,7 +22,7 @@ Pick by the program version you talk to:
 
 ## Contract compatibility
 
-Source: `contracts-v6.1-n10` at `b9fc7e9` (rc5 candidate: the LP-transfer-fee ABI plus `swap_route_join_v1`,
+Source: `contracts-v6.1` `v6.1` at `e22707d` (rc7: rc5 plus the pool `vault_bump_cache` account field; rc5 candidate: the LP-transfer-fee ABI plus `swap_route_join_v1`,
 `deposit_single_token_routed` and errors 6116–6119 / STLD 6040; IDL sha256 pins in
 [CONTRACT_COMPATIBILITY.md](docs/CONTRACT_COMPATIBILITY.md)). Vendored IDLs
 contain 120 instructions (57 + 58 + 5) and 87 events (45 + 40 + 2); raw

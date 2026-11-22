@@ -1,15 +1,20 @@
 # Contract compatibility: v6.1
 
-Source: `contracts-v6.1-n10` branch `v6.1-n10` at `b9fc7e9` (2026-11-21, the rc5 candidate: `v6.1-rc5` merged into `v6.1-n10`).
+Source (rc7, 2026-11-22): `contracts-v6.1` branch `v6.1` at `e22707d` — the vendored IDLs are byte-for-byte its `target/idl`
+(= its committed `idl/`). rc7 vs rc5 below: coffer_pool / single_token_liquidity gain the `CofferPool.vault_bump_cache: [u8; 10]`
+account field @2168 (`reserved_v61` 136 → 126 B @2178, size 2304 unchanged) and two hook doc strings; no instruction, event,
+error or discriminator change; protocol_admin unchanged.
+
+Previous source: `contracts-v6.1-n10` branch `v6.1-n10` at `b9fc7e9` (2026-11-21, the rc5 candidate: `v6.1-rc5` merged into `v6.1-n10`).
 The vendored IDLs are byte-for-byte the `anchor build` output of that tree (`target/idl/*.json`, addresses included; the
 `idl/coffer_pool.json` / `idl/single_token_liquidity.json` COMMITTED at `b9fc7e9` predate the route — an uncommitted
 refresh in that working tree, seen 2026-11-22 00:01, has the same bytes as `target/idl`):
 
 | Program | Instructions | Events | IDL sha256 |
 | --- | ---: | ---: | --- |
-| coffer_pool | 57 | 45 | `9e3df59d9f636794f1e32690bfe7431e05d80efc8894466b341d853f40e97e6a` |
+| coffer_pool | 57 | 45 | `167baeb9667062021a24f032624c1dabe12a0b87425965416ea80e0592a4f23b` (rc5: `9e3df59d…`) |
 | protocol_admin | 58 | 40 | `7de8e983782cdb37d7c9d05ea5cd1d342f7f6061cb7120451cb340107d3fe228` |
-| single_token_liquidity | 5 | 2 | `87c764faa3726e7ffa47b2f5a88f683527c7784f3d59f119754a3b17d9196296` |
+| single_token_liquidity | 5 | 2 | `471c9500d8c794e645a9a7a9b062c3a1e3354d0dadfef8eab72aeb9d648b6a32` (rc5: `87c764fa…`) |
 
 rc5 vs the previous vendored ABI (rc4 docs refresh of `c9f8f1c`): coffer_pool appends
 `swap_route_join_v1` (discriminator `c81d70ad5bfad0c2`, returns `RouteReturnV1 { received, charged, lp_amount }`)
@@ -21,7 +26,7 @@ only 6116 of these; the uncommitted refresh in that working tree adds both instr
 the same values the SDK pins itself (`tx-builders.ts` `PINNED`, `ROUTED_ZAP_DISCRIMINATOR_HEX`). No rc5 program is
 verified as deployed anywhere.
 
-120 instructions / 87 events. `npm run abi:check` compares `../contracts-v6.1-n10/target/idl`
+120 instructions / 87 events. `npm run abi:check` compares `../contracts-v6.1/target/idl`
 with the vendored IDLs, ignoring addresses. Repeated command-line path options
 use the last value. A wire comparison does not establish complete instruction
 support. The never-deployed "N10 batch" route (`batch_single_token_planned_v1`,

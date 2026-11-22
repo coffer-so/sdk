@@ -178,7 +178,15 @@ export interface RawPoolAccount {
   lpTransferFeeBurnLastTs: BN;
   /** LP transfer fee (X1): Unix time at which `lpTransferFeesPendingBurn` is fully burnable @2160 (after slot 11); `== lastTs` while nothing is pending, 0 on a migrated pool. */
   lpTransferFeeBurnEndTs: BN;
-  /** `reserved_v61` @2168 (136 bytes, zero); empty on an unmigrated account. */
+  /**
+   * rc7 `vault_bump_cache` @2168 (10 bytes, one per slot): `bump + 1` of the slot's
+   * canonical vault (ATA) bump, `0` = not cached (bump 255, a pool created or migrated by
+   * an older build, or a slot past `tokenCount`). Informational: the program falls back to
+   * `find_program_address` whenever the byte is 0 or does not reproduce the vault. All
+   * zeros on an unmigrated account.
+   */
+  vaultBumpCache: number[];
+  /** `reserved_v61` @2178 (126 bytes, zero); empty on an unmigrated account. */
   reservedV61: Buffer;
   /**
    * Non-empty when a 2304-byte account carries bytes the v6.1 layout does
@@ -451,7 +459,7 @@ function v61Defaults(): Pick<RawPoolAccount,
   | "pendingPoolAdminEta" | "pendingActions" | "pendingActionsMask" | "hookProgram" | "hookFlags" | "hookDisabled"
   | "hookFeeMin" | "hookFeeMax" | "hookMaxCu" | "hookAccountsLen" | "reservedV61" | "layoutDrift"
   | "safetyFlags" | "rangeManagerWeightAnchors" | "lpTransferFeeProtocolShareBps" | "lpTransferFeesOwedProtocol"
-  | "lpTransferFeesPendingBurn" | "lpTransferFeeBurnLastTs" | "lpTransferFeeBurnEndTs"
+  | "lpTransferFeesPendingBurn" | "lpTransferFeeBurnLastTs" | "lpTransferFeeBurnEndTs" | "vaultBumpCache"
 > {
   const zeros = () => Array.from({ length: MAX_TOKENS }, () => new BN(0));
   return {
@@ -483,6 +491,7 @@ function v61Defaults(): Pick<RawPoolAccount,
     lpTransferFeesPendingBurn: new BN(0),
     lpTransferFeeBurnLastTs: new BN(0),
     lpTransferFeeBurnEndTs: new BN(0),
+    vaultBumpCache: Array(MAX_TOKENS).fill(0),
     reservedV61: Buffer.alloc(0),
     layoutDrift: [],
   };
@@ -526,6 +535,8 @@ function decodeV61Block(data: Buffer, tokenCount: number): ReturnType<typeof v61
     drift.push("hook block is non-zero without a hook program");
   }
 
+  const vaultBumpCache = Array.from(data.subarray(L.VAULT_BUMP_CACHE.offset, L.VAULT_BUMP_CACHE.offset + L.VAULT_BUMP_CACHE.size));
+  for (let i = tokenCount; i < MAX_TOKENS; i++) if (vaultBumpCache[i] !== 0) drift.push(`vault_bump_cache[${i}] past token_count is ${vaultBumpCache[i]}`);
   const reservedV61 = Buffer.from(data.subarray(L.RESERVED_V61.offset, L.RESERVED_V61.offset + L.RESERVED_V61.size));
   const safetyFlags = data.readUInt16LE(L.SAFETY_FLAGS.offset);
   const rangeManagerWeightAnchors = Array.from({ length: MAX_TOKENS }, (_, i) => data.readUInt16LE(L.RANGE_MANAGER_WEIGHT_ANCHORS.offset + 2 * i));
@@ -569,6 +580,7 @@ function decodeV61Block(data: Buffer, tokenCount: number): ReturnType<typeof v61
     lpTransferFeesPendingBurn,
     lpTransferFeeBurnLastTs,
     lpTransferFeeBurnEndTs,
+    vaultBumpCache,
     reservedV61,
     layoutDrift: drift,
   };

@@ -109,7 +109,9 @@ export const POOL_LAYOUT = {
   PENDING_SET_LP_TRANSFER_FEE:     { offset: 2150, size: 10 },
   /** X1 burn stream end (`i64`, carved AFTER slot 11: 2150 was taken first); `== last_ts` while nothing is pending, 0 on migrated pools. */
   LP_TRANSFER_FEE_BURN_END_TS:     { offset: 2160, size: 8 },
-  RESERVED_V61:                     { offset: 2168, size: 136 },
+  /** rc7: per-slot canonical vault (ATA) bump cache, `bump + 1` (0 = not cached; bump 255 is never cached); written by `initialize_pool` / `migrate_pool_layout_v61` only. */
+  VAULT_BUMP_CACHE:                 { offset: 2168, size: 10 },
+  RESERVED_V61:                     { offset: 2178, size: 126 },
   TOTAL:                            2304,
 } as const;
 

@@ -25,7 +25,7 @@
     "lint": "tsc --noEmit",
     "types:generate": "node scripts/generate-contract-types.cjs",
     "types:check": "node scripts/generate-contract-types.cjs --check",
-    "abi:check": "node scripts/check-contract-abi.cjs --contracts-dir ../contracts-v6.1-n10 --idl-dir target/idl --ignore-address",
+    "abi:check": "node scripts/check-contract-abi.cjs --contracts-dir ../contracts-v6.1 --idl-dir target/idl --ignore-address",
     "fixtures:events": "node scripts/generate-event-fixtures.cjs",
     "fixtures:events:check": "node scripts/generate-event-fixtures.cjs --check",
     "fixtures:rust": "python3 tests/math/generate-rust-reference.py ../contracts-v6.1"
