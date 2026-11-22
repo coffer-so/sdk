@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { TokenInfo } from "../config/tokens";
+import type { PoolBoostSnapshot } from "../clients/CofferBackendClient";
 
 /**
  * A single token slot inside a Cubic Pool, enriched with off-chain metadata
@@ -144,4 +145,8 @@ export interface PoolSummary {
   feeApr7d?: number;
   poolEnabled: boolean;
   tokens: Array<{ mint: string; symbol?: string; weightBps: number }>;
+  /** Boosts of the pool; null without one. Backends before the rewards module omit it (SDK 1.5.0). */
+  boost?: PoolBoostSnapshot | null;
+  /** Σ APR of the active boosts, a simple APR in percent, never part of `apy`; null = no chip. */
+  boostAprPct?: number | null;
 }

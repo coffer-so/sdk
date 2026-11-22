@@ -11,8 +11,9 @@ and backend consumers; no bundler-specific code.
 
 This release targets `contracts/audit-fixes-excluded-SF` at
 `96a2ee20244ff95fb9f14357bb55b17e1eb0e2c0`, deployed on mainnet on 2026-09-07.
-All three IDLs match that revision. Typed `buildContractInstruction` covers all
-59 instructions, `parseContractEvents` covers all 60 events, and
+All three IDLs match that revision. Since 1.5.0 the SDK also ships the
+`coffer_rewards` IDL (contracts v6.1, boosts). Typed `buildContractInstruction`
+covers all 70 instructions, `parseContractEvents` covers all 61 events, and
 `decodeContractAccount` decodes their declared accounts. See
 [the compatibility notes](docs/CONTRACT_COMPATIBILITY.md) for usage and limits, and
 [the exact state-field mapping](docs/STATE_FIELDS.md) for decoded account data.
@@ -109,8 +110,8 @@ low-level instruction builders throw on invalid input.
 - All on-chain account parsing (pool, mint, events)
 - All math (quote, allocations, slippage, price impact)
 - All transaction building (swap, add/remove liquidity, single-token deposit, pool deploy)
-- Current Anchor IDLs for `cubic_pool`, `single_token_liquidity`, and
-  `protocol_admin`
+- Current Anchor IDLs for `cubic_pool`, `single_token_liquidity`,
+  `protocol_admin` and `coffer_rewards`
 - Retry + fallback for RPC and backend calls
 - Event log decoding
 
@@ -262,7 +263,7 @@ original 401 is returned. The per-attempt timeout does not abort the underlying
 | `SingleTokenDepositClient` | `sync`, `helperPda`, `quote`, `buildTx`, `buildTxs` |
 | `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializeCubicPoolIx` |
 | `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 29 protocol-admin instructions |
-| Generic ABI | `buildContractInstruction` for all 59 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 60 events |
+| Generic ABI | `buildContractInstruction` for all 70 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 61 events |
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, STLD, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
 | XP snapshots | Frozen results of finished epochs and campaigns — `getLeaderboardEpochSnapshot`, `getCampaignSnapshotTop`, …; see [XP snapshots guide](docs/XP_SNAPSHOTS.md) |
@@ -270,6 +271,7 @@ original 401 is returned. The per-attempt timeout does not abort the underlying
 | Public profiles | `getPublicProfile` (by address, username or `@username`), `getProfileCards` (public); `getMyProfile`, `updateMyProfile`, `setUsername`, `uploadAvatar`, `removeAvatar` (JWT); leaderboard, campaign, referral and pool-transaction rows carry a `profile` card; see [profiles guide](docs/PROFILE.md) |
 | Public portfolio | `getPublicPortfolioChart`, `getPublicPortfolioActivity`, `getPublicPortfolioHoldings`, `getPublicPortfolioPositions` (public, any wallet by address or username) — the portfolio v2 views for a profile page, without Net Worth and wallet tokens; see [portfolio v2 guide](docs/PORTFOLIO_V2.md#public-portfolio-of-any-wallet) |
 | Pool admin | `getAdminPools`, `isPoolAdmin`, `renamePool`, `updatePoolSettings` (base asset, description, `additionalUrl`), `uploadPoolImage`, `removePoolImage` (JWT + on-chain pool admin); see [pool admin guide](docs/POOL_ADMIN.md) |
+| Rewards (boosts) | `getRewardBoosts`, `getRewardCampaigns`, `getWalletRewards`, `requestRewardVoucher` (public); `buildRewardClaimTx` + `loadRewardClaimState` for the claim, voucher/PDA/decoder helpers and coffer_rewards admin builders; `boost` / `boostAprPct` on pools; see [rewards guide](docs/REWARDS.md) |
 
 `getCached()` is the actual cache accessor; there is no `getState()`, `swap()`,
 or `getSwapQuote()` method. `pool.singleTokenDeposit` is a client getter, not a
@@ -313,7 +315,7 @@ transaction, then compile the deposit with the already initialized pool ALT.
 Neither splitting nor compiling creates the ALT.
 
 The complete typed event API keeps snake_case fields and full-width BN values.
-The camelCase `parseCubicPoolEvents` compatibility API also recognizes all 60
+The camelCase `parseCubicPoolEvents` compatibility API also recognizes all 61
 current events, but uses numeric timestamps and some legacy default fields.
 Malformed/truncated events become `Unknown`; it is not proof of program
 provenance or transaction success.

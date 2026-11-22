@@ -8,6 +8,21 @@ Target: `contracts/audit-fixes-excluded-SF`, commit
 | cubic_pool | 28 | 30 | `8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu` |
 | protocol_admin | 29 | 28 | `3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81` |
 | single_token_liquidity | 2 | 2 | `7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2` |
+| coffer_rewards (since SDK 1.5.0) | 11 | 1 | `2XGGEHUSRYAqYZ5qdTFJjFnFkiQLWvMW6iMsooaJAZtg` (every cluster) |
+
+`coffer_rewards` comes from contracts branch `v6.1` (`idl/coffer_rewards.json` at
+`55d9b13`, sha256 `9c6182c185777c7e8708858bc7abc428f3dc04e7b2f698384720b4cfd6d42b06`),
+not from the v5.1 revision above. Its Campaign account holds a String and is
+allocated at 389 bytes; `decodeContractAccount` expects that size. See
+[REWARDS.md](REWARDS.md). `node scripts/check-contract-abi.cjs --contracts-dir …`
+reads `target/idl/` and falls back to the committed `idl/`.
+
+Type change in 1.5.0: the unions `ContractProgram`, `CofferProgram` and
+`ProgramIdKind` gain `"cofferRewards"`, and `NetworkPrograms` gains an optional
+`cofferRewards`. Consumer code with `Record<ContractProgram, …>` or an
+exhaustive `switch` over these unions needs a `"cofferRewards"` case, and
+`cfg.programs[k]` with a generic `k` is `PublicKey | undefined`; read ids with
+`programId(cfg, kind)`, which falls back to `COFFER_REWARDS_PROGRAM_ID`.
 
 ## Full instruction API
 

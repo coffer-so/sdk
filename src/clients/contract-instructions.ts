@@ -1,7 +1,7 @@
 import { BorshInstructionCoder, Idl } from "@coral-xyz/anchor";
 import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import BN from "bn.js";
-import { CofferConfig } from "../config";
+import { CofferConfig, programId } from "../config";
 import { IDLS } from "../idl";
 import { ContractInstructionMap, ContractProgram } from "../types/contracts";
 
@@ -14,7 +14,8 @@ export type ContractInstructionAccounts<P extends ContractProgram, I extends Ins
 const coders = new Map<ContractProgram, BorshInstructionCoder>();
 
 /**
- * Build any instruction exposed by the three deployed contracts. Argument and
+ * Build any instruction exposed by the deployed contracts (cubic_pool,
+ * protocol_admin, single_token_liquidity, coffer_rewards). Argument and
  * account names use the exact snake_case names from the shipped IDLs; all fixed
  * accounts are explicit. Integer widths, argument fields, account order and
  * signer/writable flags are checked or derived from those IDLs.
@@ -26,6 +27,22 @@ const coders = new Map<ContractProgram, BorshInstructionCoder>();
  */
 export function buildContractInstruction<P extends ContractProgram, I extends InstructionName<P>>(
   config: CofferConfig,
+  program: P,
+  instruction: I,
+  args: ContractInstructionArgs<P, I>,
+  accounts: ContractInstructionAccounts<P, I>,
+  remainingAccounts: AccountMeta[] = [],
+): TransactionInstruction {
+  return buildContractInstructionWithProgramId(programId(config, program), program, instruction, args, accounts, remainingAccounts);
+}
+
+/**
+ * `buildContractInstruction` for an explicit program id instead of the
+ * config's (a local deployment, or callers without a CofferConfig such as
+ * the coffer_rewards builders).
+ */
+export function buildContractInstructionWithProgramId<P extends ContractProgram, I extends InstructionName<P>>(
+  id: PublicKey,
   program: P,
   instruction: I,
   args: ContractInstructionArgs<P, I>,
@@ -55,7 +72,7 @@ export function buildContractInstruction<P extends ContractProgram, I extends In
     coders.set(program, coder);
   }
   return new TransactionInstruction({
-    programId: config.programs[program],
+    programId: publicKey(id, "programId"),
     keys,
     data: coder.encode(instruction, args as any),
   });
@@ -85,6 +102,7 @@ function validateType(value: any, type: any, idl: any, path: string): void {
     if (type === "pubkey") { publicKey(value, path); return; }
     if (type === "bool") { if (typeof value !== "boolean") throw new Error(`${path} must be boolean`); return; }
     if (type === "bytes") { if (!Buffer.isBuffer(value)) throw new Error(`${path} must be a Buffer`); return; }
+    if (type === "string") { if (typeof value !== "string") throw new Error(`${path} must be a string`); return; }
     const integer = /^([ui])(\d+)$/.exec(type);
     if (integer) {
       const width = Number(integer[2]);

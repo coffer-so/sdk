@@ -157,10 +157,7 @@ amounts are frozen at the oldest known values; for `pnl` — a position
 that predates the range and was fully closed inside it; for `il` — a
 basis token with no price history (valued flat at today's price), a
 position snapshot older than an LP event, an exit that could not be
-priced, or pre-range history that could not be reconstructed exactly; for
-`pnl` and `il` — the backend's stored LP history has not caught up with the
-wallet's last deposit or withdrawal yet, usually for under a minute, during
-which the chart can be off by about that transaction).
+priced, or pre-range history that could not be reconstructed exactly).
 Optionally show a subtle "approximate" hint.
 
 **`change.pct: null`** means the percentage is undefined — the range

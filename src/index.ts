@@ -24,6 +24,7 @@ export * from "./math";
 export * from "./parsers";
 export * from "./clients";
 export * from "./idl";
+export * from "./rewards";
 
 // Explicit runtime re-exports keep CommonJS output statically discoverable for
 // Vite/Rollup consumers that import named exports from the package root.
@@ -125,6 +126,55 @@ export { toSdkError, describeProgramError } from "./utils/errors";
 export { decodeMintAccount } from "./parsers/mintAccount";
 export { parseCubicPoolEvents } from "./parsers/events";
 export { BorshReader } from "./parsers/borsh";
+export { getRewardsApiError } from "./clients/CofferBackendClient";
+export { buildContractInstructionWithProgramId } from "./clients/contract-instructions";
+export { COFFER_REWARDS_IDL } from "./idl";
+export {
+  COFFER_REWARDS_PROGRAM_ID,
+  SPL_MEMO_PROGRAM_ID,
+  REWARD_CAMPAIGN_SEED,
+  REWARD_RECEIPT_SEED,
+  REWARD_SOL_VAULT_SEED,
+  REWARD_CAMPAIGN_LEN,
+  REWARD_RECEIPT_LEN,
+  REWARD_PAID_LEN,
+  REWARD_CAMPAIGN_METADATA_MAX,
+  REWARD_CAMPAIGN_DISCRIMINATOR,
+  REWARD_RECEIPT_DISCRIMINATOR,
+  REWARD_PAID_DISCRIMINATOR,
+  REWARD_VOUCHER_DOMAIN,
+  REWARD_VOUCHER_MESSAGE_LEN,
+  REWARD_VERIFY_IX_LEN,
+  REWARD_CLAIM_CU_LIMIT,
+  REWARD_SOL_VAULT_RENT_LAMPORTS,
+  REWARD_RECEIPT_RENT_LAMPORTS,
+  boostsCampaignId,
+  deriveRewardCampaignPda,
+  deriveRewardReceiptPda,
+  deriveRewardSolVaultPda,
+  deriveRewardTokenVault,
+  rewardVoucherMessage,
+  rewardVerificationInstruction,
+  parseRewardVoucher,
+  decodeRewardCampaignAccount,
+  decodeRewardReceiptAccount,
+  decodeRewardPaidEvent,
+  parseRewardPaidEvents,
+  parseRewardMintTransferFee,
+  rewardTransferFeeAt,
+  rewardClaimPayout,
+  rewardVaultSpendable,
+  rewardTokenAccountInfo,
+  assertRewardSigner,
+  buildRewardClaimIx,
+  buildRewardClaimTx,
+  loadRewardClaimState,
+  buildRewardInitializeIx,
+  buildRewardDepositIx,
+  buildRewardWithdrawIx,
+  buildRewardRotateSignerIx,
+  buildRewardReturnSurplusIx,
+} from "./rewards";
 
 export type {
   CofferConfig,
@@ -255,6 +305,21 @@ export type {
   AuthTokens,
   SwapRouteEntry,
   SwapRouteResponse,
+  PoolBoostStatus,
+  PoolBoostItem,
+  PoolBoost,
+  PoolBoostSnapshot,
+  PublicBoostPool,
+  PublicBoostsResponse,
+  PublicCampaign,
+  PublicCampaignsResponse,
+  WalletCampaignRewards,
+  WalletBoostRewards,
+  WalletRewardsResponse,
+  RewardVoucherResponse,
+  RewardVoucherErrorCode,
+  RewardsApiErrorBody,
+  RewardsApiError,
   CubicPoolClientParams,
   SingleTokenDepositClientParams,
   PoolFactoryClientParams,
@@ -265,6 +330,29 @@ export { buildContractInstruction } from "./clients/contract-instructions";
 export { decodeContractAccount, decodeContractEvent, parseContractEvents } from "./parsers/contracts";
 export type { ContractEvent } from "./parsers/contracts";
 export type { ContractInstructionArgs, ContractInstructionAccounts } from "./clients/contract-instructions";
+export type {
+  RewardsCluster,
+  ParsedRewardVoucher,
+  ParseRewardVoucherExpect,
+  RewardCampaignAccount,
+  RewardReceiptAccount,
+  RewardPaidEvent,
+  RewardTransferFee,
+  RewardTransferFeeConfig,
+  RewardClaimFailure,
+  RewardClaimPayout,
+  RewardClaimPayoutInput,
+  RewardCampaignAsset,
+  RewardClaimIxParams,
+  RewardInitializeIxParams,
+  RewardLiquidityIxParams,
+  RewardReturnSurplusIxParams,
+  RewardClaimState,
+  BuildRewardClaimTxOptions,
+  RewardClaimTx,
+  LoadRewardClaimStateOptions,
+  LoadedRewardClaimState,
+} from "./rewards";
 export type { ContractProgram, ContractInstructionMap, ContractAccountMap, ContractEventMap, ContractTypes } from "./types/contracts";
 export { buildSetSwapFeeRateIx, buildSetMaxSelloffIx, buildInitiatePoolAdminTransferIx, buildAcceptPoolAdminTransferIx, buildCancelPoolAdminTransferIx, buildDisablePoolAdminIx, buildGetPoolInfoIx } from "./clients/tx-builders";
 export type { SelloffParams, AddLiquidityQuote } from "./types/tx";

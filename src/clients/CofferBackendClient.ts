@@ -1,4 +1,4 @@
-import { SdkResult, err, ok } from "../types/result";
+import { SdkError, SdkResult, err, ok } from "../types/result";
 import { PoolSummary } from "../types/pool";
 import { RetryOptions, safeCall } from "../utils/retry";
 import { isFetchNetworkFailure, toSdkError } from "../utils/errors";
@@ -484,6 +484,16 @@ export interface AdminPoolEntry {
   additionalUrl?: string | null;
   tvlUsd: number;
   apy: number;
+  /**
+   * Boosts of the pool (see `PoolBoostSnapshot`); null without one. Backend
+   * with boosts (`@coffer_so/sdk` 1.5.0); absent on older backends.
+   */
+  boost?: PoolBoostSnapshot | null;
+  /**
+   * Boost APR now, % — simple, paid in the reward token, never part of
+   * `apy`; null when no boost is active. Same backend as `boost`.
+   */
+  boostAprPct?: number | null;
   volume24h: number;
   swapFee: number;
   poolEnabled: boolean;
@@ -860,10 +870,7 @@ export interface PortfolioChartResponse {
    * hit its cap / the history API was unavailable (amounts frozen at the
    * horizon); pnl — a position predating the range closed inside it;
    * il — a basis token without price history, a snapshot older than an
-   * LP event, or an exit that could not be priced; pnl / il — the
-   * backend's stored LP history has not caught up with the wallet's last
-   * deposit or withdrawal yet (usually under a minute, during which the
-   * chart can be off by about that transaction).
+   * LP event, or an exit that could not be priced.
    */
   approximate: boolean;
   /**
@@ -1100,6 +1107,12 @@ export interface PortfolioPositionItem {
   netPnl: number;
   /** POOL-wide APY, % (24h-based) — the same number as the pools page. */
   apy: number;
+  /**
+   * Boost APR of the pool now, % (simple, in the reward token; never part
+   * of `apy`); null without an active boost. Backend with boosts (1.5.0);
+   * absent on older backends.
+   */
+  boostAprPct?: number | null;
 }
 
 export interface PortfolioPositionsResponse {
@@ -1110,6 +1123,277 @@ export interface PortfolioPositionsResponse {
   /** Σ value of ALL active positions (the header total), not the page. */
   totalValueUsd: number;
   data: PortfolioPositionItem[];
+}
+
+// ── Boosts (coffer_rewards) types — backend docs/BOOSTS.md ──
+//
+// Every `…Raw` field is a decimal string of raw u64 units (never a JS
+// number); times are ISO 8601 UTC; APRs are percents (18.4 = 18.4 %).
+
+export type PoolBoostStatus = "scheduled" | "active" | "ended" | "cancelled";
+
+/** One boost of a pool (`Pool.boost.items[]`). */
+export interface PoolBoostItem {
+  /** The boost id. */
+  id: number;
+  /** The campaign account a voucher and a claim name. */
+  campaign: string;
+  /** Reward mint; wrapped SOL (So111…112) for a SOL campaign. */
+  rewardMint: string;
+  rewardSymbol: string | null;
+  rewardDecimals: number;
+  /** Price when the snapshot was written; null = no price. */
+  rewardPriceUsd: number | null;
+  /** Recomputed from the clock every time the pool is read. */
+  status: PoolBoostStatus;
+  /** Whole UTC hours. */
+  startAt: string;
+  /** Planned end of the terms in force; can move earlier (stop, shorten). */
+  endAt: string;
+  /** min(cap, budget per day × 365 × price / eligibleTvlUsd), simple; a projection while scheduled, 0 once ended. */
+  aprPct: number;
+  aprCapPct: number;
+  /** The cap is below the budget APR: the rest of the budget is refunded. */
+  capBinding: boolean;
+  /** Budget per day of the terms in force; "0" once ended. */
+  ratePerDayRaw: string;
+  budgetRaw: string;
+  /** Accrued to LPs by the finalized days. */
+  emittedRaw: string;
+  /** Back to the campaign: above the cap, rounding, forfeits. */
+  refundedRaw: string;
+  /** End of the last finalized day; null before the first. */
+  finalizedThrough: string | null;
+  /** Vouchers are signed for this campaign now. */
+  claimsOpen: boolean;
+  /** The campaign's liquidity covers what it owes. */
+  funded: boolean;
+  unreliable: boolean;
+}
+
+/** Plan name of a pool boost item. */
+export type PoolBoost = PoolBoostItem;
+
+/**
+ * `Pool.boost` (version 1). On every raw pool answer as `boost`
+ * (`PoolBoostSnapshot | null`) next to `boostAprPct` (`number | null`).
+ * Treat a `v` other than 1 as "no boost".
+ */
+export interface PoolBoostSnapshot {
+  v: 1;
+  asOf: string;
+  /** Σ aprPct of the active items (= boostAprPct); 0 when none is active. */
+  aprPct: number;
+  unreliable: boolean;
+  /** USD value of the LP held by the wallets that take part; the APR is computed on it. */
+  eligibleTvlUsd: number;
+  items: PoolBoostItem[];
+}
+
+/** An item of `GET /api/rewards/boosts`. */
+export interface PublicBoostPool {
+  poolAddress: string;
+  poolName: string;
+  imageUrl: string | null;
+  bptMint: string | null;
+  tvlUsd: number | null;
+  /** null when no item is active (only scheduled boosts). */
+  boostAprPct: number | null;
+  /** items: active and scheduled only. */
+  boost: PoolBoostSnapshot;
+}
+
+/** `GET /api/rewards/boosts`: pools with an active or scheduled boost, highest boostAprPct first. */
+export interface PublicBoostsResponse {
+  asOf: string;
+  pools: PublicBoostPool[];
+}
+
+/** A live campaign of the backend, as last read from the chain. */
+export interface PublicCampaign {
+  id: number;
+  address: string;
+  programId: string;
+  admin: string;
+  /** 32 bytes, hex: sha256("coffer-boosts:v1:<cluster>:<mint|native>"). */
+  campaignId: string;
+  bump: number;
+  native: boolean;
+  /** On-chain field: 1111…1111 for SOL. */
+  mint: string;
+  /** Wrapped SOL for a SOL campaign. */
+  rewardMint: string;
+  rewardSymbol: string | null;
+  tokenProgram: string;
+  decimals: number;
+  /** Token-2022 extension types of the mint. */
+  mintExtensions: number[];
+  /** ATA(campaign, mint, tokenProgram), or PDA ["sol", campaign] for SOL. */
+  vault: string;
+  backendSigner: string;
+  signerEpoch: string;
+  liquidityRaw: string;
+  /** null when the vault was not read yet or does not exist; lamports with rent for SOL. */
+  vaultBalanceRaw: string | null;
+  stateSlot: string | null;
+  stateReadAt: string | null;
+  /** Includes backendSigner === signer. */
+  claimsOpen: boolean;
+  label: string | null;
+}
+
+/** `GET /api/rewards/campaigns`. */
+export interface PublicCampaignsResponse {
+  programId: string;
+  cluster: "mainnet" | "devnet";
+  /** null while the backend does not sign. */
+  signer: string | null;
+  campaigns: PublicCampaign[];
+}
+
+export interface WalletCampaignRewards {
+  /** Backend id of the campaign (not the on-chain 32-byte id). */
+  campaignId: number;
+  campaign: string;
+  rewardMint: string;
+  rewardSymbol: string | null;
+  rewardDecimals: number;
+  /** Finalized all-time total. */
+  earnedRaw: string;
+  /** Admin additions younger than the change delay: in earnedRaw, not claimable yet. */
+  pendingRaw: string;
+  claimedRaw: string;
+  /** max(0, earned − pending − claimed). */
+  claimableRaw: string;
+  /** claimableRaw clipped to the last-read liquidity and vault (estimate). */
+  claimableNowRaw: string;
+  /** Reserved while the wallet's LP history is checked; not in earnedRaw. */
+  heldRaw: string;
+  finalizedThrough: string | null;
+  claimsOpen: boolean;
+}
+
+export interface WalletBoostRewards {
+  boostId: number;
+  poolAddress: string;
+  /** null once the boost left Pool.boost (7 days after its end). */
+  poolName: string | null;
+  campaignId: number;
+  campaign: string;
+  rewardMint: string;
+  rewardSymbol: string | null;
+  rewardDecimals: number;
+  /** null once the boost left Pool.boost. */
+  status: PoolBoostStatus | null;
+  startAt: string;
+  endAt: string;
+  /** null once the boost left Pool.boost. */
+  aprPct: number | null;
+  earnedRaw: string;
+  heldRaw: string;
+  /** Stored LP balance of the wallet on that pool. */
+  lpBalanceRaw: string;
+  /** The wallet takes part (signer key, not a pool holder, not excluded, not the campaign admin). */
+  eligible: boolean;
+  /** Estimate at the APR now; "0" when active but not earning; null when not active or not computable. */
+  estPerDayRaw: string | null;
+  finalizedThrough: string | null;
+}
+
+/** `GET /api/rewards/wallets/:ref`. */
+export interface WalletRewardsResponse {
+  wallet: string;
+  asOf: string;
+  campaigns: WalletCampaignRewards[];
+  boosts: WalletBoostRewards[];
+}
+
+/** `POST /api/rewards/vouchers` — check and use it with `parseRewardVoucher` / `buildRewardClaimTx`. */
+export interface RewardVoucherResponse {
+  programId: string;
+  campaign: string;
+  beneficiary: string;
+  signerEpoch: string;
+  /** Cumulative net total the voucher allows, all time. */
+  totalRaw: string;
+  signer: string;
+  /** Ed25519, base64. */
+  signature: string;
+  /** The 129 signed bytes, base64. */
+  message: string;
+  /** Receipt.claimed at confirmed; "0" without a receipt. */
+  claimedRaw: string;
+  claimableNowRaw: string;
+  liquidityRaw: string;
+  /** 1111…1111 for SOL. */
+  mint: string;
+  tokenProgram: string;
+  decimals: number;
+}
+
+/** `code` of a `/api/rewards/*` error answer (`{ statusCode, code, message }`). */
+export type RewardVoucherErrorCode =
+  | "unknown_campaign" // 404
+  | "nothing_accrued" // 404
+  | "already_claimed" // 409
+  | "change_pending" // 409
+  | "issuance_paused" // 423
+  | "signer_mismatch" // 423
+  | "signing_off" // 503
+  | "ledger_check"; // 503
+
+/** The JSON body of a `/api/rewards/*` error. */
+/**
+ * A failed rewards call's body. BOOSTS.md documents `{ statusCode, code, message }`;
+ * a backend whose global exception filter rewrites errors sends
+ * `{ success: false, error }` instead, without `code`.
+ */
+export interface RewardsApiErrorBody {
+  statusCode?: number;
+  code?: string;
+  /** An array for a 400 from validation. */
+  message?: string | string[];
+  success?: false;
+  /** The message in the `{ success: false, error }` shape. */
+  error?: string;
+}
+
+/** What `getRewardsApiError` reads off a failed rewards call. */
+export interface RewardsApiError {
+  status: number;
+  /**
+   * A known code; null for none (400, 429, a plain 503), an unknown one (see
+   * `body.code`), or a `{ success: false, error }` body, which carries no code.
+   */
+  code: RewardVoucherErrorCode | null;
+  message: string;
+  body: RewardsApiErrorBody | null;
+}
+
+const REWARD_VOUCHER_ERROR_CODES: ReadonlySet<string> = new Set([
+  "unknown_campaign",
+  "nothing_accrued",
+  "already_claimed",
+  "change_pending",
+  "issuance_paused",
+  "signer_mismatch",
+  "signing_off",
+  "ledger_check",
+]);
+
+/**
+ * The HTTP status and the backend `code` of a failed rewards call
+ * (`getRewardBoosts`, `getRewardCampaigns`, `getWalletRewards`,
+ * `requestRewardVoucher`); null when no HTTP answer came back.
+ */
+export function getRewardsApiError(error: SdkError): RewardsApiError | null {
+  const cause = error.cause as { status?: unknown; body?: unknown } | null | undefined;
+  if (!cause || typeof cause.status !== "number") return null;
+  const body = cause.body && typeof cause.body === "object" ? (cause.body as RewardsApiErrorBody) : null;
+  const code = typeof body?.code === "string" && REWARD_VOUCHER_ERROR_CODES.has(body.code) ? (body.code as RewardVoucherErrorCode) : null;
+  const raw = body ? body.message ?? body.error : undefined;
+  const message = Array.isArray(raw) ? raw.join("; ") : typeof raw === "string" ? raw : "";
+  return { status: cause.status, code, message: message || error.humanMessage, body };
 }
 
 // ── Token pair-chart types (pool creation range picker) ──
@@ -1284,8 +1568,8 @@ export interface AuthTokens {
  * `humanMessage` reads "METHOD path → HTTP nnn …"), and so are a request
  * the runtime refused to send (invalid URL or header value: `unknown` with
  * the original message) and a 2xx body that is not JSON
- * (`backend_invalid_response`). `claimAttribution` retries only transport
- * errors and timeouts; `verifySignature` and `verifyTransaction` retry only
+ * (`backend_invalid_response`). `claimAttribution` and
+ * `requestRewardVoucher` retry only transport errors and timeouts; `verifySignature` and `verifyTransaction` retry only
  * HTTP 429 (the nonce is single-use, and a 5xx, a transport error or a
  * timeout may come after the server already consumed it). Between attempts
  * the client waits 200 ms, then 500 ms; `getPublicPortfolioChart` alone
@@ -2439,6 +2723,71 @@ export class CofferBackendClient {
     this.refreshToken = null;
   }
 
+  // ── Rewards (boosts; backend docs/BOOSTS.md) ──
+  //
+  // Public, flat JSON. While the backend's rewards module is off the GET
+  // routes answer empty lists and the voucher route 503. On a failure
+  // `getRewardsApiError(result.error)` gives the status and the backend
+  // `code`.
+
+  /**
+   * Pools with an active or scheduled boost (from `Pool.boost`), highest
+   * `boostAprPct` first; each pool's `boost.items` holds only its active and
+   * scheduled items. Public, cached 60 s by the backend.
+   */
+  getRewardBoosts(): Promise<SdkResult<PublicBoostsResponse>> {
+    return this.requestWithRefresh<PublicBoostsResponse>("GET", "/api/rewards/boosts", undefined, {}, true);
+  }
+
+  /**
+   * The backend's live reward campaigns as last read from the chain and the
+   * key it signs vouchers with (`signer`, null while it does not sign).
+   * Public, cached 60 s.
+   */
+  getRewardCampaigns(): Promise<SdkResult<PublicCampaignsResponse>> {
+    return this.requestWithRefresh<PublicCampaignsResponse>("GET", "/api/rewards/campaigns", undefined, {}, true);
+  }
+
+  /**
+   * What a wallet earned, can claim and has held, per campaign and per
+   * boost. `ref` is a wallet address, a username or `@` + username (400
+   * malformed, 404 a username nobody holds). Public, database only, cached
+   * 30 s (dropped when one of the wallet's claims is indexed).
+   */
+  getWalletRewards(ref: string): Promise<SdkResult<WalletRewardsResponse>> {
+    return this.requestWithRefresh<WalletRewardsResponse>("GET", `/api/rewards/wallets/${encodeURIComponent(ref)}`, undefined, {}, true);
+  }
+
+  /**
+   * A signed voucher for the wallet's finalized all-time total in a
+   * campaign; build the claim with `buildRewardClaimTx(voucher, …)`.
+   * Public: only the beneficiary can claim with it. Errors (see
+   * `getRewardsApiError`): 404 `unknown_campaign` / `nothing_accrued`, 409
+   * `already_claimed` / `change_pending`, 423 `issuance_paused` /
+   * `signer_mismatch`, 429 rate limit, 503 `signing_off` / `ledger_check`.
+   * Only transport errors and timeouts are retried: every 429 counts
+   * against the backend's per-wallet window, and a 503 does not clear in
+   * milliseconds. Asking again for a voucher already signed returns the same one.
+   */
+  requestRewardVoucher(params: { wallet: string; campaign: string }): Promise<SdkResult<RewardVoucherResponse>>;
+  requestRewardVoucher(wallet: string, campaign: string): Promise<SdkResult<RewardVoucherResponse>>;
+  requestRewardVoucher(
+    walletOrParams: string | { wallet: string; campaign: string },
+    campaignArg?: string,
+  ): Promise<SdkResult<RewardVoucherResponse>> {
+    const body =
+      typeof walletOrParams === "string"
+        ? { wallet: walletOrParams, campaign: campaignArg }
+        : { wallet: walletOrParams.wallet, campaign: walletOrParams.campaign };
+    return this.requestWithRefresh<RewardVoucherResponse>(
+      "POST",
+      "/api/rewards/vouchers",
+      body,
+      { shouldRetry: retryTransportOnly },
+      true,
+    );
+  }
+
   /**
    * Generic GET with retry. Callers that need it for other endpoints.
    * `retry` replaces parts of the default policy for this one call
@@ -2471,26 +2820,33 @@ export class CofferBackendClient {
     path: string,
     body?: unknown,
     retry: RetryOptions = {},
+    errorBody = false,
   ): Promise<SdkResult<T>> {
-    const result = await this.rawRequest<T>(method, path, body, retry);
+    const result = await this.rawRequest<T>(method, path, body, retry, errorBody);
 
     // Don't auto-refresh for auth endpoints themselves
     const isAuthPath = path.startsWith("/api/auth/");
     if (!isAuthPath && !result.ok && this.is401(result) && this.refreshToken) {
       const refreshed = await this.tryRefresh();
       if (refreshed) {
-        return this.rawRequest<T>(method, path, body, retry);
+        return this.rawRequest<T>(method, path, body, retry, errorBody);
       }
     }
 
     return result;
   }
 
+  /**
+   * `errorBody`: on a non-2xx answer also read the JSON body into
+   * `cause.body` (and its string `code` into `cause.code`); a body that is
+   * not JSON is ignored.
+   */
   private async rawRequest<T>(
     method: "GET" | "POST" | "PUT",
     path: string,
     body?: unknown,
     retry: RetryOptions = {},
+    errorBody = false,
   ): Promise<SdkResult<T>> {
     const url = `${this.endpoint}${path}`;
     const fetchOpts: RequestInit = {
@@ -2512,6 +2868,15 @@ export class CofferBackendClient {
           `${method} ${path} → HTTP ${res.status} ${res.statusText}`,
         );
         (error as any).status = res.status;
+        if (errorBody) {
+          try {
+            const parsed = await res.json();
+            (error as any).body = parsed;
+            if (typeof parsed?.code === "string") (error as any).code = parsed.code;
+          } catch {
+            // Not JSON, or the body broke off: the status alone.
+          }
+        }
         throw error;
       }
       try {

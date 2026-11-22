@@ -82,6 +82,12 @@ export interface ContractTypes {
     "StldSolWithdrawn": { "source": PublicKey; "authority": PublicKey; "recipient": PublicKey; "amount": BN; "timestamp": BN };
     "TokenSlot": { "config": ContractTypes["singleTokenLiquidity"]["AssetConfig"]; "dynamics": ContractTypes["singleTokenLiquidity"]["AssetDynamics"] };
   };
+  "cofferRewards": {
+    "Campaign": { "admin": PublicKey; "id": Array<number>; "bump": number; "mint": PublicKey; "token_program": PublicKey; "backend_signer": PublicKey; "signer_epoch": BN; "liquidity": BN; "metadata": string };
+    "Receipt": { "claimed": BN };
+    "RewardCallback": { "program": PublicKey; "data": Buffer; "privileges": Buffer };
+    "RewardPaid": { "campaign": PublicKey; "user": PublicKey; "authorized_total": BN; "gross_debit": BN; "net_credit": BN; "claimed": BN };
+  };
 }
 
 export interface ContractInstructionMap {
@@ -150,6 +156,19 @@ export interface ContractInstructionMap {
     "deposit_single_token": { args: { "amount_in": BN; "token_in_index": number; "minimum_bpt_amount": BN }; accounts: { "pool": PublicKey; "helper": PublicKey; "bpt_mint": PublicKey; "helper_bpt_account": PublicKey; "user_bpt_account": PublicKey; "user": PublicKey; "cubic_pool_program": PublicKey; "bpt_token_program": PublicKey } };
     "withdraw_sol": { args: { "amount": BN }; accounts: { "config": PublicKey; "pool": PublicKey; "source": PublicKey; "recipient": PublicKey; "authority": PublicKey; "system_program": PublicKey } };
   };
+  "cofferRewards": {
+    "claim_native": { args: { "total": BN; "callback": ContractTypes["cofferRewards"]["RewardCallback"] | null }; accounts: { "user": PublicKey; "campaign": PublicKey; "vault": PublicKey; "receipt": PublicKey; "instructions": PublicKey; "system_program": PublicKey } };
+    "claim_token": { args: { "total": BN; "hook_accounts": number; "callback": ContractTypes["cofferRewards"]["RewardCallback"] | null }; accounts: { "user": PublicKey; "campaign": PublicKey; "receipt": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey; "instructions": PublicKey; "system_program": PublicKey } };
+    "deposit_native": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "system_program": PublicKey } };
+    "deposit_token": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey; "system_program": PublicKey } };
+    "initialize_native": { args: { "id": Array<number>; "backend_signer": PublicKey; "metadata": string }; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "system_program": PublicKey } };
+    "initialize_token": { args: { "id": Array<number>; "backend_signer": PublicKey; "metadata": string }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "associated_token_program": PublicKey; "system_program": PublicKey } };
+    "return_surplus_native": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "recipient": PublicKey; "source": PublicKey; "system_program": PublicKey } };
+    "return_surplus_token": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "recipient": PublicKey; "wallet_token": PublicKey } };
+    "rotate_signer": { args: { "backend_signer": PublicKey }; accounts: { "admin": PublicKey; "campaign": PublicKey } };
+    "withdraw_native": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "system_program": PublicKey } };
+    "withdraw_token": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey; "system_program": PublicKey } };
+  };
 }
 
 export interface ContractAccountMap {
@@ -163,6 +182,10 @@ export interface ContractAccountMap {
   "singleTokenLiquidity": {
     "CubicPool": ContractTypes["singleTokenLiquidity"]["CubicPool"];
     "CubicPoolConfig": ContractTypes["singleTokenLiquidity"]["CubicPoolConfig"];
+  };
+  "cofferRewards": {
+    "Campaign": ContractTypes["cofferRewards"]["Campaign"];
+    "Receipt": ContractTypes["cofferRewards"]["Receipt"];
   };
 }
 
@@ -232,6 +255,9 @@ export interface ContractEventMap {
   "singleTokenLiquidity": {
     "SingleTokenDeposit": ContractTypes["singleTokenLiquidity"]["SingleTokenDeposit"];
     "StldSolWithdrawn": ContractTypes["singleTokenLiquidity"]["StldSolWithdrawn"];
+  };
+  "cofferRewards": {
+    "RewardPaid": ContractTypes["cofferRewards"]["RewardPaid"];
   };
 }
 

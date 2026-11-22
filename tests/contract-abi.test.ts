@@ -3,7 +3,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { execFileSync } from "child_process";
 import { IDLS } from "../src/idl";
-import { getConfig } from "../src/config";
+import { getConfig, programId } from "../src/config";
 import { ContractProgram } from "../src/types/contracts";
 import { buildContractInstruction } from "../src/clients/contract-instructions";
 import { decodeContractAccount, parseContractEvents } from "../src/parsers/contracts";
@@ -20,6 +20,7 @@ function sample(type: any, idl: any): any {
   if (type === "pubkey") return pk();
   if (type === "bool") return true;
   if (type === "bytes") return Buffer.from([1, 3]);
+  if (type === "string") return "coffer ✓";
   if (typeof type === "string") {
     if (/^[ui](64|128|256)$/.test(type)) return type[0] === "i" ? new BN(-1234567) : new BN(1).shln(54).addn(++sequence);
     return type === "u8" ? 7 : ++sequence % 10000;
@@ -40,6 +41,7 @@ function encode(value: any, type: any, idl: any): Buffer {
   if (type === "pubkey") return value.toBuffer();
   if (type === "bool") return Buffer.from([value ? 1 : 0]);
   if (type === "bytes") return Buffer.concat([u32(value.length), value]);
+  if (type === "string") { const bytes = Buffer.from(value, "utf8"); return Buffer.concat([u32(bytes.length), bytes]); }
   if (typeof type === "string") {
     const bits = Number(type.slice(1));
     const bn = BN.isBN(value) ? value : new BN(value);
@@ -62,12 +64,13 @@ function normalize(value: any): any {
 }
 
 const programs = Object.entries(IDLS) as Array<[ContractProgram, any]>;
+const ALLOCATED: Record<string, number> = { "cofferRewards.Campaign": 389 };
 const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((ix: any) => ({ program, idl, ix })));
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
 test("generated public types match all shipped IDLs", () => {
-  expect(instructions).toHaveLength(59);
-  expect(events).toHaveLength(60);
+  expect(instructions).toHaveLength(70);
+  expect(events).toHaveLength(61);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
 
@@ -76,7 +79,7 @@ test.each(instructions)("$program.$ix.name: data, ordered accounts and privilege
   const accounts = Object.fromEntries(ix.accounts.map((a: any) => [a.name, pk()]));
   const remaining = [{ pubkey: pk(), isSigner: true, isWritable: false }];
   const result = (buildContractInstruction as any)(cfg, program, ix.name, args, accounts, remaining);
-  expect(result.programId.equals(cfg.programs[program as ContractProgram])).toBe(true);
+  expect(result.programId.equals(programId(cfg, program as ContractProgram))).toBe(true);
   expect(result.data).toEqual(Buffer.concat([Buffer.from(ix.discriminator), encodeFields(args, ix.args, idl)]));
   expect(result.keys).toHaveLength(ix.accounts.length + 1);
   ix.accounts.forEach((a: any, i: number) => {
@@ -104,7 +107,10 @@ test.each(programs.flatMap(([program, idl]) => idl.accounts.map((account: any) =
   "$program.$account.name: full account layout and discriminator", ({ program, idl, account }) => {
     const fields = idl.types.find((t: any) => t.name === account.name).type.fields;
     const expected = fieldsSample(fields, idl);
-    const data = Buffer.concat([Buffer.from(account.discriminator), encodeFields(expected, fields, idl)]);
+    const encoded = Buffer.concat([Buffer.from(account.discriminator), encodeFields(expected, fields, idl)]);
+    // Accounts with a String are allocated at InitSpace (coffer_rewards Campaign: 389 bytes).
+    const allocated = ALLOCATED[`${program}.${account.name}`];
+    const data = allocated ? Buffer.concat([encoded, Buffer.alloc(allocated - encoded.length)]) : encoded;
     expect(normalize((decodeContractAccount as any)(program, account.name, data))).toEqual(normalize(expected));
     expect(() => (decodeContractAccount as any)(program, account.name, data.subarray(0, -1))).toThrow();
     data[0] ^= 255;

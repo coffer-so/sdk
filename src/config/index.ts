@@ -8,6 +8,7 @@ import {
   DEFAULT_RPC_TIMEOUT_MS,
 } from "./networks";
 import { TokenInfo } from "./tokens";
+import { COFFER_REWARDS_PROGRAM_ID } from "../rewards/constants";
 
 export * from "./networks";
 export * from "./tokens";
@@ -104,8 +105,12 @@ export const MINIMUM_INITIAL_BPT = 1_000n;
 export const SLIPPAGE_PRECISION = 1_000_000;
 export const MIN_SLIPPAGE_HBPS = 10; // 0.001 %
 
-export type ProgramIdKind = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin";
+export type ProgramIdKind = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin" | "cofferRewards";
 
 export function programId(cfg: CofferConfig, kind: ProgramIdKind): PublicKey {
-  return cfg.programs[kind];
+  const id = cfg.programs[kind];
+  if (id) return id;
+  // Configs built before 1.5.0 have no cofferRewards entry.
+  if (kind === "cofferRewards") return COFFER_REWARDS_PROGRAM_ID;
+  throw new Error(`No ${kind} program id in the config`);
 }

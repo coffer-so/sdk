@@ -1,20 +1,22 @@
 import cubicPoolIdl from "../idl/cubic_pool.json";
 import protocolAdminIdl from "../idl/protocol_admin.json";
 import singleTokenLiquidityIdl from "../idl/single_token_liquidity.json";
+import cofferRewardsIdl from "../idl/coffer_rewards.json";
 import { SdkError, SdkErrorCode } from "../types/result";
 
 /**
  * Which on-chain program produced an error code.
  *
  * Anchor numbers every program's errors from 6000, so a bare custom-error
- * code is ambiguous across the three Coffer programs — `6030` is
+ * code is ambiguous across the Coffer programs — `6030` is
  * `InvalidTokenProgram` in cubic-pool but `TokenExtensionsUnsupported` in
  * single-token-liquidity. Pass this to {@link toSdkError} when you know
  * which program the failing instruction belonged to; without it the
  * cubic-pool table is used, which is the right default for swap / add /
- * remove but WRONG for a zap or an admin call.
+ * remove but WRONG for a zap, an admin call or a reward claim
+ * (`"cofferRewards"`, 6000–6008).
  */
-export type CofferProgram = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin";
+export type CofferProgram = "cubicPool" | "singleTokenLiquidity" | "protocolAdmin" | "cofferRewards";
 
 const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InvalidTokenCount: "invalid_input",
@@ -98,6 +100,20 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   InsufficientHelperSol: "insufficient_funds",
   /** Pool exceeds `STLD_MAX_TOKENS` (10) — use `add_liquidity` instead. */
   PoolTooLargeForZap: "unsupported_pool_state",
+
+  // ── coffer-rewards 6000–6008 (6002 InsufficientLiquidity is mapped above) ──
+  /** No Ed25519 voucher right before the claim, or signed by a rotated key: request a new voucher. */
+  InvalidVoucher: "invalid_input",
+  /** The receipt already reached the voucher's total. */
+  AlreadyClaimed: "invalid_input",
+  /** The payment rounds to zero (a transfer-fee mint, a tiny amount). */
+  ZeroPayment: "invalid_input",
+  InvalidSigner: "invalid_input",
+  MetadataTooLong: "invalid_input",
+  /** Wrong mint, token program or vault for the campaign. */
+  WrongAsset: "invalid_input",
+  CallbackAccounts: "invalid_input",
+  Arithmetic: "math_overflow",
 };
 
 type AnchorIdlError = { code: number; name: string; msg: string };
@@ -120,6 +136,7 @@ const ERROR_TABLES: Record<CofferProgram, ErrorTable> = {
   cubicPool: buildErrorTable(cubicPoolIdl.errors as AnchorIdlError[]),
   protocolAdmin: buildErrorTable(protocolAdminIdl.errors as AnchorIdlError[]),
   singleTokenLiquidity: buildErrorTable(singleTokenLiquidityIdl.errors as AnchorIdlError[]),
+  cofferRewards: buildErrorTable(cofferRewardsIdl.errors as AnchorIdlError[]),
 };
 
 const CONTRACT_ERROR_MAP = ERROR_TABLES.cubicPool;
@@ -196,8 +213,9 @@ export function isFetchNetworkFailure(e: unknown): boolean {
  *   Anchor numbers each program's errors from 6000 independently, so the
  *   same code means different things in different programs. Defaults to
  *   `"cubicPool"` (correct for swap / add / remove liquidity). Pass
- *   `"singleTokenLiquidity"` for zap failures and `"protocolAdmin"` for
- *   treasury-routed admin calls, or the message will be plausible and wrong.
+ *   `"singleTokenLiquidity"` for zap failures, `"protocolAdmin"` for
+ *   treasury-routed admin calls and `"cofferRewards"` for reward claims, or
+ *   the message will be plausible and wrong.
  */
 export function toSdkError(cause: unknown, program: CofferProgram = "cubicPool"): SdkError {
   const msg = extractMessage(cause);

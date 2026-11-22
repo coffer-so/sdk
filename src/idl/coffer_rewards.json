@@ -1,0 +1,750 @@
+{
+  "address": "2XGGEHUSRYAqYZ5qdTFJjFnFkiQLWvMW6iMsooaJAZtg",
+  "metadata": {
+    "name": "coffer_rewards",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Permissionless, backend-authorized cumulative reward campaigns"
+  },
+  "instructions": [
+    {
+      "name": "claim_native",
+      "discriminator": [
+        169,
+        122,
+        132,
+        23,
+        2,
+        52,
+        2,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "instructions"
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "total",
+          "type": "u64"
+        },
+        {
+          "name": "callback",
+          "type": {
+            "option": {
+              "defined": {
+                "name": "RewardCallback"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "claim_token",
+      "discriminator": [
+        116,
+        206,
+        27,
+        191,
+        166,
+        19,
+        0,
+        73
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "wallet_token",
+          "writable": true
+        },
+        {
+          "name": "instructions"
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "total",
+          "type": "u64"
+        },
+        {
+          "name": "hook_accounts",
+          "type": "u8"
+        },
+        {
+          "name": "callback",
+          "type": {
+            "option": {
+              "defined": {
+                "name": "RewardCallback"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deposit_native",
+      "discriminator": [
+        13,
+        158,
+        13,
+        223,
+        95,
+        213,
+        28,
+        6
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit_token",
+      "discriminator": [
+        11,
+        156,
+        96,
+        218,
+        39,
+        163,
+        180,
+        19
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "wallet_token",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_native",
+      "discriminator": [
+        58,
+        79,
+        79,
+        22,
+        127,
+        213,
+        117,
+        193
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "backend_signer",
+          "type": "pubkey"
+        },
+        {
+          "name": "metadata",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "initialize_token",
+      "discriminator": [
+        38,
+        209,
+        150,
+        50,
+        190,
+        117,
+        16,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "associated_token_program"
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "backend_signer",
+          "type": "pubkey"
+        },
+        {
+          "name": "metadata",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "return_surplus_native",
+      "docs": [
+        "Return a raw transfer from its original destination, preserving account rent."
+      ],
+      "discriminator": [
+        165,
+        44,
+        246,
+        68,
+        4,
+        183,
+        237,
+        168
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "return_surplus_token",
+      "docs": [
+        "The admin can also return a different mint mistakenly sent to this campaign's ATA."
+      ],
+      "discriminator": [
+        87,
+        28,
+        250,
+        58,
+        16,
+        193,
+        71,
+        251
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "campaign"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "recipient"
+        },
+        {
+          "name": "wallet_token",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "rotate_signer",
+      "discriminator": [
+        198,
+        135,
+        53,
+        27,
+        21,
+        203,
+        8,
+        0
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "backend_signer",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_native",
+      "discriminator": [
+        113,
+        227,
+        26,
+        32,
+        53,
+        66,
+        90,
+        250
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_token",
+      "discriminator": [
+        136,
+        235,
+        181,
+        5,
+        101,
+        109,
+        57,
+        81
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "wallet_token",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Campaign",
+      "discriminator": [
+        50,
+        40,
+        49,
+        11,
+        157,
+        220,
+        229,
+        192
+      ]
+    },
+    {
+      "name": "Receipt",
+      "discriminator": [
+        39,
+        154,
+        73,
+        106,
+        80,
+        102,
+        145,
+        153
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "RewardPaid",
+      "discriminator": [
+        132,
+        160,
+        190,
+        117,
+        215,
+        177,
+        19,
+        95
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidVoucher",
+      "msg": "The preceding Ed25519 instruction must verify the active signer's exact voucher"
+    },
+    {
+      "code": 6001,
+      "name": "AlreadyClaimed",
+      "msg": "The voucher ceiling has already been reached"
+    },
+    {
+      "code": 6002,
+      "name": "InsufficientLiquidity",
+      "msg": "Insufficient spendable liquidity"
+    },
+    {
+      "code": 6003,
+      "name": "ZeroPayment",
+      "msg": "The claim or transfer has no positive spendable credit"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidSigner",
+      "msg": "Invalid backend signing key"
+    },
+    {
+      "code": 6005,
+      "name": "MetadataTooLong",
+      "msg": "Campaign metadata exceeds 200 UTF-8 bytes"
+    },
+    {
+      "code": 6006,
+      "name": "WrongAsset",
+      "msg": "Account does not match the campaign asset"
+    },
+    {
+      "code": 6007,
+      "name": "CallbackAccounts",
+      "msg": "Invalid callback or remaining account privileges"
+    },
+    {
+      "code": 6008,
+      "name": "Arithmetic",
+      "msg": "Arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "Campaign",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "Default pubkey for native SOL."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "backend_signer",
+            "type": "pubkey"
+          },
+          {
+            "name": "signer_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "liquidity",
+            "docs": [
+              "Spendable base units approved through the deposit instruction."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Receipt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "claimed",
+            "docs": [
+              "Lifetime total of spendable units delivered to this beneficiary for this campaign."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardCallback",
+      "docs": [
+        "Remaining accounts are the callback executable followed by its instruction accounts."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "program",
+            "type": "pubkey"
+          },
+          {
+            "name": "data",
+            "type": "bytes"
+          },
+          {
+            "name": "privileges",
+            "docs": [
+              "Per-account flags: bit 0 writable, bit 1 claimant signature."
+            ],
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardPaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "authorized_total",
+            "type": "u64"
+          },
+          {
+            "name": "gross_debit",
+            "type": "u64"
+          },
+          {
+            "name": "net_credit",
+            "type": "u64"
+          },
+          {
+            "name": "claimed",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

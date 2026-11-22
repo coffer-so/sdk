@@ -9,6 +9,14 @@ export type ContractEvent = {
 }[ContractProgram];
 
 const accountCoders = new Map<ContractProgram, BorshAccountsCoder>();
+
+/** Accounts with a variable-length field are allocated at their maximum
+ * (`InitSpace`), which the IDL does not carry: coffer_rewards Campaign has
+ * `metadata` with `max_len(200)`, 389 bytes on chain.
+ */
+const ALLOCATED_ACCOUNT_SIZES: Partial<Record<ContractProgram, Record<string, number>>> = {
+  cofferRewards: { Campaign: 389 },
+};
 const eventCoders = new Map<ContractProgram, BorshEventCoder>();
 
 /** Decode any account in the current ABI, including Config and Treasury.
@@ -23,7 +31,7 @@ export function decodeContractAccount<P extends ContractProgram, A extends keyof
     coder = new BorshAccountsCoder(IDLS[program] as unknown as Idl);
     accountCoders.set(program, coder);
   }
-  const expectedSize = coder.size(account);
+  const expectedSize = ALLOCATED_ACCOUNT_SIZES[program]?.[account] ?? coder.size(account);
   if (data.length !== expectedSize) throw new Error(`${account} has ${data.length} bytes; expected ${expectedSize} for the current ABI`);
   return coder.decode(account, data);
 }
@@ -48,7 +56,7 @@ export function decodeContractEvent(base64: string, program?: ContractProgram): 
   return null;
 }
 
-/** Parse all 60 known events; fields and names match the shipped contract IDLs.
+/** Parse all 61 known events; fields and names match the shipped contract IDLs.
  * This is decoding, not proof of the emitting program's identity. Consumers
  * must verify transaction success and program provenance before indexing.
  */

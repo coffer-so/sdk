@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { COFFER_REWARDS_PROGRAM_ID } from "../rewards/constants";
 
 export type Network = "mainnet" | "devnet" | "localnet";
 
@@ -6,6 +7,12 @@ export interface NetworkPrograms {
   cubicPool: PublicKey;
   singleTokenLiquidity: PublicKey;
   protocolAdmin: PublicKey;
+  /**
+   * coffer_rewards (boost payouts, since 1.5.0). Optional so hand-built
+   * configs keep compiling; read it with `programId(cfg, "cofferRewards")`,
+   * which falls back to `COFFER_REWARDS_PROGRAM_ID`.
+   */
+  cofferRewards?: PublicKey;
 }
 
 export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
@@ -21,6 +28,8 @@ export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
     protocolAdmin: new PublicKey(
       "3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81",
     ),
+    // Same id on every cluster (declare_id! in programs/coffer-rewards).
+    cofferRewards: COFFER_REWARDS_PROGRAM_ID,
   },
   devnet: {
     // v5.1 (post-audit) copy deployed on devnet under our wallet. The original
@@ -40,6 +49,8 @@ export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
     protocolAdmin: new PublicKey(
       "6bFDi7RrLJSbhBpJ2AjHAQfbzBiHGXQXND7no8gv8gux",
     ),
+    // Same id on every cluster (declare_id! in programs/coffer-rewards).
+    cofferRewards: COFFER_REWARDS_PROGRAM_ID,
   },
   localnet: {
     cubicPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
@@ -49,6 +60,8 @@ export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
     protocolAdmin: new PublicKey(
       "3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81",
     ),
+    // Same id on every cluster (declare_id! in programs/coffer-rewards).
+    cofferRewards: COFFER_REWARDS_PROGRAM_ID,
   },
 };
 
