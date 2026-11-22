@@ -132,7 +132,7 @@ export { resolveTransferExtraAccounts, executeMetas, MEMO_PROGRAM_ID, Unsupporte
 export type { AccountReader, TransferLeg, MintSnapshot, ResolveTransferExtraAccountsOptions } from "./utils/transferProfile";
 export type { InitializePoolAltParams } from "./clients/tx-builders";
 export { decodePoolAccount, POOL_DISCRIMINATOR_LEN, POOL_LEN, POOL_V4_LEN, V5_MIGRATION_MARKER } from "./parsers/poolAccount";
-export { toSdkError, describeProgramError } from "./utils/errors";
+export { toSdkError, describeProgramError, containsRoutedDepositInstruction } from "./utils/errors";
 export { decodeMintAccount, validatePlannedZapLpMint, validateTransferMintSnapshot } from "./parsers/mintAccount";
 export { parseCofferPoolEvents } from "./parsers/events";
 export { BorshReader } from "./parsers/borsh";
@@ -166,7 +166,7 @@ export type {
   SetRangeManagerParams,
   SetRangeManagerConfigParams,
 } from "./types";
-export type { CofferProgram } from "./utils/errors";
+export type { CofferProgram, SdkErrorContext } from "./utils/errors";
 export type {
   AllocationResult,
 } from "./math/singleToken";

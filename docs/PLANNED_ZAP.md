@@ -63,6 +63,12 @@ const walletAlt = await zap.waitForWalletLookupTable(prep, user);
 const tx = zap.compileTransaction({ payer: user, blockhash, instructions: built.data.instructions, lookupTables: [poolAlt.data!, walletAlt] });
 ```
 
+`compileTransaction` adds a compute limit (and, with `heapFrameBytes`, a heap
+frame) only when `instructions` do not already carry one: the runtime refuses a
+transaction with two compute-budget instructions of the same kind. Contradicting
+values (`computeUnits` / `heapFrameBytes` vs. an instruction already present)
+return `tx_build_failed`.
+
 ## Routed entry point (contracts v6.1 rc5 / `v6.1-n10`)
 
 `deposit_single_token_routed` takes exactly the accounts and arguments of
@@ -80,7 +86,10 @@ events sit under `swap_route_join_v1`). It saves one CPI frame per leg.
 The routed transaction MUST request a heap frame:
 `ComputeBudgetProgram.requestHeapFrame({ bytes: 64 * 1024 })`
 (`ROUTED_ZAP_HEAP_FRAME_BYTES`) — at N10 the single pool invocation exceeds
-the default 32 KiB heap — plus a compute unit limit. The pool also refuses
+the default 32 KiB heap — plus a compute unit limit. Without it the pool dies
+with `ProgramFailedToComplete` (heap access violation; ~1.4M CU burned);
+`toSdkError(e, "singleTokenLiquidity", { routedDeposit: true })` maps that to
+`routed_heap_frame_required`. The pool also refuses
 to start a leg with too few compute units left
 (`RouteComputeBudgetInsufficient`, 6119), and a plan with no swap leg
 (`RouteNoLegs`, 6118): the SDK never routes such a plan.

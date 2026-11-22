@@ -60,6 +60,8 @@ export type SdkErrorCode =
   | "hook_rejected"
   /** v6.1 (T22): a virtual balance would not stay strictly above its actual balance / its per-slot floor (`VirtualBalanceNotAboveActual`, `VirtualBalanceBelowFloor`); a legacy pool needs `rescale_virtual_balances`. */
   | "concentration_factor_invariant"
+  /** rc5: a routed deposit (`deposit_single_token_routed` / `swap_route_join_v1`) died with `ProgramFailedToComplete` — the transaction needs `requestHeapFrame(64 KiB)` and enough compute units. */
+  | "routed_heap_frame_required"
   | "unknown";
 
 export const ok = <T>(data: T): SdkResult<T> => ({ ok: true, data });

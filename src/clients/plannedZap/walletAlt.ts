@@ -158,11 +158,48 @@ export interface CompiledPlannedZap {
   remainingBytes: number;
 }
 
+/** ComputeBudget instruction tags (first data byte). */
+const COMPUTE_BUDGET_REQUEST_HEAP_FRAME = 1;
+const COMPUTE_BUDGET_SET_CU_LIMIT = 2;
+const COMPUTE_BUDGET_SET_CU_PRICE = 3;
+const DEDUPED_COMPUTE_BUDGET_TAGS = new Set([COMPUTE_BUDGET_REQUEST_HEAP_FRAME, COMPUTE_BUDGET_SET_CU_LIMIT, COMPUTE_BUDGET_SET_CU_PRICE]);
+const COMPUTE_BUDGET_NAMES: Record<number, string> = { 1: "requestHeapFrame", 2: "setComputeUnitLimit", 3: "setComputeUnitPrice" };
+
+function computeBudgetTag(ix: TransactionInstruction): number | undefined {
+  return ix.programId.equals(ComputeBudgetProgram.programId) && ix.data.length > 0 ? ix.data[0] : undefined;
+}
+
+/**
+ * Drop byte-identical repeats of `requestHeapFrame` / `setComputeUnitLimit` /
+ * `setComputeUnitPrice` (the runtime refuses a transaction carrying two of
+ * the same kind); two of one kind with different values are ambiguous and throw.
+ */
+function dedupeComputeBudget(instructions: TransactionInstruction[]): TransactionInstruction[] {
+  const seen = new Map<number, TransactionInstruction>();
+  return instructions.filter((ix) => {
+    const tag = computeBudgetTag(ix);
+    if (tag === undefined || !DEDUPED_COMPUTE_BUDGET_TAGS.has(tag)) return true;
+    const first = seen.get(tag);
+    if (!first) {
+      seen.set(tag, ix);
+      return true;
+    }
+    if (!first.data.equals(ix.data)) throw new Error(`instructions carry two different ComputeBudget ${COMPUTE_BUDGET_NAMES[tag]} instructions; keep one`);
+    return false;
+  });
+}
+
 /**
  * Compile the financial transaction (compute limit [+ heap frame] + the given instructions)
  * against `lookupTables` and refuse it when the wire size plus the wallet
  * reserve exceeds the 1232-byte packet. The reserve does not control any
  * wallet's policy; always simulate the final transaction.
+ *
+ * Compute-budget instructions already in `instructions` (e.g. `buildTx()` /
+ * `depositRouted()` output) are kept and never duplicated: the compute limit
+ * is prepended only when absent, `heapFrameBytes` only when no heap frame is
+ * present. `computeUnits` / `heapFrameBytes` that contradict an instruction
+ * already in the list throw instead of silently picking one.
  */
 export function compilePlannedZapTransaction(options: {
   payer: PublicKey;
@@ -175,18 +212,34 @@ export function compilePlannedZapTransaction(options: {
   heapFrameBytes?: number;
 }): CompiledPlannedZap {
   const reserve = walletReserve(options.walletReserve ?? DEFAULT_FINANCIAL_WALLET_RESERVE);
-  const budget = [ComputeBudgetProgram.setComputeUnitLimit({ units: options.computeUnits ?? 1_400_000 })];
   if (options.heapFrameBytes !== undefined) {
     // Runtime rule: a multiple of 1 KiB in 32..256 KiB.
     if (!Number.isInteger(options.heapFrameBytes) || options.heapFrameBytes % 1024 !== 0 || options.heapFrameBytes < 32 * 1024 || options.heapFrameBytes > 256 * 1024) {
       throw new Error("heapFrameBytes must be a multiple of 1024 in 32768..262144");
     }
-    budget.push(ComputeBudgetProgram.requestHeapFrame({ bytes: options.heapFrameBytes }));
+  }
+  // `buildTx` / `buildRoutedTx` / `depositRouted` already start with compute-budget instructions and the
+  // runtime rejects a second one of the same kind ("Transaction contains a duplicate instruction"), so
+  // only the kinds the caller did not supply are prepended; the caller's own instruction is kept as is.
+  const instructions = dedupeComputeBudget(options.instructions);
+  const present = (tag: number) => instructions.find((ix) => computeBudgetTag(ix) === tag);
+  const budget: TransactionInstruction[] = [];
+  const limit = present(COMPUTE_BUDGET_SET_CU_LIMIT);
+  if (!limit) budget.push(ComputeBudgetProgram.setComputeUnitLimit({ units: options.computeUnits ?? 1_400_000 }));
+  else if (options.computeUnits !== undefined && limit.data.readUInt32LE(1) !== options.computeUnits) {
+    throw new Error(`computeUnits ${options.computeUnits} conflicts with the setComputeUnitLimit(${limit.data.readUInt32LE(1)}) already in instructions; pass one of them`);
+  }
+  if (options.heapFrameBytes !== undefined) {
+    const heap = present(COMPUTE_BUDGET_REQUEST_HEAP_FRAME);
+    if (!heap) budget.push(ComputeBudgetProgram.requestHeapFrame({ bytes: options.heapFrameBytes }));
+    else if (heap.data.readUInt32LE(1) !== options.heapFrameBytes) {
+      throw new Error(`heapFrameBytes ${options.heapFrameBytes} conflicts with the requestHeapFrame(${heap.data.readUInt32LE(1)}) already in instructions; pass one of them`);
+    }
   }
   const message = new TransactionMessage({
     payerKey: options.payer,
     recentBlockhash: options.blockhash,
-    instructions: [...budget, ...options.instructions],
+    instructions: [...budget, ...instructions],
   }).compileToV0Message(options.lookupTables);
   const transaction = new VersionedTransaction(message);
   let wireBytes: number;

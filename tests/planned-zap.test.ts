@@ -38,6 +38,7 @@ import {
   SWAP_ROUTE_JOIN_HEAP_FRAME_BYTES,
   describeProgramError,
   toSdkError,
+  containsRoutedDepositInstruction,
   calculateExitPayout,
 } from "../src";
 import type { PlannedZapAccounts, SnapshotAccount } from "../src";
@@ -553,6 +554,70 @@ describe("rc5 PlannedZapClient routed deposit and capability fallback", () => {
     expect(m.client.buildRoutedTx(res.data, user)).toEqual(routed);
   });
 
+  test("compileTransaction over buildTx / depositRouted output never duplicates a compute-budget instruction", async () => {
+    const m = mockClient(3);
+    const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const planned = m.client.buildTx(res.data, user);
+    const routed = m.client.depositRouted(res.data, user);
+    if (!planned.ok || !routed.ok) throw new Error("build failed");
+    const decode = (tx: VersionedTransaction) => {
+      const keys = tx.message.staticAccountKeys;
+      return tx.message.compiledInstructions.map((ci) => new TransactionInstruction({ programId: keys[ci.programIdIndex], keys: [], data: Buffer.from(ci.data) }));
+    };
+    const base = { payer: user, blockhash: PublicKey.default.toBase58(), lookupTables: [], walletReserve: 0 };
+    const budgetCount = (ixs: TransactionInstruction[], tag: number) => ixs.filter((ix) => ix.programId.equals(ComputeBudgetProgram.programId) && ix.data[0] === tag).length;
+    const expectUnique = (ixs: TransactionInstruction[]) => { for (const tag of [1, 2, 3]) expect(budgetCount(ixs, tag)).toBeLessThanOrEqual(1); };
+
+    // docs/PLANNED_ZAP.md step 6: buildTx().instructions already carries [setComputeUnitLimit, zap].
+    const p = m.client.compileTransaction({ ...base, instructions: planned.data.instructions });
+    if (!p.ok) throw new Error(p.error.humanMessage);
+    const pIxs = decode(p.data.transaction);
+    expectUnique(pIxs);
+    expect(cuLimits(pIxs)).toEqual([PLANNED_ZAP_CU_LIMIT]); // the caller's value, not the 1.4M default
+    expect(pIxs.length).toBe(planned.data.instructions.length);
+
+    // depositRouted().instructions = [CU, 64 KiB heap, routed]; the documented heapFrameBytes is redundant, not duplicated.
+    for (const heapFrameBytes of [undefined, ROUTED_ZAP_HEAP_FRAME_BYTES]) {
+      const r = m.client.compileTransaction({ ...base, instructions: routed.data.instructions, heapFrameBytes });
+      if (!r.ok) throw new Error(r.error.humanMessage);
+      const rIxs = decode(r.data.transaction);
+      expectUnique(rIxs);
+      expect(heapFrames(rIxs)).toEqual([65_536]);
+      expect(cuLimits(rIxs)).toEqual(cuLimits(routed.data.instructions));
+      expect(rIxs.map((ix) => ix.data.toString("hex"))).toEqual(routed.data.instructions.map((ix) => ix.data.toString("hex")));
+    }
+
+    // A caller-supplied compute price is kept once; a byte-identical repeat is dropped.
+    const price = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5_000 });
+    const withPrice = m.client.compileTransaction({ ...base, instructions: [price, ...routed.data.instructions, price, routed.data.instructions[1]] });
+    if (!withPrice.ok) throw new Error(withPrice.error.humanMessage);
+    const wIxs = decode(withPrice.data.transaction);
+    expectUnique(wIxs);
+    expect(budgetCount(wIxs, 3)).toBe(1);
+    expect(heapFrames(wIxs)).toEqual([65_536]);
+
+    // Missing kinds are still added (limit + requested heap frame) on a bare instruction.
+    const zapIx = routed.data.instructions.at(-1)!;
+    const bare = m.client.compileTransaction({ ...base, instructions: [zapIx], heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES, computeUnits: 900_000 });
+    if (!bare.ok) throw new Error(bare.error.humanMessage);
+    expect(cuLimits(decode(bare.data.transaction))).toEqual([900_000]);
+    expect(heapFrames(decode(bare.data.transaction))).toEqual([65_536]);
+    // A heap frame already present but no limit: only the limit is added.
+    const heapOnly = m.client.compileTransaction({ ...base, instructions: [routed.data.instructions[1], zapIx], heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES });
+    if (!heapOnly.ok) throw new Error(heapOnly.error.humanMessage);
+    expect(cuLimits(decode(heapOnly.data.transaction))).toEqual([1_400_000]);
+    expect(heapFrames(decode(heapOnly.data.transaction))).toEqual([65_536]);
+
+    // Contradictions are refused instead of silently picking one value.
+    const conflictCu = m.client.compileTransaction({ ...base, instructions: routed.data.instructions, computeUnits: 123_456 });
+    expect(conflictCu).toMatchObject({ ok: false, error: { code: "tx_build_failed", humanMessage: expect.stringMatching(/computeUnits 123456 conflicts/) } });
+    const conflictHeap = m.client.compileTransaction({ ...base, instructions: routed.data.instructions, heapFrameBytes: 128 * 1024 });
+    expect(conflictHeap).toMatchObject({ ok: false, error: { humanMessage: expect.stringMatching(/heapFrameBytes 131072 conflicts/) } });
+    const twoLimits = m.client.compileTransaction({ ...base, instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1 }), ...routed.data.instructions] });
+    expect(twoLimits).toMatchObject({ ok: false, error: { humanMessage: expect.stringMatching(/two different ComputeBudget setComputeUnitLimit/) } });
+  });
+
   test("a plan without a swap leg never goes routed (RouteNoLegs)", async () => {
     const m = mockClient(3, [], { route: "routed" });
     const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
@@ -680,6 +745,42 @@ describe("rc5 error tables", () => {
     expect(describeProgramError(6119)!.message).toMatch(/compute unit limit/);
     expect(toSdkError(new Error("custom program error: 0x1798"), "singleTokenLiquidity").humanMessage).toMatch(/nothing was deposited/); // 6040
     expect(toSdkError(new Error("Error Number: 6118")).humanMessage).toMatch(/no swap leg/);
+  });
+
+  test("ProgramFailedToComplete on a routed deposit → routed_heap_frame_required; elsewhere stays unknown", () => {
+    // Preflight text seen on the validator (N10 hooked input, no heap frame; the heap access-violation line is truncated away).
+    const preflight = new Error("Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 2: Program failed to complete. \nLogs: \n[\n  \"Log truncated\"\n].");
+    const landed = { InstructionError: [2, "ProgramFailedToComplete"] };
+    for (const cause of [preflight, landed]) {
+      const r = toSdkError(cause, "singleTokenLiquidity", { routedDeposit: true });
+      expect(r.code).toBe("routed_heap_frame_required");
+      expect(r.humanMessage).toMatch(/64 KiB heap frame/);
+      expect(r.humanMessage).toMatch(/compute units/);
+      expect(r.cause).toBe(cause);
+      // Without routed context (or for another instruction) the failure is NOT relabelled.
+      expect(toSdkError(cause, "singleTokenLiquidity").code).toBe("unknown");
+      expect(toSdkError(cause, "cofferPool", { routedDeposit: false }).code).toBe("unknown");
+    }
+    // Detection from the transaction's instructions (both routed entry points; compiled instructions too).
+    const routedIx = new TransactionInstruction({ programId: key(1), keys: [], data: Buffer.concat([Buffer.from(ROUTED_ZAP_DISCRIMINATOR_HEX, "hex"), Buffer.alloc(4)]) });
+    const joinIx = new TransactionInstruction({ programId: key(2), keys: [], data: Buffer.from("c81d70ad5bfad0c2", "hex") });
+    const plannedIx = new TransactionInstruction({ programId: key(1), keys: [], data: Buffer.from(PLANNED_ZAP_DISCRIMINATOR_HEX, "hex") });
+    const budget = routedZapComputeBudgetIxs();
+    expect(containsRoutedDepositInstruction([...budget, routedIx])).toBe(true);
+    expect(containsRoutedDepositInstruction([joinIx])).toBe(true);
+    expect(containsRoutedDepositInstruction([...budget, plannedIx])).toBe(false);
+    expect(toSdkError(landed, "singleTokenLiquidity", { instructions: [...budget, routedIx] }).code).toBe("routed_heap_frame_required");
+    expect(toSdkError(landed, "cofferPool", { instructions: [joinIx] }).code).toBe("routed_heap_frame_required");
+    expect(toSdkError(landed, "singleTokenLiquidity", { instructions: [...budget, plannedIx] }).code).toBe("unknown");
+    // Other routed failures keep their own mapping (program errors and network errors win).
+    expect(toSdkError(new Error("custom program error: 0x1798"), "singleTokenLiquidity", { routedDeposit: true }).code).toBe("simulation_failed");
+    expect(toSdkError(new Error("Error Number: 6119"), "cofferPool", { routedDeposit: true }).code).toBe("simulation_failed");
+    expect(toSdkError(new Error("insufficient funds"), "singleTokenLiquidity", { routedDeposit: true }).code).toBe("insufficient_funds");
+  });
+
+  test("routed-deposit discriminators in the error mapper match the builders", () => {
+    expect(ROUTED_ZAP_DISCRIMINATOR_HEX).toBe("f782dde3cee774af");
+    expect(Buffer.from(sha256(new TextEncoder().encode("global:swap_route_join_v1"))).subarray(0, 8).toString("hex")).toBe("c81d70ad5bfad0c2");
   });
 
   test("calculateExitPayout mirrors ExitPaysNothing; an empty pool still accepts the empty basket", () => {

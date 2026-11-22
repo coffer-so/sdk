@@ -5,6 +5,22 @@ Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 
 ## Unreleased
 
+### 2026-11-22 rc5 fixes: compute-budget dedupe in `compileTransaction`, routed heap-frame error
+
+- FIX: `compileTransaction` / `compilePlannedZapTransaction` no longer prepend a second
+  `setComputeUnitLimit` (or `requestHeapFrame`) when `instructions` already carry one — the documented
+  flow `compileTransaction({ instructions: buildTx().instructions })` / `depositRouted().instructions`
+  was refused by the runtime ("Transaction contains a duplicate instruction"). The caller's own
+  compute-budget instruction is kept; byte-identical repeats of `setComputeUnitLimit` /
+  `setComputeUnitPrice` / `requestHeapFrame` are dropped; contradicting values (two different
+  instructions of one kind, or `computeUnits` / `heapFrameBytes` vs. an instruction already present) are
+  refused with `tx_build_failed`.
+- New `SdkErrorCode` `routed_heap_frame_required`: `toSdkError(cause, program, { routedDeposit: true })`
+  (or `{ instructions }` containing `deposit_single_token_routed` / `swap_route_join_v1`) maps
+  `ProgramFailedToComplete` / "Program failed to complete" (the pool's heap access violation without
+  `requestHeapFrame(64 KiB)`) to an actionable message. Without routed context it stays `unknown`.
+  `containsRoutedDepositInstruction`, `SdkErrorContext` exported.
+
 ### 2026-11-22 rc5: routed single-token deposit, `swap_route_join_v1`, `ExitPaysNothing` (contracts `v6.1-n10` `b9fc7e9`)
 
 - IDLs re-synced from `contracts-v6.1-n10/target/idl` (coffer_pool `9e3df59d…`, single_token_liquidity

@@ -273,6 +273,34 @@ const ERROR_TABLES: Record<CofferProgram, ErrorTable> = {
 const CONTRACT_ERROR_MAP = ERROR_TABLES.cofferPool;
 
 /**
+ * rc5 routed-deposit discriminators: STLD `deposit_single_token_routed` and
+ * coffer-pool `swap_route_join_v1` (pinned; tests tie them to the builders).
+ */
+const ROUTED_DEPOSIT_DISCRIMINATORS_HEX = ["f782dde3cee774af", "c81d70ad5bfad0c2"];
+
+/** What the failing transaction was, when the error alone cannot tell. */
+export interface SdkErrorContext {
+  /** The transaction was a routed deposit (`deposit_single_token_routed` / `swap_route_join_v1`). */
+  routedDeposit?: boolean;
+  /**
+   * The failing transaction's instructions (`TransactionInstruction[]` or
+   * `versionedTx.message.compiledInstructions`); a routed deposit is detected
+   * from the instruction discriminators.
+   */
+  instructions?: ReadonlyArray<{ data: Uint8Array }>;
+}
+
+/** True when any instruction is `deposit_single_token_routed` or `swap_route_join_v1` (by discriminator). */
+export function containsRoutedDepositInstruction(instructions: ReadonlyArray<{ data: Uint8Array }>): boolean {
+  return instructions.some((ix) => ix.data.length >= 8 && ROUTED_DEPOSIT_DISCRIMINATORS_HEX.includes(Buffer.from(ix.data.subarray(0, 8)).toString("hex")));
+}
+
+const ROUTED_HEAP_FRAME_MESSAGE =
+  "The routed single-token deposit failed to complete: the pool ran out of heap (or compute). The transaction must request a 64 KiB heap frame " +
+  "(ComputeBudgetProgram.requestHeapFrame({ bytes: 65536 }), ROUTED_ZAP_HEAP_FRAME_BYTES) and enough compute units (setComputeUnitLimit, up to 1_400_000) — " +
+  "use depositRouted() / buildRoutedTx() or compileTransaction({ heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES }), or deposit through the planned route.";
+
+/**
  * Convert a raw error (possibly from Anchor, web3.js, or fetch) into a
  * cleanly-typed SdkError. Used by safeCall wrappers so callers always
  * get structured errors, never exceptions.
@@ -283,8 +311,14 @@ const CONTRACT_ERROR_MAP = ERROR_TABLES.cofferPool;
  *   `"cofferPool"` (correct for swap / add / remove liquidity). Pass
  *   `"singleTokenLiquidity"` for zap failures and `"protocolAdmin"` for
  *   treasury-routed admin calls, or the message will be plausible and wrong.
+ * @param context What the failing transaction was. With `routedDeposit: true`
+ *   (or `instructions` containing a routed deposit), a `ProgramFailedToComplete`
+ *   / "Program failed to complete" failure maps to `routed_heap_frame_required`
+ *   (the pool hit its heap limit: the transaction lacks `requestHeapFrame(64 KiB)`).
+ *   Without that context the failure stays `unknown`: other instructions fail
+ *   to complete for unrelated reasons.
  */
-export function toSdkError(cause: unknown, program: CofferProgram = "cofferPool"): SdkError {
+export function toSdkError(cause: unknown, program: CofferProgram = "cofferPool", context?: SdkErrorContext): SdkError {
   // Anchor-encoded program errors
   const msg = extractMessage(cause);
   const code = extractErrorCode(msg);
@@ -295,6 +329,10 @@ export function toSdkError(cause: unknown, program: CofferProgram = "cofferPool"
       humanMessage: table[code].message,
       cause,
     };
+  }
+  const routed = context?.routedDeposit === true || (context?.instructions !== undefined && containsRoutedDepositInstruction(context.instructions));
+  if (routed && /ProgramFailedToComplete|Program failed to complete/i.test(msg)) {
+    return { code: "routed_heap_frame_required", humanMessage: ROUTED_HEAP_FRAME_MESSAGE, cause };
   }
   // Common network strings
   if (/timed? ?out|ETIMEDOUT/i.test(msg)) {
