@@ -5,7 +5,7 @@ questions and are fetched differently, so this guide covers both together.
 
 | What | Method | Detail |
 |---|---|---|
-| Pool performance over time (APY, TVL, volume, fees) | `getPoolChart` | [POOL_CHART.md](POOL_CHART.md) |
+| Pool performance over time (APY, TVL, volume, fees, LP token price) | `getPoolChart` | [POOL_CHART.md](POOL_CHART.md) |
 | Each token's price against the pool's base token, plus range bounds | `getPoolTokenChart` | [POOL_TOKEN_CHART.md](POOL_TOKEN_CHART.md) |
 
 Both are public — no authentication.
@@ -17,7 +17,7 @@ metrics.
 
 ```ts
 const res = await client.getPoolChart(poolAddress, {
-  metric: "apy",   // "apy" | "tvl" | "volume" | "fees"
+  metric: "apy",   // "apy" | "tvl" | "volume" | "fees" | "lpPrice"
   range: "1m",     // "1m" | "6m" | "1y" | "all"  ("24h" | "1w" still accepted)
 });
 if (!res.ok) return;

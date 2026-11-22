@@ -1153,7 +1153,12 @@ export interface TokenPairChartResponse {
 
 // ── Pool chart types (pool page) ──
 
-export type PoolChartMetric = "apy" | "tvl" | "volume" | "fees";
+/**
+ * `lpPrice` — USD price of ONE LP token (BPT) of the pool (backend release
+ * of November 2026; backends before it answer 400 for it, and 404 before the
+ * chart route existed, September 2026).
+ */
+export type PoolChartMetric = "apy" | "tvl" | "volume" | "fees" | "lpPrice";
 export type PoolChartRange = "24h" | "1w" | "1m" | "6m" | "1y" | "all";
 /** Rolling window the APY is computed over. Ignored for other metrics. */
 export type PoolChartBasis = "24h" | "7d";
@@ -1167,8 +1172,9 @@ export interface PoolChartPoint {
 /**
  * Historical series for a single pool — the chart card on the pool page.
  *
- * Values are percent for `apy` and USD for `tvl` / `volume` / `fees`.
- * `fees` is the TOTAL fee flow (LP + protocol share) per point.
+ * Values are percent for `apy`, USD for `tvl` / `volume` / `fees`, and USD
+ * per one LP token for `lpPrice`. `fees` is the TOTAL fee flow (LP +
+ * protocol share) per point.
  */
 export interface PoolChartResponse {
   poolAddress: string;
@@ -2309,6 +2315,12 @@ export class CofferBackendClient {
    *
    * Ranges: `1m` (default), `6m`, `1y`, `all` (whole history, never
    * shorter than a year); `24h`/`1w` remain accepted for older UIs.
+   *
+   * `metric: "lpPrice"` — the pool's LP token (BPT) price in USD per token,
+   * from the metrics cron's per-bucket pool snapshot ÷ BPT supply (no
+   * external price feed on the request path). Its points start where the
+   * backend's snapshots start (2026-07-26), so an older pool's `all`/`1y`
+   * line begins there.
    *
    * Points are computed from 10-minute stats buckets on a uniform grid
    * (~150 points per range, see `granularitySec`) and cached server-side
