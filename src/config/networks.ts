@@ -76,6 +76,17 @@ export const DEVNET_V61_CANDIDATE_PROGRAMS: NetworkPrograms = {
   protocolAdmin: new PublicKey("HJEiC8TghRX3k1oXkhwhsBBmeP8yyc9XBAhvL6BqP9hU"),
 };
 
+/**
+ * Devnet factory that runs the v6.1 release candidate (upgraded in place from
+ * the v5 devnet copy, pools migrated). Select explicitly:
+ * getConfig("devnet", { programs: DEVNET_V61_UPGRADED_PROGRAMS }).
+ */
+export const DEVNET_V61_UPGRADED_PROGRAMS: NetworkPrograms = {
+  cofferPool: new PublicKey("E6YAKuLAd8vBgJnXsVdPCFCdgUef6ZinfDst3JMxuhJJ"),
+  singleTokenLiquidity: new PublicKey("7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2"),
+  protocolAdmin: new PublicKey("6bFDi7RrLJSbhBpJ2AjHAQfbzBiHGXQXND7no8gv8gux"),
+};
+
 export const DEFAULT_RPC_ENDPOINT: Record<Network, string> = {
   mainnet: "https://solana.drpc.org",
   devnet: "https://api.devnet.solana.com",
