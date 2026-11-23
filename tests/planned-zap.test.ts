@@ -12,7 +12,10 @@ import {
   buildPlannedZapIx,
   encodeAllocationPlan,
   stateCommitment,
+  mintFingerprint,
   V6_PLAN_HASH_VECTOR,
+  V6_PLAN_HASH_VECTOR_RICH,
+  MAX_FINGERPRINT_EXTENSIONS,
   PLANNED_ZAP_DISCRIMINATOR_HEX,
   PlannedZapClient,
   RpcClient,
@@ -49,19 +52,106 @@ const pk = () => Keypair.generate().publicKey;
 const bn = (v: number | bigint | string) => new BN(v.toString());
 
 describe("stateCommitment", () => {
-  test("matches the plan.rs known-answer vector and is sensitive to every input", () => {
-    const account = (k: number, owner: number, data: Buffer): SnapshotAccount => ({ key: key(k), owner: key(owner), data });
-    const pool = account(1, 2, Buffer.alloc(64, 3)), lp = account(4, 5, Buffer.alloc(82, 6));
-    const mints = [account(7, 8, Buffer.alloc(278, 9))];
-    const original = Buffer.from(stateCommitment(pool, lp, mints, 17n)).toString("hex");
-    expect(original).toBe(V6_PLAN_HASH_VECTOR);
-    for (const target of [pool, lp, mints[0]]) {
-      const data = Buffer.from(target.data); data[36] ^= 1;
-      expect(Buffer.from(stateCommitment(target === pool ? { ...pool, data } : pool, target === lp ? { ...lp, data } : lp, target === mints[0] ? [{ ...mints[0], data }] : mints, 17n)).toString("hex")).not.toBe(original);
+  // Fixtures of `plan.rs` (`cross_language_vectors` and the fingerprint tests): the same bytes must hash the same.
+  const SPL = TOKEN_PROGRAM_ID, T22 = TOKEN_2022_PROGRAM_ID;
+  const account = (k: PublicKey, owner: PublicKey, data: Buffer): SnapshotAccount => ({ key: k, owner, data });
+  const baseMint = (decimals: number, supply: bigint): Buffer => { const b = Buffer.alloc(82); b.writeBigUInt64LE(supply, 36); b[44] = decimals; b[45] = 1; return b; };
+  const extendedMint = (decimals: number, supply: bigint, extensions: Array<[number, Buffer]>): Buffer => {
+    const parts = [baseMint(decimals, supply), Buffer.alloc(165 - 82), Buffer.from([1])];
+    for (const [id, body] of extensions) { const h = Buffer.alloc(4); h.writeUInt16LE(id, 0); h.writeUInt16LE(body.length, 2); parts.push(h, body); }
+    return Buffer.concat(parts);
+  };
+  const feeBody = (withheld: bigint, older: [bigint, bigint, number], newer: [bigint, bigint, number]): Buffer => {
+    const b = Buffer.alloc(108); b.fill(0x11, 0, 32); b.fill(0x12, 32, 64); b.writeBigUInt64LE(withheld, 64);
+    [older, newer].forEach(([epoch, max, bps], i) => { const o = 72 + i * 18; b.writeBigUInt64LE(epoch, o); b.writeBigUInt64LE(max, o + 8); b.writeUInt16LE(bps, o + 16); });
+    return b;
+  };
+  const hookBody = (authority: number, program: number): Buffer => Buffer.concat([Buffer.alloc(32, authority), Buffer.alloc(32, program)]);
+  const pausableBody = (authority: number, paused: boolean): Buffer => Buffer.concat([Buffer.alloc(32, authority), Buffer.from([paused ? 1 : 0])]);
+  const richMint = (): Buffer => extendedMint(6, 1_000_000n, [[3, Buffer.alloc(32, 0x21)], [1, feeBody(77n, [5n, 1_000n, 30], [9n, 2_000n, 45])], [14, hookBody(0x31, 0x32)], [26, pausableBody(0x41, false)]]);
+  const pool = account(key(1), key(2), Buffer.alloc(64, 3));
+  const hex = (pool: SnapshotAccount, lp: SnapshotAccount, mints: SnapshotAccount[], epoch: bigint) => Buffer.from(stateCommitment(pool, lp, mints, epoch)).toString("hex");
+
+  test("matches both plan.rs cross-language vectors byte for byte", () => {
+    const plainLp = account(key(4), SPL, baseMint(9, 500n));
+    expect(hex(pool, plainLp, [account(key(7), SPL, baseMint(6, 1_000_000n))], 17n)).toBe(V6_PLAN_HASH_VECTOR);
+    const richLp = account(key(4), T22, extendedMint(9, 500n, [[1, feeBody(3n, [0n, 10n, 25], [2n, 20n, 50])]]));
+    const mints = [account(key(7), T22, richMint()), account(key(20), SPL, baseMint(9, 7n)), account(key(30), PublicKey.default, Buffer.alloc(0))];
+    expect(hex(pool, richLp, mints, 900n)).toBe(V6_PLAN_HASH_VECTOR_RICH);
+  });
+
+  test("mintFingerprint: committed fields, total over foreign / malformed data, TLV walk edge cases", () => {
+    const fp = (owner: PublicKey, data: Buffer, withSupply = false) => Buffer.from(mintFingerprint(owner, data, withSupply)).toString("hex");
+    const rich = richMint();
+    const fee = feeBody(77n, [5n, 1_000n, 30], [9n, 2_000n, 45]).subarray(72, 108);
+    expect(fp(T22, rich, true)).toBe(Buffer.concat([Buffer.from([1, 6, 4]), Buffer.from([3, 0, 1, 0, 14, 0, 26, 0]), fee, Buffer.alloc(32, 0x32), Buffer.from([0]), (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(1_000_000n); return b; })()]).toString("hex"));
+    expect(fp(T22, rich)).toBe(Buffer.concat([Buffer.from([1, 6, 4]), Buffer.from([3, 0, 1, 0, 14, 0, 26, 0]), fee, Buffer.alloc(32, 0x32), Buffer.from([0])]).toString("hex"));
+    // Not an initialized SPL / Token-2022 mint: closed, short, foreign owner, uninitialized.
+    for (const [owner, data] of [[PublicKey.default, Buffer.alloc(0)], [SPL, Buffer.alloc(81, 1)], [key(9), baseMint(6, 1n)], [T22, Buffer.alloc(200)]] as Array<[PublicKey, Buffer]>) {
+      expect(fp(owner, data, true)).toBe("000000");
     }
-    expect(Buffer.from(stateCommitment(pool, lp, mints, 18n)).toString("hex")).not.toBe(original);
-    expect(Buffer.from(stateCommitment({ ...pool, key: key(12) }, lp, mints, 17n)).toString("hex")).not.toBe(original);
-    expect(Buffer.from(stateCommitment({ ...pool, owner: key(12) }, lp, mints, 17n)).toString("hex")).not.toBe(original);
+    // SPL Token never has extensions; Token-2022 data without the mint account-type byte neither.
+    expect(fp(SPL, rich)).toBe("010600");
+    expect(fp(T22, rich.subarray(0, 165))).toBe("010600");
+    const asAccount = Buffer.from(rich); asAccount[165] = 2;
+    expect(fp(T22, asAccount)).toBe("010600");
+    // A truncated entry ends the walk; a body shorter than its committed slice commits nothing.
+    const cut = extendedMint(6, 1n, [[3, Buffer.alloc(32)], [14, hookBody(1, 2)]]);
+    expect(fp(T22, cut.subarray(0, cut.length - 1))).toBe("010601" + "0300");
+    const short = extendedMint(6, 1n, [[1, Buffer.alloc(107)], [14, Buffer.alloc(63)], [26, Buffer.alloc(32)]]);
+    expect(fp(T22, short)).toBe("010603" + "01000e001a00");
+    // Zero padding ends the walk; a repeated id keeps its first body.
+    expect(fp(T22, extendedMint(6, 1n, [[14, hookBody(1, 2)], [0, Buffer.alloc(0)], [26, Buffer.alloc(33)]]))).toBe("010601" + "0e00" + "02".repeat(32));
+    expect(fp(T22, extendedMint(6, 1n, [[14, hookBody(1, 2)], [14, hookBody(1, 3)]]))).toBe("010602" + "0e000e00" + "02".repeat(32));
+    // The id list is cut at the cap.
+    const many = extendedMint(6, 1n, Array.from({ length: 40 }, (_, i) => [100 + i, Buffer.alloc(0)] as [number, Buffer]));
+    const manyFp = Buffer.from(mintFingerprint(T22, many));
+    expect(manyFp[2]).toBe(MAX_FINGERPRINT_EXTENSIONS); expect(manyFp).toHaveLength(3 + MAX_FINGERPRINT_EXTENSIONS * 2);
+  });
+
+  test("every committed field stales the plan; uncommitted counters and authorities do not", () => {
+    const base = () => ({ lp: account(key(4), SPL, baseMint(9, 500n)), mints: [account(key(7), T22, richMint())] });
+    const original = hex(pool, base().lp, base().mints, 17n);
+    const withMint = (data: Buffer, owner = T22) => hex(pool, base().lp, [account(key(7), owner, data)], 17n);
+    const rich = (fee: Buffer, hook: Buffer, pausable: Buffer) => extendedMint(6, 1_000_000n, [[3, Buffer.alloc(32, 0x21)], [1, fee], [14, hook], [26, pausable]]);
+    const fee = feeBody(77n, [5n, 1_000n, 30], [9n, 2_000n, 45]), hook = hookBody(0x31, 0x32), pausable = pausableBody(0x41, false);
+    expect(withMint(rich(fee, hook, pausable))).toBe(original);
+    // Uncommitted: an underlying mint's supply, withheld fees, authorities, the body of an extension without committed fields.
+    expect(withMint(extendedMint(6, 2_000_000n, [[3, Buffer.alloc(32, 0x22)], [1, (() => { const b = feeBody((1n << 64n) - 1n, [5n, 1_000n, 30], [9n, 2_000n, 45]); b.fill(0x99, 0, 64); return b; })()], [14, hookBody(0x99, 0x32)], [26, pausableBody(0x99, false)]]))).toBe(original);
+    const splSupply = (supply: bigint) => hex(pool, base().lp, [account(key(7), SPL, baseMint(6, supply))], 17n);
+    expect(splSupply(1_000_000n)).toBe(splSupply(999n));
+    const stale: Array<[string, string]> = [
+      ["epoch", hex(pool, base().lp, base().mints, 18n)],
+      ["pool data", hex({ ...pool, data: (() => { const d = Buffer.from(pool.data); d[63] ^= 1; return d; })() }, base().lp, base().mints, 17n)],
+      ["pool key", hex({ ...pool, key: key(12) }, base().lp, base().mints, 17n)],
+      ["pool owner", hex({ ...pool, owner: key(12) }, base().lp, base().mints, 17n)],
+      ["lp supply", hex(pool, account(key(4), SPL, baseMint(9, 501n)), base().mints, 17n)],
+      ["lp key", hex(pool, account(key(5), SPL, baseMint(9, 500n)), base().mints, 17n)],
+      ["lp owner", hex(pool, account(key(4), T22, baseMint(9, 500n)), base().mints, 17n)],
+      ["lp decimals", hex(pool, account(key(4), SPL, baseMint(8, 500n)), base().mints, 17n)],
+      ["mint key", hex(pool, base().lp, [account(key(8), T22, richMint())], 17n)],
+      ["mint owner", withMint(richMint(), SPL)],
+      ["mint decimals", withMint((() => { const d = richMint(); d[44] = 9; return d; })())],
+      ["mint closed", withMint((() => { const d = richMint(); d[45] = 0; return d; })())],
+      ["extension added", withMint(extendedMint(6, 1_000_000n, [[3, Buffer.alloc(32, 0x21)], [1, fee], [14, hook], [26, pausable], [12, Buffer.alloc(32, 0x61)]]))],
+      ["extension removed", withMint(extendedMint(6, 1_000_000n, [[1, fee], [14, hook], [26, pausable]]))],
+      ["extension replaced", withMint(extendedMint(6, 1_000_000n, [[12, Buffer.alloc(32, 0x21)], [1, fee], [14, hook], [26, pausable]]))],
+      ["hook program", withMint(rich(fee, hookBody(0x31, 0x33), pausable))],
+      ["paused", withMint(rich(fee, hook, pausableBody(0x41, true)))],
+      ["older fee epoch", withMint(rich(feeBody(77n, [6n, 1_000n, 30], [9n, 2_000n, 45]), hook, pausable))],
+      ["older fee maximum", withMint(rich(feeBody(77n, [5n, 1_001n, 30], [9n, 2_000n, 45]), hook, pausable))],
+      ["older fee bps", withMint(rich(feeBody(77n, [5n, 1_000n, 31], [9n, 2_000n, 45]), hook, pausable))],
+      ["newer fee epoch", withMint(rich(feeBody(77n, [5n, 1_000n, 30], [10n, 2_000n, 45]), hook, pausable))],
+      ["newer fee maximum", withMint(rich(feeBody(77n, [5n, 1_000n, 30], [9n, 2_001n, 45]), hook, pausable))],
+      ["newer fee bps", withMint(rich(feeBody(77n, [5n, 1_000n, 30], [9n, 2_000n, 46]), hook, pausable))],
+    ];
+    stale.forEach(([name, commitment], i) => {
+      expect([name, commitment]).not.toEqual([name, original]);
+      for (const [other, earlier] of stale.slice(0, i)) expect([name, other, commitment === earlier]).toEqual([name, other, false]);
+    });
+    // The LP mint's fee schedule is committed, its withheld amount is not.
+    const lp = (withheld: bigint, bps: number) => hex(pool, account(key(4), T22, extendedMint(9, 500n, [[1, feeBody(withheld, [0n, 10n, bps], [0n, 10n, bps])]])), [account(key(7), SPL, baseMint(6, 1n))], 17n);
+    expect(lp(0n, 25)).toBe(lp(1_000n, 25)); expect(lp(0n, 25)).not.toBe(lp(0n, 26));
   });
 });
 
@@ -306,6 +396,34 @@ describe("PlannedZapClient.quote", () => {
     expect(ix.keys[15].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
     const atas = m.client.ensureUserTokenAccountIxs(q, key(9));
     expect(atas).toHaveLength(4);
+  });
+
+  test("a sidelined slot (NAV 0) with a closed mint does not block the quote; its user token account is passed but never created", async () => {
+    const m = mockClient(3);
+    m.state.tokens[2].dynamics.actual_balance = bn(0);
+    m.infos.set(m.address.toBase58(), { data: poolBytes(m.state), owner: m.cfg.programs.cofferPool, executable: false, lamports: 1 });
+    // The closed mint of the sidelined slot: system-owned, no data.
+    m.infos.set(key(102).toBase58(), { data: Buffer.alloc(0), owner: PublicKey.default, executable: false, lamports: 0 });
+    const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const q = res.data;
+    expect(q.sidelinedTokenIndices).toEqual([2]);
+    expect(q.plan.allocations[2]).toBe(0n);
+    expect(q.snapshots.mints[2].owner.equals(PublicKey.default)).toBe(true);
+    expect(Buffer.from(q.plan.expectedState)).toEqual(Buffer.from(stateCommitment(q.snapshots.pool, q.snapshots.lpMint, q.snapshots.mints, 1030n)));
+    const accounts = m.client.accountsFor(q, key(9));
+    expect(accounts.userTokenAccounts).toHaveLength(3);
+    const atas = m.client.ensureUserTokenAccountIxs(q, key(9));
+    expect(atas).toHaveLength(3);
+    expect(atas.some((ix) => ix.keys.some((k) => k.pubkey.equals(accounts.userTokenAccounts[2])))).toBe(false);
+    expect(atas.some((ix) => ix.keys.some((k) => k.pubkey.equals(accounts.userLpAccount)))).toBe(true);
+    const ix = m.client.buildIx(q, key(9));
+    expect(ix.keys[6 + 3 * 2 + 1].pubkey.equals(accounts.userTokenAccounts[2])).toBe(true);
+    // A live slot's mint still has to decode.
+    const live = mockClient(3);
+    live.infos.set(key(102).toBase58(), { data: Buffer.alloc(0), owner: PublicKey.default, executable: false, lamports: 0 });
+    const r = await live.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    expect(!r.ok && r.error.code).toBe("parse_failure");
   });
 
   test("validation: index, amount, validity, sidelined input, disabled pool, unseeded supply, LP with extensions", async () => {
@@ -618,15 +736,20 @@ describe("rc5 PlannedZapClient routed deposit and capability fallback", () => {
     expect(twoLimits).toMatchObject({ ok: false, error: { humanMessage: expect.stringMatching(/two different ComputeBudget setComputeUnitLimit/) } });
   });
 
-  test("a plan without a swap leg never goes routed (RouteNoLegs)", async () => {
+  test("a plan without a swap leg: forced routed builds the routed instruction (the program joins without a route), auto stays planned", async () => {
     const m = mockClient(3, [], { route: "routed" });
     const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
     if (!res.ok) throw new Error(res.error.humanMessage);
     const q = { ...res.data, tokenInIndex: 0, plan: { ...res.data.plan, allocations: [50_000_000n, 0n, 0n] } };
     expect(planHasSwapLeg(res.data)).toBe(true);
     expect(planHasSwapLeg(q)).toBe(false);
-    expect(await m.client.resolveRoute(q, user)).toMatchObject({ route: "planned", fallbackReason: expect.stringMatching(/no swap leg/) });
-    expect(() => m.client.buildRoutedIx(q, user)).toThrow(/RouteNoLegs/);
+    expect(await m.client.resolveRoute(q, user)).toEqual({ route: "routed" });
+    // The raw builder accepts a join-only plan on the routed entry point (the program falls back to the planned path).
+    const joinOnly = buildDirectZapIx(m.cfg, m.client.accountsFor(res.data, user), { amountIn: 50_000_000n, tokenInIndex: 0, minimumLp: 1n, plan: q.plan }, "routed");
+    expect(joinOnly.data.subarray(0, 8).toString("hex")).toBe(ROUTED_ZAP_DISCRIMINATOR_HEX);
+    const auto = mockClient(3, [], { route: "auto" });
+    expect(await auto.client.resolveRoute(q, user)).toMatchObject({ route: "planned", fallbackReason: expect.stringMatching(/no swap leg/) });
+    expect(auto.calls.filter((c) => c === "simulateTransaction")).toHaveLength(0);
   });
 
   test("route option: default planned (no probe), forced routed (no probe), invalid value refused", async () => {
@@ -740,7 +863,8 @@ describe("rc5 error tables", () => {
     expect(describeProgramError(6118)).toMatchObject({ name: "RouteNoLegs", sdkCode: "invalid_input" });
     expect(describeProgramError(6119)).toMatchObject({ name: "RouteComputeBudgetInsufficient", sdkCode: "simulation_failed" });
     expect(describeProgramError(6040, "singleTokenLiquidity")).toMatchObject({ name: "RoutedReturnDataInvalid", sdkCode: "simulation_failed" });
-    expect(describeProgramError(6041, "singleTokenLiquidity")).toBeUndefined();
+    expect(describeProgramError(6041, "singleTokenLiquidity")).toMatchObject({ name: "InvalidRecoveryDestination", sdkCode: "invalid_input" });
+    expect(describeProgramError(6042, "singleTokenLiquidity")).toBeUndefined();
     expect(describeProgramError(6116)!.message).toMatch(/too small to withdraw/);
     expect(describeProgramError(6119)!.message).toMatch(/compute unit limit/);
     expect(toSdkError(new Error("custom program error: 0x1798"), "singleTokenLiquidity").humanMessage).toMatch(/nothing was deposited/); // 6040

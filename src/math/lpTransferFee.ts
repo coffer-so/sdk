@@ -237,6 +237,44 @@ export function lpTransferFeeDrip(pending: bigint, lastTs: bigint | number, endT
 }
 
 /**
+ * `CofferPool::priced_lp_supply(mint_supply, now)`: the LP supply every
+ * join, exit, protocol redemption, route join and sidelined-slot funding is
+ * priced on — the mint supply net of the part of the burn stream that has
+ * vested at `now` (`lpTransferFeeDrip`), which no holder owns any more.
+ * Hooks and events still see the mint supply. Throws
+ * `MathError("MathUnderflow")` when the drip exceeds the mint supply
+ * (inconsistent state; 6012 on chain).
+ */
+export function pricedLpSupply(mintSupply: bigint, stream: LpBurnStream, now: bigint | number): bigint {
+  assertU64(mintSupply, "mintSupply");
+  const drip = lpTransferFeeDrip(stream.pending, stream.lastTs, stream.endTs, now);
+  if (drip > mintSupply) throw new MathError("MathUnderflow");
+  return mintSupply - drip;
+}
+
+/**
+ * {@link pricedLpSupply} of a pool snapshot: `lpTotalSupply` (the mint
+ * supply) net of the vested burn stream at `now` (defaults to the synced
+ * `chainTimestamp`). Without any timestamp a pool with a pending burn
+ * stream cannot be priced and this throws; a pool without a stream prices
+ * on the mint supply.
+ */
+export function pricedLpSupplyOf(pool: {
+  lpTotalSupply: { toString(): string } | bigint;
+  chainTimestamp?: number;
+  lpTransferFeesPendingBurn?: { toString(): string } | bigint | number | null;
+  lpTransferFeeBurnLastTs?: { toString(): string } | bigint | number | null;
+  lpTransferFeeBurnEndTs?: { toString(): string } | bigint | number | null;
+}, nowSeconds?: bigint | number): bigint {
+  const mintSupply = BigInt(pool.lpTotalSupply.toString());
+  const stream = lpBurnStreamOf(pool);
+  if (stream.pending === 0n) return assertU64(mintSupply, "mintSupply");
+  const now = nowSeconds ?? pool.chainTimestamp;
+  if (now === undefined) throw new MathError("Chain timestamp missing: sync or supply nowSeconds to price the LP burn stream");
+  return pricedLpSupply(mintSupply, stream, now);
+}
+
+/**
  * `lp_transfer_fee_settle(s, burned, now)`: the stream after burning
  * `burned` (≤ `drip(now)`) at `now` — the remainder keeps its end, the
  * segment start moves to `now` only when something burned (a collect whose

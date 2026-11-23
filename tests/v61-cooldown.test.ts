@@ -118,6 +118,11 @@ describe("PoolAction payloads and kinds", () => {
 });
 
 describe("ProtocolAction payloads and kinds", () => {
+  test("UnfreezePools carries 1..=14 pools", () => {
+    expect(ProtocolActions.unfreezePools(Array.from({ length: 14 }, pk))).toMatchObject({ UnfreezePools: { pools: expect.any(Array) } });
+    expect(() => ProtocolActions.unfreezePools(Array.from({ length: 15 }, pk))).toThrow(/1\.\.=14 pools/);
+    expect(() => ProtocolActions.unfreezePools([])).toThrow(/1\.\.=14 pools/);
+  });
   test("[P07] every constructor maps to kind 1..13 and the tag is kind − 1", () => {
     expect(PROTOCOL_ACTION_KINDS.length).toBe(16); expect(PROTOCOL_ACTION_KINDS[0]).toBe("TransferAdmin"); expect(PROTOCOL_ACTION_KINDS[13]).toBe("PoolRescaleVirtualBalances");
     expect(PROTOCOL_ACTION_KINDS[15]).toBe("PoolSetLpTransferFeeProtocolShare");

@@ -181,7 +181,7 @@ describe("poolAccount.decode — v4 (AoS) layout", () => {
   it("rejects v3 (1154-byte) pools with an explicit migration hint", () => {
     const v3 = Buffer.alloc(1154);
     ANCHOR_POOL_DISC.copy(v3, 0);
-    expect(() => decodePoolAccount(v3)).toThrow(/migrate_to_v5/);
+    expect(() => decodePoolAccount(v3)).toThrow(/v3 size.*no migration path/);
   });
 
   it("rejects unknown sizes with a clear error", () => {

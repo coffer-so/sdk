@@ -24,7 +24,8 @@ import {
 } from "../math/poolMath";
 import { divDown } from "../math/fixedPoint";
 import { navBalances, splitDepositCredit, calculateExitPayout } from "../math/surgeBucket";
-import { applyDepositFee, lpBurnNetOfWithdrawFee } from "../math/liquidityFee";
+import { applyDepositFee, exitWithdrawFeeBps, lpBurnNetOfWithdrawFee } from "../math/liquidityFee";
+import { pricedLpSupplyOf } from "../math/lpTransferFee";
 import { assertDepositRoundingLoss, checkDepositRounding, DepositRoundingLossError } from "../math/liquidityRounding";
 import { lpPositionValue, lpPriceUsd } from "../math/lpPrice";
 import { applyRescale, checkFundConcentrationFactor, checkSeedConcentrationFactor, concentrationFactorViolations, minRescaleMultiplier } from "../math/concentrationFactor";
@@ -586,6 +587,9 @@ export class CofferPoolClient {
     if (!pool.poolAdmin) return err("invalid_input", "Pool admin missing: sync the pool before quoting");
     if (!pool.poolAdmin.equals(authority)) return err("auth_failed", "Unauthorized: only the pool admin can fund a sidelined slot");
     if (pool.lpTotalSupply.isZero()) return err("unsupported_pool_state", "PoolNotSeeded: seed the pool first");
+    const priced = this.pricedSupply(pool);
+    if (!priced.ok) return priced;
+    if (priced.data === 0n) return err("unsupported_pool_state", "PoolNotSeeded: the whole LP supply is vested in the burn stream");
     if (!t.actualBalance.isZero()) return err("invalid_input", `TokenNotSidelined: slot ${tokenIndex} already holds reserves`);
     if (!BN.isBN(amount) || amount.isNeg() || amount.bitLength() > 64) return err("invalid_input", "amount must be a u64 BN");
     if (amount.isZero()) return err("invalid_input", "ZeroAmount");
@@ -637,6 +641,17 @@ export class CofferPoolClient {
   }
 
   /** v6.1 (T22): swaps / deposits on a pool with a slot at `V ≤ A` revert with `VirtualBalanceNotAboveActual` (post-state guard on every slot). */
+  /**
+   * The LP supply the program prices joins, exits, redemptions and funding
+   * on: the mint supply net of the vested LP burn stream at `nowSeconds`
+   * (default: the synced `chainTimestamp`). See `pricedLpSupplyOf`.
+   */
+  private pricedSupply(pool: PoolInfo, nowSeconds?: number): SdkResult<bigint> {
+    if (nowSeconds !== undefined && (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0)) return err("invalid_input", "nowSeconds must be a non-negative integer");
+    try { return ok(pricedLpSupplyOf(pool, nowSeconds)); }
+    catch (e) { return err("unsupported_pool_state", e instanceof Error ? e.message : String(e), e); }
+  }
+
   private requireConcentrationFactor(op: string): SdkResult<void> {
     const state = this.requireCache();
     if (!state.ok) return state;
@@ -670,7 +685,7 @@ export class CofferPoolClient {
    *
    * Not applicable to the seed deposit (LP supply == 0): see `quoteSeedDeposit`.
    */
-  quoteAddLiquidity(tokenAmounts: BN[], slippageHundredthsBps?: number): SdkResult<AddLiquidityQuote> {
+  quoteAddLiquidity(tokenAmounts: BN[], slippageHundredthsBps?: number, nowSeconds?: number): SdkResult<AddLiquidityQuote> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     const pool = poolRes.data;
@@ -680,6 +695,9 @@ export class CofferPoolClient {
     if (pool.lpTotalSupply.isZero()) {
       return err("invalid_input", "Pool has zero LP supply; use quoteSeedDeposit");
     }
+    const priced = this.pricedSupply(pool, nowSeconds);
+    if (!priced.ok) return priced;
+    if (priced.data === 0n) return err("unsupported_pool_state", "PoolNotSeeded: the whole LP supply is vested in the burn stream");
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
     if (hookPaused(pool)) return err("hook_rejected", "The pool's hook is disabled and fail-closed (HookPaused): deposits are paused");
     const levered = this.requireConcentrationFactor("add_liquidity");
@@ -700,7 +718,7 @@ export class CofferPoolClient {
       const unsupported = this.requireSupported(pool.tokens.flatMap((t, i) => (navs[i] > 0n ? [t.index] : [])), "add_liquidity");
       if (!unsupported.ok) return unsupported;
       const amounts = tokenAmounts.map((a) => BigInt(a.toString()));
-      const supply = BigInt(pool.lpTotalSupply.toString());
+      const supply = priced.data;
       const net = amounts.map((a, i) => netOfTransferFee(pool.tokens[i].transferFee, a));
       if (net.some((n, i) => amounts[i] > 0n && n === 0n)) return err("amount_too_small", "AmountFullyConsumedByTransferFee");
       const { lp: lpGross, ratio } = calcJoinRatioAndLp(navs, net, supply);
@@ -774,7 +792,7 @@ export class CofferPoolClient {
    * and rc5 `ExitPaysNothing` (6116: nothing paid anywhere while the pool
    * holds assets) are `amount_too_small`.
    */
-  quoteRemove(lpIn: BN): SdkResult<RemoveLiquidityQuote> {
+  quoteRemove(lpIn: BN, nowSeconds?: number): SdkResult<RemoveLiquidityQuote> {
     const poolRes = this.requireCache();
     if (!poolRes.ok) return poolRes;
     const pool = poolRes.data;
@@ -782,13 +800,16 @@ export class CofferPoolClient {
       return err("invalid_input", "Pool has zero LP supply");
     }
     if (!pool.poolEnabled) return err("pool_disabled", "Pool is disabled");
+    const priced = this.pricedSupply(pool, nowSeconds);
+    if (!priced.ok) return priced;
     try {
       const actual = pool.tokens.map((t) => BigInt(t.actualBalance.toString()));
       const surge = pool.tokens.map((t) => tokenSurgeBucket(t, pool));
-      const supply = BigInt(pool.lpTotalSupply.toString());
+      const supply = priced.data;
       const requested = BigInt(lpIn.toString());
       if (requested <= 0n || requested > supply) return err("invalid_input", "InvalidLpAmount");
-      const withdrawFeeBps = pool.withdrawFeeBps ?? 0;
+      // A burn of the whole priced supply pays no withdraw fee: no LP would remain to own the withheld part.
+      const withdrawFeeBps = exitWithdrawFeeBps(pool.withdrawFeeBps ?? 0, calcEffectiveLpBurn(requested, supply), supply);
       let payout: ReturnType<typeof calculateExitPayout>;
       try { payout = calculateExitPayout(actual, surge, requested, supply, withdrawFeeBps); }
       catch (e) {

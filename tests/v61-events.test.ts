@@ -83,11 +83,14 @@ describe("event pins (idl/abi-pins.json @ 409067d)", () => {
       }
     }
   });
-  test("[P02] the tables hold 45 / 40 / 2 events, no discriminator is shared and every one is sha256(event:<Name>)", () => {
-    expect(EVENT_TABLES.cofferPool.size).toBe(45); expect(EVENT_TABLES.protocolAdmin.size).toBe(40); expect(EVENT_TABLES.singleTokenLiquidity.size).toBe(2);
+  test("[P02] the tables hold 44 / 40 / 3 events, no discriminator is shared and every one is sha256(event:<Name>)", () => {
+    expect(EVENT_TABLES.cofferPool.size).toBe(44); expect(EVENT_TABLES.protocolAdmin.size).toBe(40); expect(EVENT_TABLES.singleTokenLiquidity.size).toBe(3);
     const all = [...EVENT_TABLES.cofferPool.keys(), ...EVENT_TABLES.protocolAdmin.keys(), ...EVENT_TABLES.singleTokenLiquidity.keys()];
     expect(new Set(all).size).toBe(87);
-    expect(LEGACY_EVENT_DISCRIMINATORS.size).toBe(19 + 24 + 2 + 3);
+    // 18 + 24 + 2 re-cut pins, 4 + 1 + 1 retired (the v5 migration events retired both their v6 and re-cut discriminators).
+    expect(LEGACY_EVENT_DISCRIMINATORS.size).toBe(18 + 24 + 2 + 6);
+    expect(LEGACY_EVENT_DISCRIMINATORS.get("616a221fe1d0ea87")).toEqual({ program: "cofferPool", legacyName: "PoolMigrationV5Applied", replacedBy: null });
+    expect(LEGACY_EVENT_DISCRIMINATORS.get("01aaffd102322e8f")).toEqual({ program: "protocolAdmin", legacyName: "PoolMigratedToV5ViaTreasury", replacedBy: null });
     for (const hex of all) expect(LEGACY_EVENT_DISCRIMINATORS.has(hex)).toBe(false);
     expect(eventProgramOf(disc("SwapV2"))).toEqual({ program: "cofferPool", name: "SwapV2" });
     expect(eventProgramOf(disc("PoolsFrozenV2", pa))).toEqual({ program: "protocolAdmin", name: "PoolsFrozenV2" });
@@ -132,9 +135,9 @@ describe("decoder round trips against the IDL-generated fixtures", () => {
     // attribution: the flat lookup names the right program
     expect(decodeEventLine(f.base64).program).toBe(program);
   });
-  test("[P06] every program's whole event set is fixtured (45 + 40 + 2 names)", () => {
+  test("[P06] every program's whole event set is fixtured (44 + 40 + 3 names)", () => {
     const names = (p: ContractProgram) => new Set(FIXTURES.filter(([x]) => x === p).map(([, , f]) => f.name));
-    expect(names("cofferPool").size).toBe(45); expect(names("protocolAdmin").size).toBe(40); expect(names("singleTokenLiquidity").size).toBe(2);
+    expect(names("cofferPool").size).toBe(44); expect(names("protocolAdmin").size).toBe(40); expect(names("singleTokenLiquidity").size).toBe(3);
   });
 });
 
@@ -285,8 +288,12 @@ describe("admin / before-after events", () => {
     expect(e.kind).toBe("ActionCancelledV2"); expect(e.actionKind).toBe(2); expect(e.actorKind).toBe(3); expect(e.eta.toNumber()).toBe(7); expect(e.timestamp).toBe(8);
     const f = one<any>(eventLog(pa, "PoolsFrozenV2", { treasury: key(1), authority: key(2), actor_kind: 3, pools: [key(5), key(6)], old_enabled: [true, false], timestamp: bn(8) }));
     expect(f.pools.map((k: PublicKey) => k.toBase58())).toEqual([key(5).toBase58(), key(6).toBase58()]); expect(f.oldEnabled).toEqual([true, false]);
-    const m = one<any>(eventLog(idl, "PoolMigrationV5Applied", { pool: key(1), authority: key(2), actor_kind: 2, reactivate_tokens: true, token_count: 3, reactivated: 2, timestamp: bn(8) }));
-    expect(m.kind).toBe("PoolMigrationV5Applied"); expect(m.reactivated).toBe(2);
+    const m = one<any>(eventLog(idl, "PoolLayoutMigrated", { pool: key(1), payer: key(2), old_len: 1683, new_len: 2304, layout_version: 1, timestamp: bn(8) }));
+    expect(m.kind).toBe("PoolLayoutMigrated"); expect(m.newLen).toBe(2304); expect(m.layoutVersion).toBe(1);
+    const c = one<any>(eventLog(pa, "StldHelperTokenAccountClosedViaTreasury", { treasury: key(1), admin: key(2), pool: key(3), token_account: key(4), mint: key(5), vault: key(6), lamports: bn(2_039_280), timestamp: bn(8) }));
+    expect(c.kind).toBe("StldHelperTokenAccountClosedViaTreasury"); expect(c.tokenAccount.equals(key(4))).toBe(true); expect(c.lamports.toNumber()).toBe(2_039_280); expect(c.timestamp).toBe(8);
+    const h = one<any>(eventLog(stld, "StldHelperTokenAccountClosed", { pool: key(1), helper: key(2), token_account: key(3), mint: key(4), token_program: key(5), authority: key(6), destination: key(7), amount: bn(11), lamports: bn(12), timestamp: bn(8) }));
+    expect(h.kind).toBe("StldHelperTokenAccountClosed"); expect(h.destination.equals(key(7))).toBe(true); expect(h.amount.toNumber()).toBe(11);
     const w = one<any>(eventLog(pa, "FundsWithdrawnV2", { treasury: key(1), admin: key(2), mint: key(3), vault: key(4), recipient: key(5), amount: bn(9), vault_balance_before: bn(10), vault_balance_after: bn(1), timestamp: bn(8) }));
     expect(w.vaultBalanceBefore.toNumber()).toBe(10); expect(w.vaultBalanceAfter.toNumber()).toBe(1);
   });
@@ -323,10 +330,15 @@ describe("error code map (v6.1 incl. T22)", () => {
     expect(toSdkError(new Error("custom program error: 0x17d8")).code).toBe("concentration_factor_invariant"); // 6104
     expect(toSdkError(new Error("Error Number: 6105")).humanMessage).toMatch(/one whole token/);
   });
-  test("[P23] proposed tables append only: pool through 6110, protocol-admin through 6019", () => {
+  test("[P23] proposed tables append only: pool through 6121, protocol-admin through 6020", () => {
     const table = contractErrorMapForTests("cofferPool");
-    for (let c = 6000; c <= 6109; c++) expect(table[c]).toBeDefined();
-    expect(Object.keys(table)).toHaveLength(120); // rc5 appended 6116–6119
+    for (let c = 6000; c <= 6121; c++) expect(table[c]).toBeDefined();
+    expect(Object.keys(table)).toHaveLength(122);
+    expect(describeProgramError(6120)).toMatchObject({ name: "RecipientIsVault", sdkCode: "invalid_input" });
+    expect(describeProgramError(6121)).toMatchObject({ name: "MaxSelloffCapZero", sdkCode: "invalid_input" });
+    expect(describeProgramError(6121)!.message).toMatch(/max_selloff_pct/);
+    expect(describeProgramError(6020, "protocolAdmin")).toMatchObject({ name: "SelfCloseForbidden", sdkCode: "invalid_input" });
+    expect(describeProgramError(6041, "singleTokenLiquidity")).toMatchObject({ name: "InvalidRecoveryDestination", sdkCode: "invalid_input" });
     expect(describeProgramError(6110)).toMatchObject({ name: "DepositRoundingLossTooLarge", sdkCode: "deposit_rounding_loss" });
     expect(toSdkError(new Error("Error Number: 6110")).code).toBe("deposit_rounding_loss");
     // rc2 appended 6107..6109.
@@ -334,7 +346,7 @@ describe("error code map (v6.1 incl. T22)", () => {
     expect(describeProgramError(6108)).toMatchObject({ name: "RangeManagerKeyRequired", sdkCode: "invalid_input" });
     expect(describeProgramError(6109)).toMatchObject({ name: "FullExitRequiredBelowFloor", sdkCode: "invalid_input" });
     expect(toSdkError(new Error("custom program error: 0x17dd")).humanMessage).toMatch(/whole LP balance/); // 6109
-    expect(Object.keys(contractErrorMapForTests("protocolAdmin"))).toHaveLength(20);
+    expect(Object.keys(contractErrorMapForTests("protocolAdmin"))).toHaveLength(21);
     expect(describeProgramError(6019, "protocolAdmin")).toMatchObject({ name: "UpgradeBufferNotLive", sdkCode: "invalid_input" });
     expect(describeProgramError(6095)?.sdkCode).toBe("hook_rejected"); expect(describeProgramError(6089)?.sdkCode).toBe("cooldown"); expect(describeProgramError(6070)?.sdkCode).toBe("pool_layout_outdated");
     expect(describeProgramError(6010, "protocolAdmin")?.sdkCode).toBe("cooldown"); expect(describeProgramError(6018, "protocolAdmin")?.name).toBe("InvalidPendingAdmin");
@@ -450,12 +462,14 @@ describe("legacy / retired / malformed logs", () => {
       expect(camel.kind).toBe("Unknown"); expect((camel as any).name).toBe(f.name);
     }
   });
-  test("[N15] unknown error codes map to undefined / unknown (6120, PA 6020)", () => {
-    expect(describeProgramError(6120)).toBeUndefined();
-    expect(describeProgramError(6020, "protocolAdmin")).toBeUndefined();
+  test("[N15] unknown error codes map to undefined / unknown (6122, PA 6021, STLD 6042)", () => {
+    expect(describeProgramError(6122)).toBeUndefined();
+    expect(describeProgramError(6021, "protocolAdmin")).toBeUndefined();
+    expect(describeProgramError(6042, "singleTokenLiquidity")).toBeUndefined();
     expect(toSdkError(new Error("custom program error: 0x17df")).code).toBe("invalid_input"); // 6111 LpTransferFeeMaxExceeded
     expect(toSdkError(new Error("custom program error: 0x17e4")).code).toBe("amount_too_small"); // 6116 ExitPaysNothing (rc5)
-    expect(toSdkError(new Error("custom program error: 0x17e8")).code).toBe("unknown"); // 6120: past the table
+    expect(toSdkError(new Error("custom program error: 0x17e8")).code).toBe("invalid_input"); // 6120 RecipientIsVault
+    expect(toSdkError(new Error("custom program error: 0x17ea")).code).toBe("unknown"); // 6122: past the table
   });
   test("[N16] every pinned legacy name is absent from the IDLs and every typed name is present", () => {
     for (const pin of LEGACY_EVENT_DISCRIMINATORS.values()) {

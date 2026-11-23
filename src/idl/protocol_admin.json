@@ -119,7 +119,8 @@
     {
       "name": "close_pool_program",
       "docs": [
-        "Permanently close a deployed program (uncallable + uncloseable)."
+        "Permanently close a deployed program (uncallable + uncloseable). Admin only, D-class.",
+        "protocol-admin itself is refused (`SelfCloseForbidden`)."
       ],
       "discriminator": [
         14,
@@ -947,6 +948,9 @@
         },
         {
           "name": "spill",
+          "docs": [
+            "buffer only, so reviewers cannot see this account in advance."
+          ],
           "writable": true
         },
         {
@@ -1066,7 +1070,7 @@
     {
       "name": "freeze_pool_program",
       "docs": [
-        "Make a deployed program permanently non-upgradeable."
+        "Make a deployed program permanently non-upgradeable. Admin only, D-class."
       ],
       "discriminator": [
         251,
@@ -1350,7 +1354,9 @@
     {
       "name": "pool_collect_protocol_fees",
       "docs": [
-        "Collect accrued protocol fees through a Treasury-signed pool CPI. Admin only."
+        "Collect accrued protocol fees through a Treasury-signed pool CPI. Admin only, instant.",
+        "Each paid recipient must be the vault PDA `[b\"vault\", mint_i]` or a token account of",
+        "`mint_i` owned by the Treasury PDA."
       ],
       "discriminator": [
         132,
@@ -1392,7 +1398,8 @@
     {
       "name": "pool_debug_withdraw_liquidity",
       "docs": [
-        "Withdraw the requested raw token amounts from the pool vaults. Admin only."
+        "Withdraw the requested raw token amounts from the vaults of a disabled pool. Admin only,",
+        "D-class."
       ],
       "discriminator": [
         233,
@@ -1643,7 +1650,7 @@
     {
       "name": "pool_initiate_protocol_admin_transfer",
       "docs": [
-        "Nominate a new `protocol_admin` on `CofferPoolConfig`."
+        "Nominate a new `protocol_admin` on `CofferPoolConfig`. Admin only, D-class."
       ],
       "discriminator": [
         137,
@@ -1685,67 +1692,12 @@
       ]
     },
     {
-      "name": "pool_migrate_to_v5",
-      "docs": [
-        "v4 -> v5 pool storage migration; mutates pool state. Admin only. `reactivate_tokens =",
-        "true` re-opens every deliberately disabled token, so pass it only on the first pass."
-      ],
-      "discriminator": [
-        153,
-        225,
-        178,
-        138,
-        8,
-        27,
-        147,
-        38
-      ],
-      "accounts": [
-        {
-          "name": "treasury",
-          "docs": [
-            "Treasury PDA; signs the CPI. `mut` to match coffer-pool's `authority` flag."
-          ],
-          "writable": true
-        },
-        {
-          "name": "admin",
-          "docs": [
-            "Signer; must equal `treasury.admin`. Pays fees."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "pool",
-          "writable": true
-        },
-        {
-          "name": "config"
-        },
-        {
-          "name": "system_program",
-          "docs": [
-            "System program."
-          ]
-        },
-        {
-          "name": "coffer_pool_program"
-        }
-      ],
-      "args": [
-        {
-          "name": "reactivate_tokens",
-          "type": "bool"
-        }
-      ]
-    },
-    {
       "name": "pool_redeem_lp_transfer_fees",
       "docs": [
-        "Redeem a pool's LP transfer fees into the Treasury vault PDAs. `remaining_accounts` =",
-        "`[vault_i, recipient_i]×n, mint×n, token_program×n`; recipients pinned to",
-        "`PDA([b\"vault\", mint_i])`. Admin only, instant."
+        "Redeem a pool's LP transfer fees into the Treasury. `remaining_accounts` =",
+        "`[vault_i, recipient_i]×n, mint×n, token_program×n`; each paid recipient must be",
+        "`PDA([b\"vault\", mint_i])` or a token account of `mint_i` owned by the Treasury PDA.",
+        "Admin only, instant."
       ],
       "discriminator": [
         196,
@@ -1942,7 +1894,7 @@
     {
       "name": "pool_set_pool_enabled",
       "docs": [
-        "Set the pool-wide operation switch. Admin only."
+        "Set the pool-wide operation switch. Admin only; disabling is instant, enabling is D-class."
       ],
       "discriminator": [
         46,
@@ -1989,7 +1941,7 @@
     {
       "name": "pool_set_protocol_fee_rate",
       "docs": [
-        "Set the protocol fee share in bps. Admin only."
+        "Set the protocol fee share in bps. Admin only, D-class."
       ],
       "discriminator": [
         133,
@@ -2036,7 +1988,7 @@
     {
       "name": "pool_set_swaps_enabled",
       "docs": [
-        "Set the independent swap switch. Admin only."
+        "Set the independent swap switch. Admin only, instant in both directions."
       ],
       "discriminator": [
         43,
@@ -2084,7 +2036,7 @@
       "name": "pool_set_token_active",
       "docs": [
         "Flip a token's input kill switch. `is_active = false` (deactivate): admin or supervisor.",
-        "`is_active = true` (reactivate) is `treasury.admin` only."
+        "`is_active = true` (reactivate) is `treasury.admin` only and D-class."
       ],
       "discriminator": [
         210,
@@ -2135,7 +2087,7 @@
     {
       "name": "pool_withdraw_sol",
       "docs": [
-        "Withdraw lamports from a pool-owned source above its rent floor. Admin only."
+        "Withdraw lamports from a pool-owned source above its rent floor. Admin only, D-class."
       ],
       "discriminator": [
         29,
@@ -2358,12 +2310,6 @@
           ],
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "system_program",
-          "docs": [
-            "System program."
-          ]
         }
       ],
       "args": [
@@ -2374,9 +2320,75 @@
       ]
     },
     {
+      "name": "stld_close_helper_token_account",
+      "docs": [
+        "Sweep and close one token account owned by a pool's STLD helper PDA: the balance goes",
+        "to the Treasury vault PDA of its mint, the lamports to the Treasury PDA.",
+        "`remaining_accounts`: Token-2022 transfer-hook accounts of the sweep. Admin only, instant."
+      ],
+      "discriminator": [
+        54,
+        91,
+        166,
+        6,
+        117,
+        146,
+        142,
+        168
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury PDA; receives the closed account's lamports."
+          ],
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Signer; must equal `treasury.admin`."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "helper"
+        },
+        {
+          "name": "helper_token_account",
+          "writable": true
+        },
+        {
+          "name": "mint",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "not exist when the token account is empty; stld reads it only to credit a balance."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "stld_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "stld_withdraw_sol",
       "docs": [
-        "Recover lamports from the dataless STLD helper (may be drained to zero). Admin only."
+        "Recover lamports from the dataless STLD helper (may be drained to zero). Admin only,",
+        "D-class."
       ],
       "discriminator": [
         200,
@@ -2436,7 +2448,8 @@
     {
       "name": "transfer_upgrade_authority",
       "docs": [
-        "Transfer upgrade authority; the destination co-signs (`SetAuthorityChecked`)."
+        "Transfer upgrade authority; the destination co-signs (`SetAuthorityChecked`). Admin only,",
+        "D-class."
       ],
       "discriminator": [
         82,
@@ -2487,7 +2500,7 @@
       "name": "unfreeze_pools",
       "docs": [
         "Unfreeze every `[config_i, pool_i]` pair in `remaining_accounts`. `treasury.admin` ONLY:",
-        "the supervisor may restrict, never relax."
+        "the supervisor may restrict, never relax. D-class."
       ],
       "discriminator": [
         19,
@@ -2586,7 +2599,8 @@
     {
       "name": "withdraw",
       "docs": [
-        "Withdraw `amount` tokens from a registered vault."
+        "Withdraw `amount` tokens from a Treasury-owned token account. Admin only, D-class: direct",
+        "only while `delay_secs == 0`, otherwise through `propose_action`."
       ],
       "discriminator": [
         183,
@@ -2649,7 +2663,7 @@
     {
       "name": "withdraw_sol",
       "docs": [
-        "Drain SOL from the Treasury PDA itself (above rent floor)."
+        "Drain SOL from the Treasury PDA itself (above rent floor). Admin only, D-class."
       ],
       "discriminator": [
         145,
@@ -2901,19 +2915,6 @@
       ]
     },
     {
-      "name": "PoolMigratedToV5ViaTreasury",
-      "discriminator": [
-        1,
-        170,
-        255,
-        209,
-        2,
-        50,
-        46,
-        143
-      ]
-    },
-    {
       "name": "PoolProtocolAdminTransferAcceptedV2",
       "discriminator": [
         191,
@@ -3122,6 +3123,19 @@
       ]
     },
     {
+      "name": "StldHelperTokenAccountClosedViaTreasury",
+      "discriminator": [
+        211,
+        54,
+        231,
+        52,
+        128,
+        148,
+        181,
+        5
+      ]
+    },
+    {
       "name": "StldSolWithdrawnViaTreasury",
       "discriminator": [
         247,
@@ -3326,6 +3340,11 @@
       "code": 6019,
       "name": "UpgradeBufferNotLive",
       "msg": "Upgrade buffer must hold a program image and be rent-exempt"
+    },
+    {
+      "code": 6020,
+      "name": "SelfCloseForbidden",
+      "msg": "protocol-admin cannot close itself"
     }
   ],
   "types": [
@@ -4080,7 +4099,7 @@
           {
             "name": "mint",
             "docs": [
-              "Mint; pins the vault `[b\"vault\", mint]`."
+              "Mint of the withdrawal; execution accepts any Treasury-owned token account of it."
             ],
             "type": "pubkey"
           },
@@ -4511,52 +4530,6 @@
               "`lp_transfer_fees_owed_protocol` pre-CPI."
             ],
             "type": "u64"
-          },
-          {
-            "name": "timestamp",
-            "docs": [
-              "Unix seconds."
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PoolMigratedToV5ViaTreasury",
-      "docs": [
-        "`pool_migrate_to_v5`."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "treasury",
-            "docs": [
-              "Treasury PDA."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "admin",
-            "docs": [
-              "Signing `treasury.admin`."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "pool",
-            "docs": [
-              "Target pool."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "reactivate_tokens",
-            "docs": [
-              "Whether token reactivation was requested."
-            ],
-            "type": "bool"
           },
           {
             "name": "timestamp",
@@ -5700,6 +5673,73 @@
             "name": "treasury_lamports_after",
             "docs": [
               "Treasury lamports after."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix seconds."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StldHelperTokenAccountClosedViaTreasury",
+      "docs": [
+        "`stld_close_helper_token_account`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Signing `treasury.admin`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "docs": [
+              "Pool whose helper PDA owned the token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_account",
+            "docs": [
+              "Closed token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "Mint of the closed token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "Treasury vault credited with any swept balance."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "lamports",
+            "docs": [
+              "Lamports the Treasury PDA gained."
             ],
             "type": "u64"
           },

@@ -61,3 +61,14 @@ export function applyWithdrawFee(grossPayout: bigint, withdrawFeeBps: number): L
 export function lpBurnNetOfWithdrawFee(effectiveLpBurn: bigint, withdrawFeeBps: number): bigint {
   return applyLiquidityFee(effectiveLpBurn, withdrawFeeBps).net;
 }
+
+/**
+ * `exit_withdraw_fee_bps`: the withdraw fee an exit of `effectiveLpBurn`
+ * out of the priced `lpSupply` pays. A burn of the whole supply pays none:
+ * no LP would remain to own the withheld part, and a pool is seeded only
+ * once. Only reachable at or below `MIN_LP_SUPPLY` (the burn is capped above
+ * the floor).
+ */
+export function exitWithdrawFeeBps(withdrawFeeBps: number, effectiveLpBurn: bigint, lpSupply: bigint): number {
+  return effectiveLpBurn === lpSupply ? 0 : withdrawFeeBps;
+}

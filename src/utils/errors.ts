@@ -61,7 +61,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   ProtocolAdminNotTreasury: "invalid_input",
 
   // ── coffer-pool 6069, v6 ──────────────────────────────────────────────
-  /** `migrate_to_v5` refused: the pool is not a verified unmarked legacy layout. */
+  /** Legacy-layout migration refused (the v4 → v5 instruction no longer exists; the code stays declared). */
   UnsafeLegacyMigration: "unsupported_pool_state",
 
   // ── single-token-liquidity 6033–6039, v6 planned zap ─────────────────
@@ -70,7 +70,7 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   /** The join tried to spend wallet funds beyond this zap's budget. */
   TokenBudgetExceeded: "invalid_input",
   ZapTokenExtensionsUnsupported: "unsupported_token_extension",
-  /** The legacy helper-PDA instructions always reject on v6. */
+  /** Declared for the removed helper-PDA deposits; never raised by the shipped entry points. */
   AllocationPlanRequired: "plan_invalid",
   InvalidAllocationPlan: "plan_invalid",
   AllocationPlanExpired: "plan_expired",
@@ -193,6 +193,14 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   /** STLD rc5 (6040): the pool's `RouteReturnV1` was missing / foreign / inconsistent with the wallet deltas. */
   RoutedReturnDataInvalid: "simulation_failed",
 
+  // ── coffer-pool 6120–6121 ────────────────────────────────────────────
+  /** 6120: a fee / debug-withdraw recipient that is one of the pool's own vaults. */
+  RecipientIsVault: "invalid_input",
+  /** 6121: `max_selloff_pct` rounds to a zero cap against the slot's virtual balance — raise the percentage or the virtual balance. */
+  MaxSelloffCapZero: "invalid_input",
+  /** STLD 6041: `close_helper_token_account` destination is not the authority's token account of the same mint. */
+  InvalidRecoveryDestination: "invalid_input",
+
   // ── protocol-admin ───────────────────────────────────────────────────
   /** New admin cannot be the all-zero pubkey. */
   InvalidAdmin: "invalid_input",
@@ -203,6 +211,8 @@ const ANCHOR_NAME_TO_SDK: Record<string, SdkErrorCode> = {
   BufferAuthorityMismatch: "invalid_input",
   /** Proposed F-01 append (6019): a full payload and rent exemption are required. */
   UpgradeBufferNotLive: "invalid_input",
+  /** 6020: `close_pool_program` / `ProgramOp` close targeting protocol-admin itself. */
+  SelfCloseForbidden: "invalid_input",
 
   // ── single-token-liquidity 6030–6032, new in v5.1 ────────────────────
   /** Zap route can't carry an armed transfer hook's extra accounts. */
@@ -249,6 +259,15 @@ const USER_MESSAGES: Record<string, string> = {
   RoutedReturnDataInvalid:
     "The routed single-token deposit could not verify the pool's route result against your token balances; nothing was deposited. " +
     "Retry, or use the planned single-token deposit.",
+  // 6120–6121 coffer_pool, 6020 protocol_admin, 6041 STLD
+  RecipientIsVault: "A recipient token account must not be one of the pool's own vaults — pass a wallet-owned (or Treasury vault) token account.",
+  MaxSelloffCapZero:
+    "The max-selloff percentage is too small for this token's virtual balance: the per-window cap would round to zero and block every sale. " +
+    "Raise max_selloff_pct (or the virtual balance), or disable the sell-off limit with 0.",
+  SelfCloseForbidden: "The protocol-admin program cannot close itself; close_pool_program / ProgramOp(close) accept only the other programs.",
+  InvalidRecoveryDestination:
+    "close_helper_token_account: the swept balance may only go to a token account of the same mint owned by the authority " +
+    "(through protocol-admin: the Treasury vault PDA of that mint).",
 };
 
 function buildErrorTable(errors: AnchorIdlError[]): ErrorTable {

@@ -88,8 +88,12 @@ test("generated public types match all shipped IDLs", () => {
   // retired PoolStateLog / MaxSelloffWindowAdvanced / SingleTokenDeposit and
   // re-cut 45 payloads under new names; rc2 added close_upgrade_buffer /
   // UpgradeBufferClosed and dropped the never-deployed batch route; rc5 added
-  // swap_route_join_v1 (pool, 57) and deposit_single_token_routed (STLD, 5)).
-  expect(instructions).toHaveLength(120);
+  // swap_route_join_v1 (pool, 57) and deposit_single_token_routed (STLD, 5);
+  // the dead-code removal dropped migrate_to_v5 (pool, 56), pool_migrate_to_v5 and
+  // added stld_close_helper_token_account (protocol_admin, 58), dropped
+  // deposit_single_token / deposit_single_token_direct and added
+  // close_helper_token_account (STLD, 4)).
+  expect(instructions).toHaveLength(118);
   expect(events).toHaveLength(87);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
@@ -217,8 +221,8 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     pool_set_protocol_fee_rate: () => client.setProtocolFeeRateIx(a, config, pool, 300),
     pool_set_pool_enabled: () => client.setPoolEnabledIx(a, config, pool, true),
     pool_set_swaps_enabled: () => client.setSwapsEnabledIx(a, config, pool, false),
-    pool_migrate_to_v5: () => client.migratePoolToV5Ix(a, config, pool, false),
     stld_withdraw_sol: () => client.stldWithdrawSolIx(a, config, pool, other, recipient, amount),
+    stld_close_helper_token_account: () => client.stldCloseHelperTokenAccountIx(a, config, pool, other, mint),
     freeze_pools: () => client.freezePoolsIx(a, [{ config, pool }]),
     unfreeze_pools: () => client.unfreezePoolsIx(a, [{ config, pool }]),
     pool_set_token_active: () => client.setTokenActiveIx(a, config, pool, 1, true),

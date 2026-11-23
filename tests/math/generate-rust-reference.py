@@ -12,6 +12,7 @@ root = parser.parse_args().contracts.resolve()
 sources={
  'log_exp_math':'programs/coffer-pool/src/math/log_exp_math.rs',
  'fixed_point':'programs/coffer-pool/src/math/fixed_point.rs',
+ 'udiv':'programs/coffer-pool/src/math/udiv.rs',
  'fee_split':'programs/coffer-pool/src/math/fee_split.rs',
  'pool_math':'programs/coffer-pool/src/math/pool_math.rs',
  'max_selloff':'programs/coffer-pool/src/math/max_selloff.rs',
@@ -21,18 +22,20 @@ sources={
 SWAP='programs/coffer-pool/src/instructions/user/swap.rs'
 preamble='''#![allow(dead_code,unused_imports,unused_mut,unused_variables)]
 extern crate self as coffer_pool;
-#[derive(Debug,Clone,Copy)] enum E {MathOverflow,MathUnderflow,DivisionByZero,AmountOutExceedsBalance,InvalidArrayLength,InvalidTokenCount,PoolNotSeeded,InvalidLpAmount,InvalidWeights,MaxSelloffInvalidConfig,MaxSelloffExceeded,InvalidTokenIndex,InvalidVirtualBalance,AmountTooSmall,TokenLivenessMismatch,InvalidVirtualBalances,InvalidAmounts,TransferFeeCalculationMismatch,AmountFullyConsumedByTransferFee,TokenInactive,DepositTooSmall,InvalidSurgeFeeConfig,ZeroFeeAmount,InsufficientLiquidity,SlippageExceeded,ProtocolFeeRateMaxExceeded,CreatorFeeBpsMaxExceeded,VirtualBalanceNotAboveActual,VirtualBalanceBelowFloor,InvalidVirtualRescale}
+#[derive(Debug,Clone,Copy)] enum E {MathOverflow,MathUnderflow,DivisionByZero,AmountOutExceedsBalance,InvalidArrayLength,InvalidTokenCount,PoolNotSeeded,InvalidLpAmount,InvalidWeights,MaxSelloffInvalidConfig,MaxSelloffExceeded,InvalidTokenIndex,InvalidVirtualBalance,AmountTooSmall,TokenLivenessMismatch,InvalidVirtualBalances,InvalidAmounts,TransferFeeCalculationMismatch,AmountFullyConsumedByTransferFee,TokenInactive,DepositTooSmall,InvalidSurgeFeeConfig,ZeroFeeAmount,InsufficientLiquidity,SlippageExceeded,ProtocolFeeRateMaxExceeded,CreatorFeeBpsMaxExceeded,VirtualBalanceNotAboveActual,VirtualBalanceBelowFloor,InvalidVirtualRescale,DepositRoundingLossTooLarge}
 type Result<T> = std::result::Result<T,E>;
 macro_rules! require { ($ok:expr,$err:expr) => {if !$ok{return Err($err.into());}}; }
 macro_rules! err { ($err:expr) => {Err($err.into())}; }
 mod errors {pub(crate) use crate::E as ErrorCode;pub(crate) use crate::E as StldError;}
-mod constants {pub const ONE:u128=1_000_000_000_000_000_000;pub const PERCENT_SCALE:u64=10000;pub const MIN_WEIGHT:u64=100;pub const MAX_WEIGHT:u64=9900;pub const WEIGHT_SCALE:u64=10000;pub const SURGE_FEE_SEGMENTS:u8=4;pub const MIN_LP_SUPPLY:u64=1_000;pub const SWAP_FEE_PRECISION:u64=1_000_000;pub const PROTOCOL_FEE_PRECISION:u64=10_000;pub const CREATOR_FEE_PRECISION:u64=10_000;pub const NO_CREATOR_FEE:u16=0;pub fn weight_to_fixed_point(w:u64)->u128{w as u128*ONE/10000}}
+mod constants {pub const ONE:u128=1_000_000_000_000_000_000;pub const PERCENT_SCALE:u64=10000;pub const MIN_WEIGHT:u64=100;pub const MAX_WEIGHT:u64=9900;pub const WEIGHT_SCALE:u64=10000;pub const SURGE_FEE_SEGMENTS:u8=4;pub const MIN_LP_SUPPLY:u64=1_000;pub const DEPOSIT_ROUNDING_TOLERANCE_DIVISOR:u64=MIN_LP_SUPPLY;pub const SWAP_FEE_PRECISION:u64=1_000_000;pub const PROTOCOL_FEE_PRECISION:u64=10_000;pub const CREATOR_FEE_PRECISION:u64=10_000;pub const NO_CREATOR_FEE:u16=0;pub fn weight_to_fixed_point(w:u64)->u128{w as u128*ONE/10000}}
 mod state {#[derive(Debug,Clone,Copy,Default)] pub struct AssetDynamics {pub virtual_balance:u64,pub actual_balance:u64,pub protocol_fees_owed:u64,pub previous_selloff:u64,pub current_selloff:u64,pub window_start_timestamp:i64,pub selloff_vb_snapshot:u64} pub struct Config {pub max_selloff_pct:u16} pub struct Token {pub config:Config,pub dynamics:AssetDynamics} pub struct CofferPool {pub tokens:Vec<Token>}}
 '''
 # Sanitizing imports/error types is necessary to compile outside Anchor. No math edits.
 def sanitized(text):
  text=re.split(r'#\[cfg\(test\)\]\s*mod\s+\w+\s*\{',text,maxsplit=1)[0]
  text=re.sub(r'^//!.*$', '', text, flags=re.M)
+ # Test-only helpers (`#[cfg(test)]` on an item) stay available to the reference binary.
+ text=re.sub(r'#\[cfg\(test\)\]\s*', '', text)
  text=text.replace('use anchor_lang::prelude::*;', 'use crate::Result;')
  text=text.replace('\nfn rebase_snapshot(', '\npub fn rebase_snapshot(')
  return text
@@ -42,17 +45,17 @@ for name,path in sources.items():
 mathmod+='pub use fee_split::split_fee;\n}\nmod single_token {\n'+sanitized((root/sources['single_token']).read_text())+'\n}\n'
 swap=(root/SWAP).read_text()
 # The two fee helpers verbatim (ceil rounding is the audited behaviour).
-fees=swap[swap.index('pub fn calculate_swap_fee'):swap.index('#[cfg(test)]\nmod protocol_fee_tests')]
+fees=re.sub(r'#\[cfg\(test\)\]\s*', '', swap[swap.index('pub fn calculate_swap_fee'):swap.index('#[cfg(test)]\nmod protocol_fee_tests')])
 # The production surge charge verbatim, adapting only the per-token config
 # read to an explicit reference parameter.
-block=swap[swap.index('let surge_fee_amount: u64 ='):swap.index('// User receives the curve output')]
+block=swap[swap.index('let surge_fee_amount: u64 ='):swap.index('let amount_out_user = amount_out')]
 block=block.replace('        let cfg = &pool.tokens[token_in_idx].config;','')
 wrapper='''struct Curve {variable_fee_threshold_pct:u16,variable_fee_slope_low_pct:u16,variable_fee_slope_mid_pct:u16,variable_fee_slope_high_pct:u16,variable_fee_kink_pct:u8}
-use errors::ErrorCode;use math::pool_math::PoolMath;use state::AssetDynamics;
+use errors::ErrorCode;use math::pool_math::PoolMath;use math::udiv::{udiv,udiv_ceil};use state::AssetDynamics;
 '''+fees+'''
 fn surge(window:math::max_selloff::MaxSelloffResult,cfg:&Curve,virtual_balance_in:u64,weight_in:u64,virtual_balance_out:u64,weight_out:u64,amount_in_after_fee:u64,actual_balance_out:u64)->Result<u64>{
 let decimals_in=9;let decimals_out=9;let max_selloff_result=Some(window);
-let amount_out=PoolMath::calc_out_given_in(virtual_balance_in,weight_in,virtual_balance_out,weight_out,amount_in_after_fee,actual_balance_out,9,9)?;
+let amount_out=PoolMath::calc_out_given_in(virtual_balance_in,weight_in,virtual_balance_out,weight_out,amount_in_after_fee,actual_balance_out)?;
 '''+block+'\nOk(surge_fee_amount)\n}\n'
 main=r'''
 fn value<T:std::fmt::Display>(v:Result<T>)->String{match v{Ok(x)=>format!("\"{}\"",x),Err(e)=>format!("\"error:{:?}\"",e)}}
@@ -67,14 +70,14 @@ println!("{{\"kind\":\"ln\",\"x\":\"{}\",\"expected\":{}}}",x,value(L::ln(x)));
 for x in [-42i128,-41,-40,-2,-1,0,1,2,40,46,47] {let x=x*1_000_000_000_000_000_000;println!("{{\"kind\":\"exp\",\"x\":\"{}\",\"expected\":{}}}",x,value(L::exp(x)));}
 for base in [1u128,10,999_999_999_999_999_999,501_000_000_000_000_000,1_990_000_000_000_000_000,1_000_000_000_000_000_000,10_000_000_000_000_000_000] {for exp in [0u128,10_101_010_101_010_101,500_000_000_000_000_000,1_000_000_000_000_000_000,4_000_000_000_000_000_000,99_000_000_000_000_000_000]{println!("{{\"kind\":\"pow\",\"base\":\"{}\",\"exponent\":\"{}\",\"expected\":{}}}",base,exp,value(L::pow(base,exp)));}}
 let amounts=[1u64,3,1000,100_000_000,990_000_000,1_000_000_000,100_000_000_000,M];
-for amount in amounts {for wi in [100u64,5000,8000,9500,9900]{let wo=10000-wi;println!("{{\"kind\":\"swap\",\"amount\":\"{}\",\"weight\":{},\"expected\":{}}}",amount,wi,value(PoolMath::calc_out_given_in(1_000_000_000,wi,1_000_000_000,wo,amount,1_000_000_000,9,9)));}}
+for amount in amounts {for wi in [100u64,5000,8000,9500,9900]{let wo=10000-wi;println!("{{\"kind\":\"swap\",\"amount\":\"{}\",\"weight\":{},\"expected\":{}}}",amount,wi,value(PoolMath::calc_out_given_in(1_000_000_000,wi,1_000_000_000,wo,amount,1_000_000_000)));}}
 // v6: equal positive weights take the exact `base` path (no ln/exp); unequal keep pow.
-for (vb_in,vb_out,actual_out) in [(1_000_000_000u64,1_000_000_000u64,1_000_000_000u64),(1,1,1),(3,7,7),(1_000_000,3_000_000_000,3_000_000_000),(M,M,M),(M,1,1),(1_000_000_000,2_000_000_000,500_000_000)] {for amount in [1u64,2,999,1_000_000,1_000_000_000,M] {for w in [100u64,2500,5000,9900,10000]{println!("{{\"kind\":\"swapEqualWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weight\":{},\"expected\":{}}}",vb_in,vb_out,actual_out,amount,w,value(PoolMath::calc_out_given_in(vb_in,w,vb_out,w,amount,actual_out,9,9)));}}}
+for (vb_in,vb_out,actual_out) in [(1_000_000_000u64,1_000_000_000u64,1_000_000_000u64),(1,1,1),(3,7,7),(1_000_000,3_000_000_000,3_000_000_000),(M,M,M),(M,1,1),(1_000_000_000,2_000_000_000,500_000_000)] {for amount in [1u64,2,999,1_000_000,1_000_000_000,M] {for w in [100u64,2500,5000,9900,10000]{println!("{{\"kind\":\"swapEqualWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weight\":{},\"expected\":{}}}",vb_in,vb_out,actual_out,amount,w,value(PoolMath::calc_out_given_in(vb_in,w,vb_out,w,amount,actual_out)));}}}
 // Exact-integer counterexamples and full-u64 unequal-weight boundaries.
 for (vb_in,wi,amount) in [(223130160148429829u64,200u64,776869839851570171u64),(416862019678508403,200,583137980321491597),(687289278790972199,800,312710721209027801),(882496902584595403,800,117503097415404597),(882496902584595403,1600,117503097415404597)] {
-println!("{{\"kind\":\"swapUnequalWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weightIn\":{},\"weightOut\":100,\"expected\":{}}}",vb_in,M,M-1,amount,wi,value(PoolMath::calc_out_given_in(vb_in,wi,M,100,amount,M-1,9,9)));}
+println!("{{\"kind\":\"swapUnequalWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weightIn\":{},\"weightOut\":100,\"expected\":{}}}",vb_in,M,M-1,amount,wi,value(PoolMath::calc_out_given_in(vb_in,wi,M,100,amount,M-1)));}
 for exponent in [2u64,3,8,16,32,64,99] {for vb_in in [3u64,1_000_000_000,1_000_000_000_000_000_000,M] {for amount in [0u64,1,vb_in/100,vb_in/10] {for vb_out in [1u64,1_000_000_000,M] {
-println!("{{\"kind\":\"swapUnequalWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weightIn\":{},\"weightOut\":100,\"expected\":{}}}",vb_in,vb_out,vb_out,amount,exponent*100,value(PoolMath::calc_out_given_in(vb_in,exponent*100,vb_out,100,amount,vb_out,9,9)));}}}}
+println!("{{\"kind\":\"swapUnequalWeights\",\"vbIn\":\"{}\",\"vbOut\":\"{}\",\"actualOut\":\"{}\",\"amount\":\"{}\",\"weightIn\":{},\"weightOut\":100,\"expected\":{}}}",vb_in,vb_out,vb_out,amount,exponent*100,value(PoolMath::calc_out_given_in(vb_in,exponent*100,vb_out,100,amount,vb_out)));}}}}
 for amounts in [[1_000_000u64,1_000_000],[1_000_000,500_000_000],[400_000,800_000],[68_056_473_384_187_693,68_056_473_384_187_693],[M,M-1]] {for amount in [1u64,1000,1_000_000,M]{println!("{{\"kind\":\"allocation\",\"actual\":[\"{}\",\"{}\"],\"amount\":\"{}\",\"expected\":{}}}",amounts[0],amounts[1],amount,list(single_token::compute_allocations(&amounts,&[1_000_000,1_000_000],&[5000,5000],amount,0)));}}
 let curves=[(0u16,0u16,0u16,3000u16,0u8),(8000,10,100,3000,95),(5000,100,700,8000,80),(10000,0,0,10000,0),(0,100,1000,3000,50),(2000,100,500,5000,60),(3000,250,800,4000,70),(5000,20000,30000,65535,70),(2000,700,100,3000,50)];
 for (before,after,cap) in [(0u64,10000u64,10000u64),(8000,10000,10000),(9999,10000,10000),(5000,5000,10000),(1,2,3),(12345678,556677889,1000000000),(2001,2001,10000),(6000,6000,10000),(3001,3001,10000),(2500,2500,10000),(7500,7500,10000),(0,1,M),(M-1,M,M),(10000,10000,10000),(0,0,10000)] {for (threshold,low,mid,high,kink) in curves{

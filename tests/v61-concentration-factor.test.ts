@@ -385,8 +385,8 @@ describe("refusals", () => {
     expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(10), new BN(10)], minimumLpAmount: new BN(1) })).not.toThrow();
     expect(fail(clientFor(pool).quoteAddLiquidity([new BN(10), new BN(10)])).code).toBe("concentration_factor_invariant");
   });
-  test("[N17] unknown error 6120 stays unknown; 6104 on protocol_admin is not a concentrationFactor error", () => {
-    expect(describeProgramError(6120)).toBeUndefined();
+  test("[N17] unknown error 6122 stays unknown; 6104 on protocol_admin is not a concentrationFactor error", () => {
+    expect(describeProgramError(6122)).toBeUndefined();
     expect(describeProgramError(6104, "protocolAdmin")).toBeUndefined();
     expect(toSdkError(new Error("Error Number: 6104"), "protocolAdmin").code).toBe("unknown");
   });

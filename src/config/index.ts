@@ -200,6 +200,8 @@ export const MAX_LP_TRANSFER_FEE_BPS = 1_000;
 export const LP_TRANSFER_FEE_MAXIMUM = (1n << 64n) - 1n;
 /** Upper bound on `CofferPool.lp_transfer_fee_protocol_share_bps` (100 %; `LpTransferFeeProtocolShareMaxExceeded`, 6113). */
 export const MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS = LP_TRANSFER_FEE_PRECISION;
+/** `protocol_admin::MAX_UNFREEZE_POOLS`: pools one `UnfreezePools` proposal may carry (its execute must fit one packet). */
+export const MAX_UNFREEZE_POOLS = 14;
 /** Protocol share of collected LP transfer fees written onto every new pool by `initialize_pool` (= `DEFAULT_PROTOCOL_FEE_RATE`). */
 export const DEFAULT_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS = DEFAULT_PROTOCOL_FEE_RATE;
 /**

@@ -259,7 +259,7 @@ insufficient funds) short-circuit.
 | `CofferPoolClient` | `sync`, `getCached`, `quoteSwap`, `quoteSeedDeposit`, `quoteAddLiquidity`, `quoteRemove`, `resolve*ExtraAccounts`, swap/add/remove transaction builders, `plannedZap` getter, `quotePlannedZap`, `parseEventsFromLogs` |
 | `PlannedZapClient` | `quote`, `replayAt`, `ensureUserTokenAccountIxs`, `resolveExtraAccounts`, `buildIx`, `buildTx`, `walletLookupAddresses`, `prepareWalletLookupTable`, `waitForWalletLookupTable`, `poolLookupTable`, `compileTransaction`; see [PLANNED_ZAP.md](docs/PLANNED_ZAP.md) |
 | `PoolFactoryClient` | `buildDeployPoolTx`, `buildInitializeConfigTx`, `initializePoolIx` |
-| `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/migration/ALT, program upgrades/authority transfer/freeze/close; all 55 protocol-admin instructions |
+| `AdminClient` | Treasury initialization/rotation, supervisor, fee collection/withdrawals, pool configuration/activation/ALT, STLD helper SOL / token-account recovery, program upgrades/authority transfer/freeze/close; all 58 protocol-admin instructions |
 | Generic ABI | `buildContractInstruction` for all 120 instructions; `decodeContractAccount` for all declared accounts; `decodeContractEvent`/`parseContractEvents` for all 87 events; `parseTransactionEvents` with invoke-stack attribution ([EVENTS.md](docs/EVENTS.md)) |
 | Raw builders | `build*Ix`/`build*Tx` for swaps, liquidity, pool/config/ALT initialization, fee/sell-off/range management and pool-admin rotation; `buildPlannedZapIx`, `stateCommitment`, `compilePlannedZapTransaction`; `resolveTransferExtraAccounts` |
 | RPC/HTTP | `RpcClient`, `CofferBackendClient`; see [backend version scope](docs/BACKEND_COMPATIBILITY.md) |
@@ -293,9 +293,12 @@ const zap = await pool.plannedZap.quote(inIndex, amountIn, { slippageHundredthsB
   credit, `chargedAmounts` as the wallet debit (credit + transfer fee) and
   `unspentAmounts` as what stays. Seed uses exact amounts.
 - Exit `effectiveLpIn` may be smaller than requested to preserve 1,000 raw LP. If direct external burns already reduced supply to
-  that floor or below, rc2 permits redemption of the remaining full supply;
-  `receivedAmounts` is what lands in the wallet. Derive `minimumTokenAmounts`
-  from it.
+  that floor or below, rc2 permits redemption of the remaining full supply, and a burn of the
+  whole supply pays no withdraw fee; `receivedAmounts` is what lands in the wallet. Derive
+  `minimumTokenAmounts` from it.
+- Join, exit, zap and redemption quotes are priced on the LP supply net of the vested LP burn
+  stream (`pricedLpSupplyOf(pool, nowSeconds)`), exactly as the program prices them; pass
+  `nowSeconds` to `quoteAddLiquidity` / `quoteRemove` to price at the transaction's clock.
 - Add/zap builders require a **positive** LP floor at runtime, even though the
   compatibility interfaces retain it as optional. Remove builders require an
   explicit `minimumTokenAmounts` vector.

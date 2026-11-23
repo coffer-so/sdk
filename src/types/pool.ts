@@ -211,10 +211,11 @@ export interface PoolInfo {
    */
   chainEpoch?: number;
   /**
-   * `true` once `migrate_to_v5` stamped the `"V5M1"` marker into the
-   * account's reserved bytes. A pool created by the v5/v6 program is marked
-   * at creation; an unmarked pool still needs the guarded migration before
-   * its per-token kill switches and concentrationFactor band are trustworthy.
+   * `true` once the `"V5M1"` marker sits in the account's reserved bytes.
+   * A pool created by the v5/v6 program is marked at creation; the v4 → v5
+   * migration instruction that stamped older pools no longer exists, so an
+   * unmarked pool's per-token kill switches and concentrationFactor band
+   * are not trustworthy.
    */
   v5Migrated?: boolean;
   /** Total supply of LP tokens at snapshot time. */

@@ -97,7 +97,7 @@ export { PlannedZapClient, planHasSwapLeg, probeInstructionPresence, classifyIns
 export type { PlannedZapClientParams, PlannedZapQuote, PlannedZapExtraAccounts, PlannedZapRoute, RoutedSupport, RoutedProbeStatus, BuiltDirectZapTx } from "./clients/plannedZap/PlannedZapClient";
 export { buildPlannedZapIx, buildRoutedZapIx, buildRoutedZapInstruction, buildDirectZapIx, routedZapComputeBudgetIxs, plannedZapAccounts, encodeAllocationPlan, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS, PLANNED_ZAP_DISCRIMINATOR_HEX, ROUTED_ZAP_DISCRIMINATOR_HEX, ROUTED_ZAP_HEAP_FRAME_BYTES } from "./clients/plannedZap/instruction";
 export type { AllocationPlan, PlannedZapAccounts, PlannedZapArgs, DirectZapRoute } from "./clients/plannedZap/instruction";
-export { stateCommitment, PLAN_DOMAIN, MAX_PLAN_AGE_SECONDS, MAX_VALID_FOR_SLOTS, V6_PLAN_HASH_VECTOR } from "./clients/plannedZap/stateCommitment";
+export { stateCommitment, mintFingerprint, PLAN_DOMAIN, MAX_PLAN_AGE_SECONDS, MAX_VALID_FOR_SLOTS, MAX_FINGERPRINT_EXTENSIONS, V6_PLAN_HASH_VECTOR, V6_PLAN_HASH_VECTOR_RICH } from "./clients/plannedZap/stateCommitment";
 export type { SnapshotAccount } from "./clients/plannedZap/stateCommitment";
 export { buildWalletLookupPreparation, resolveWalletLookupTable, waitForWalletLookupTable, compilePlannedZapTransaction, PACKET_BYTES, DEFAULT_SETUP_WALLET_RESERVE, DEFAULT_FINANCIAL_WALLET_RESERVE } from "./clients/plannedZap/walletAlt";
 export type { AltConnection, WalletLookupPreparation, CompiledPlannedZap } from "./clients/plannedZap/walletAlt";
@@ -277,7 +277,7 @@ export {
 } from "./config";
 export { splitFee, nonLpShare, feeSplitTotal } from "./math/feeSplit";
 export type { FeeSplit } from "./math/feeSplit";
-export { applyLiquidityFee, applyDepositFee, applyWithdrawFee, lpBurnNetOfWithdrawFee } from "./math/liquidityFee";
+export { applyLiquidityFee, applyDepositFee, applyWithdrawFee, lpBurnNetOfWithdrawFee, exitWithdrawFeeBps } from "./math/liquidityFee";
 export { nav, navBalances, splitDepositCredit, splitExitPayout, calculateExitPayout } from "./math/surgeBucket";
 export { poolNavBalances, lpPositionValue, lpPriceUsd } from "./math/lpPrice";
 export { simulatePoolSwap, swapLegOf, tokenSurgeBucket, hasDynamicFeeHook, hookPaused, pendingActionsStatusOf } from "./clients/quote-math";
@@ -331,7 +331,7 @@ export {
   swapSurgeLpAmount, swapSlotDeltas, applySwapToVectors,
 } from "./parsers/events";
 export type { AttributedEvent } from "./parsers/events";
-export { RECUT_EVENTS, RETIRED_EVENTS, LEGACY_EVENT_DISCRIMINATORS } from "./parsers/eventPins";
+export { RECUT_EVENTS, RETIRED_EVENTS, REMOVED_INSTRUCTIONS, LEGACY_EVENT_DISCRIMINATORS } from "./parsers/eventPins";
 export type { LegacyEventPin } from "./parsers/eventPins";
 export { ACTOR_KINDS, ACTOR_KIND, actorKindName } from "./types/events";
 export {
@@ -353,13 +353,13 @@ export { effectiveScaledUiMultiplier, rawAmountToScaledUiString, scaledUiAmountT
 
 // ─── LP transfer fee (2026-11-19): Token-2022 TransferFeeConfig on new LP mints ─
 export {
-  LP_TRANSFER_FEE_PRECISION, MAX_LP_TRANSFER_FEE_BPS, LP_TRANSFER_FEE_MAXIMUM, MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS, DEFAULT_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS,
+  LP_TRANSFER_FEE_PRECISION, MAX_LP_TRANSFER_FEE_BPS, LP_TRANSFER_FEE_MAXIMUM, MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS, DEFAULT_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS, MAX_UNFREEZE_POOLS,
   LP_TRANSFER_FEE_BURN_WINDOW_SECS,
 } from "./config";
 export {
   validateLpTransferFeeBps, validateLpTransferFeeProtocolShareBps, lpTransferFeeAt, lpTransferFeeBpsAt, scheduledLpTransferFeeBps, lpTransferFeeOf, lpNetOfTransferFee,
   lpReceivedAfterTransferFee, lpGrossForNet, splitLpTransferFee, previewLpTransferFeeCollection, lpTransferFeeDrip, quoteLpTransferFeeBurnStream,
-  lpTransferFeeSettle, lpTransferFeeSchedule, collectLpTransferFeeStep, lpBurnStreamOf,
+  lpTransferFeeSettle, lpTransferFeeSchedule, collectLpTransferFeeStep, lpBurnStreamOf, pricedLpSupply, pricedLpSupplyOf,
 } from "./math/lpTransferFee";
 export type { LpFeeSplit, LpBurnStream, LpTransferFeeCollectStep, LpTransferFeeBurnStreamQuote, LpTransferFeeCollectionPreview } from "./math/lpTransferFee";
 export {

@@ -263,10 +263,15 @@ describe("T18 IDL: names renamed, discriminators pinned", () => {
     expect(describeProgramError(6025)?.name).toBe("BannedExtension");
   });
 
-  test("ABI size after rc5 (swap_route_join_v1 + deposit_single_token_routed): 120 instructions and 87 events across the three programs (57+58+5 / 45+40+2)", () => {
+  test("ABI size after the dead-code removal and the helper-account recovery: 118 instructions and 87 events across the three programs (56+58+4 / 44+40+3)", () => {
     const programs = Object.values(IDLS) as any[];
-    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(120);
+    expect(programs.reduce((n, idl) => n + idl.instructions.length, 0)).toBe(118);
     expect(programs.reduce((n, idl) => n + idl.events.length, 0)).toBe(87);
+    for (const name of ["migrate_to_v5"]) expect(IDLS.cofferPool.instructions.some((ix) => ix.name === name)).toBe(false);
+    for (const name of ["pool_migrate_to_v5"]) expect(IDLS.protocolAdmin.instructions.some((ix) => ix.name === name)).toBe(false);
+    for (const name of ["deposit_single_token", "deposit_single_token_direct"]) expect(IDLS.singleTokenLiquidity.instructions.some((ix) => ix.name === name)).toBe(false);
+    expect(IDLS.protocolAdmin.instructions.some((ix) => ix.name === "stld_close_helper_token_account")).toBe(true);
+    expect(IDLS.singleTokenLiquidity.instructions.some((ix) => ix.name === "close_helper_token_account")).toBe(true);
   });
 });
 
@@ -463,8 +468,9 @@ describe("T18 client quote surfaces", () => {
   });
 
   test("AdminClient keeps its governance surface minus the policy setter", () => {
-    for (const method of ["setPoolEnabledIx", "setSwapsEnabledIx", "setProtocolFeeRateIx", "poolInitializeConfigIx", "migratePoolToV5Ix"]) {
+    for (const method of ["setPoolEnabledIx", "setSwapsEnabledIx", "setProtocolFeeRateIx", "poolInitializeConfigIx", "stldCloseHelperTokenAccountIx"]) {
       expect(typeof (AdminClient.prototype as any)[method]).toBe("function");
     }
+    expect((AdminClient.prototype as any).migratePoolToV5Ix).toBeUndefined();
   });
 });

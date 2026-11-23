@@ -15,7 +15,7 @@ import { CofferConfig } from "../config";
 import { PROTOCOL_ADMIN_IDL } from "../idl";
 import { buildContractInstruction } from "./contract-instructions";
 import { deriveAltAddress } from "./tx-builders";
-import { deriveTreasuryPda } from "../utils/pda";
+import { deriveHelperPda, deriveTreasuryPda } from "../utils/pda";
 import { PoolInfo } from "../types/pool";
 import { ProtocolAction, proposeActionRemainingAccounts, protocolActionKindName, protocolActionKindOf } from "./cooldown";
 import { buildCollectProtocolFeesIx, treasuryVaultPda } from "./feeClaim";
@@ -292,36 +292,6 @@ export class AdminClient {
   }
 
   /**
-   * Migrate a pool account from the v4 storage layout to v5.
-   *
-   * ⚠ v5.1 (audit H-7) added `reactivateTokens` and this instruction is no
-   * longer a no-op — it mutates pool state.
-   *
-   * @param reactivateTokens Pass `true` ONLY on the one-shot v4 → v5 pass.
-   *   On any later call `true` silently re-opens every token that was
-   *   deliberately disabled via `set_token_active`, undoing a circuit
-   *   breaker. Default is `false` for that reason.
-   */
-  migratePoolToV5Ix(
-    admin: PublicKey,
-    config: PublicKey,
-    pool: PublicKey,
-    reactivateTokens = false,
-  ) {
-    return (this.program.methods as any)
-      .poolMigrateToV5(reactivateTokens)
-      .accounts({
-        treasury: this.treasuryPda,
-        admin,
-        pool,
-        config,
-        systemProgram: SystemProgram.programId,
-        cofferPoolProgram: this.cofferPoolProgramId,
-      })
-      .instruction();
-  }
-
-  /**
    * Drain lamports from a single-token-liquidity helper PDA.
    *
    * ⚠ v5.1 (audit L-8 / SF-12) added the `pool` and `system_program`
@@ -350,6 +320,35 @@ export class AdminClient {
         stldProgram: this.stldProgramId,
       })
       .instruction();
+  }
+
+  /**
+   * `stld_close_helper_token_account`: sweep and close a token account left
+   * on a pool's single-token-liquidity helper PDA (`[b"helper", pool]`).
+   * Instant (no cooldown): any balance can only reach the Treasury vault PDA
+   * of its mint (`[b"vault", mint]`, registered or not — it is read only when
+   * there is a balance) and the rent only the Treasury PDA. The helper PDA is
+   * derived here; `tail` carries the Token-2022 transfer-hook accounts of the
+   * sweep (never signers). STLD refuses the close while the account still
+   * holds withheld transfer fees (harvest them first) and, for a
+   * Token-2022 mint, harvests the account's own withheld amount to the mint
+   * before closing.
+   */
+  stldCloseHelperTokenAccountIx(
+    admin: PublicKey,
+    config: PublicKey,
+    pool: PublicKey,
+    helperTokenAccount: PublicKey,
+    mint: PublicKey,
+    tokenProgram: PublicKey = TOKEN_PROGRAM_ID,
+    tail: AccountMeta[] = [],
+  ) {
+    if (tail.some((meta) => meta.isSigner)) throw new Error("stld_close_helper_token_account: tail accounts cannot be signers");
+    const [helper] = deriveHelperPda(this.stldProgramId, pool);
+    return buildContractInstruction(this.config, "protocolAdmin", "stld_close_helper_token_account", {}, {
+      treasury: this.treasuryPda, admin, config, pool, helper, helper_token_account: helperTokenAccount, mint,
+      vault: treasuryVaultPda(mint, this.config.programs.protocolAdmin), token_program: tokenProgram, stld_program: this.stldProgramId,
+    }, tail.map((meta) => ({ pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable })));
   }
 
   // ── Circuit breaker (admin OR supervisor) ────────────────────────────────
@@ -425,7 +424,6 @@ export class AdminClient {
       .accounts({
         treasury: this.treasuryPda,
         admin,
-        systemProgram: SystemProgram.programId,
       })
       .instruction();
   }

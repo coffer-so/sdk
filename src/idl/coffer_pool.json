@@ -1300,7 +1300,9 @@
       "name": "migrate_pool_layout_v61",
       "docs": [
         "Grow a legacy pool to 2304 bytes; permissionless, the payer funds rent.",
-        "Remaining accounts: mints in slot order. Current-layout pools return `AlreadyMigrated`."
+        "Remaining accounts: mints in slot order. Current-layout pools return `AlreadyMigrated`.",
+        "A token input or swap switch found off becomes a protocol restriction; a pending",
+        "pool-admin nomination stays acceptable for the grace period."
       ],
       "discriminator": [
         148,
@@ -1336,56 +1338,6 @@
         }
       ],
       "args": []
-    },
-    {
-      "name": "migrate_to_v5",
-      "docs": [
-        "Validate legacy provenance, optionally reactivate tokens and mark the pool migrated; pool or protocol admin."
-      ],
-      "discriminator": [
-        127,
-        60,
-        135,
-        204,
-        181,
-        90,
-        202,
-        249
-      ],
-      "accounts": [
-        {
-          "name": "pool",
-          "docs": [
-            "Pool account targeted by this operation."
-          ],
-          "writable": true
-        },
-        {
-          "name": "config",
-          "docs": [
-            "Parent config — authorises via `protocol_admin`."
-          ]
-        },
-        {
-          "name": "authority",
-          "docs": [
-            "Operation signer; account constraints and the handler determine the permitted role."
-          ],
-          "signer": true
-        },
-        {
-          "name": "system_program",
-          "docs": [
-            "System program used for account creation or lamport transfers."
-          ]
-        }
-      ],
-      "args": [
-        {
-          "name": "reactivate_tokens",
-          "type": "bool"
-        }
-      ]
     },
     {
       "name": "propose_pool_action",
@@ -1542,7 +1494,9 @@
       "name": "remove_liquidity",
       "docs": [
         "Redeem LP for proportional reserves and surge fees; any LP holder.",
-        "Above `MIN_LP_SUPPLY` the burn is capped at `supply - MIN_LP_SUPPLY`; at or below it the whole source balance must be burned."
+        "Above `MIN_LP_SUPPLY` the burn is capped at `supply - MIN_LP_SUPPLY`; at or below it the whole source balance must be burned.",
+        "`supply` is the LP mint supply less the vested, not yet burned part of the LP fee stream.",
+        "A burn of that whole supply pays no withdraw fee."
       ],
       "discriminator": [
         80,
@@ -2166,7 +2120,8 @@
     {
       "name": "set_range_manager",
       "docs": [
-        "Set the manager as pool admin (subject to cooldown), or disable the current manager as protocol admin."
+        "Set the manager as pool admin (subject to cooldown). As protocol admin: suspend the current",
+        "manager, or release that suspension, which restores the state remembered when it was imposed."
       ],
       "discriminator": [
         103,
@@ -2508,7 +2463,7 @@
         "allocation (slot order, no per-leg floor), then join with those receipts plus",
         "`allocations[token_in_index]`; any user. Same accounts as `add_liquidity`; economics,",
         "checks, hooks and events of `swap` × k + `add_liquidity`. Returns `RouteReturnV1`.",
-        "Every leg allocates on the never-freed bump heap: at N10 the transaction must request a",
+        "Every leg allocates on the never-freed bump heap: at ten tokens the transaction must request a",
         "larger heap frame (64 KiB measured sufficient) or the join runs out of memory."
       ],
       "discriminator": [
@@ -3016,19 +2971,6 @@
         107,
         149,
         139
-      ]
-    },
-    {
-      "name": "PoolMigrationV5Applied",
-      "discriminator": [
-        97,
-        106,
-        34,
-        31,
-        225,
-        208,
-        234,
-        135
       ]
     },
     {
@@ -3840,6 +3782,16 @@
       "code": 6119,
       "name": "RouteComputeBudgetInsufficient",
       "msg": "Not enough compute units left for the next route leg"
+    },
+    {
+      "code": 6120,
+      "name": "RecipientIsVault",
+      "msg": "Recipient must not be the pool vault"
+    },
+    {
+      "code": 6121,
+      "name": "MaxSelloffCapZero",
+      "msg": "Max-selloff percentage is too small for this token's virtual balance"
     }
   ],
   "types": [
@@ -4149,7 +4101,7 @@
           {
             "name": "_deprecated_banned_extensions",
             "docs": [
-              "Legacy extension-policy bitmap, bytes 1651..1659; still read by legacy checks, preserve."
+              "Legacy extension-policy bitmap, bytes 1651..1659. Never read; may be non-zero on old pools."
             ],
             "type": "u64"
           },
@@ -4170,7 +4122,7 @@
           {
             "name": "reserved",
             "docs": [
-              "Frozen legacy padding, bytes 1667..1683; `reserved[..4]` holds the `V5M1` marker."
+              "Frozen legacy padding, bytes 1667..1683. Never read; may hold a retired 4-byte marker."
             ],
             "type": {
               "array": [
@@ -4430,7 +4382,7 @@
           {
             "name": "hook_max_cu",
             "docs": [
-              "Compute-unit ceiling per callback, CPI base cost included. Immutable. @2097"
+              "Advisory compute figure chosen at creation: stored, not enforced. Immutable. @2097"
             ],
             "type": "u32"
           },
@@ -4512,7 +4464,7 @@
             "docs": [
               "Per-slot canonical vault (ATA) bump, encoded `bump + 1`; `0` = not cached (bump 255 is",
               "never cached: its `find` costs one attempt, same as `create`). Written only by this",
-              "program from `find_program_address`; a reader falls back to `find` on any mismatch. @2168"
+              "program from `find_program_address` and trusted by readers without re-derivation. @2168"
             ],
             "type": {
               "array": [
@@ -4843,7 +4795,7 @@
           {
             "name": "max_cu",
             "docs": [
-              "Per-callback CU ceiling, `HOOK_MIN_CU..=HOOK_MAX_CU_CAP`; recorded, not enforced yet."
+              "Advisory per-callback compute figure, `HOOK_MIN_CU..=HOOK_MAX_CU_CAP`: stored, not enforced."
             ],
             "type": "u32"
           },
@@ -4964,7 +4916,7 @@
           {
             "name": "cu_used",
             "docs": [
-              "Always 0: the compute meter is not readable on the live clusters."
+              "Always 0; kept for the event layout."
             ],
             "type": "u32"
           },
@@ -7131,7 +7083,7 @@
           {
             "name": "hook_max_cu",
             "docs": [
-              "Maximum compute units permitted for each hook callback."
+              "Advisory compute figure of the hook configuration: stored, not enforced."
             ],
             "type": "u32"
           },
@@ -7339,7 +7291,7 @@
           {
             "name": "hook_max_cu",
             "docs": [
-              "Maximum compute units permitted for each hook callback."
+              "Advisory compute figure of the hook configuration: stored, not enforced."
             ],
             "type": "u32"
           },
@@ -7400,66 +7352,6 @@
             "name": "layout_version",
             "docs": [
               "Version marker for the serialized pool account layout."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "timestamp",
-            "docs": [
-              "Operation time as Unix seconds."
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PoolMigrationV5Applied",
-      "docs": [
-        "`migrate_to_v5`; actor: `pool_admin` or `protocol_admin` (`actor_kind`). `reactivated == 0` is a logged no-op."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "pool",
-            "docs": [
-              "Pool account targeted by this operation."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "authority",
-            "docs": [
-              "Operation signer; account constraints and the handler determine the permitted role."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "actor_kind",
-            "docs": [
-              "Signer role encoded by the `actor_kind` constants."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "reactivate_tokens",
-            "docs": [
-              "Whether the legacy migration requests token reactivation."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "token_count",
-            "docs": [
-              "Number of populated token slots."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "reactivated",
-            "docs": [
-              "Number of token slots reactivated by migration."
             ],
             "type": "u8"
           },

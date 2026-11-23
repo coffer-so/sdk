@@ -5,8 +5,10 @@ input. The client sends an **allocation plan** — the gross input to spend on
 each swap leg, a hash of the pool/mint state it was computed on and an expiry —
 and `deposit_single_token_planned` only verifies the plan and executes it with
 the user's own token accounts (no helper PDA, no refunds: leftovers simply stay
-in the user's accounts). The legacy `deposit_single_token*` instructions reject
-every call with `AllocationPlanRequired`.
+in the user's accounts). The helper-PDA deposits (`deposit_single_token`,
+`deposit_single_token_direct`) no longer exist; the program ships
+`deposit_single_token_planned`, `deposit_single_token_routed`, `withdraw_sol`
+and the recovery `close_helper_token_account`.
 
 The SDK ships the planner in TypeScript (`src/math/planner.ts`, a port of
 `programs/single-token-liquidity/src/planner.rs`) on top of the ported pool
@@ -39,9 +41,11 @@ const zap = pool.plannedZap;                       // or new PlannedZapClient({ 
 const q = await zap.quote(tokenInIndex, amountIn, { slippageHundredthsBps: 5_000, validForSlots: 120 });
 if (!q.ok) throw q.error;
 
-// 2. Every user_token_i and the user's LP account must exist (writable, even
-//    sidelined slots). Send these first when any is missing; with the zap they
-//    do not fit the packet on larger pools.
+// 2. Every live user_token_i and the user's LP account must exist (writable).
+//    A sidelined slot (NAV 0, `sidelinedTokenIndices`) is passed by address
+//    only: no account is created for it and its mint may even be closed.
+//    Send these first when any is missing; with the zap they do not fit the
+//    packet on larger pools.
 const setup = zap.ensureUserTokenAccountIxs(q.data, user);
 
 // 3. Hook / memo tail for the route's transfers. [] for classic pools.
@@ -91,8 +95,10 @@ with `ProgramFailedToComplete` (heap access violation; ~1.4M CU burned);
 `toSdkError(e, "singleTokenLiquidity", { routedDeposit: true })` maps that to
 `routed_heap_frame_required`. The pool also refuses
 to start a leg with too few compute units left
-(`RouteComputeBudgetInsufficient`, 6119), and a plan with no swap leg
-(`RouteNoLegs`, 6118): the SDK never routes such a plan.
+(`RouteComputeBudgetInsufficient`, 6119). A plan with no swap leg is accepted
+by the routed entry point, which then runs the planned (join-only) path
+instead of `swap_route_join_v1` (whose own `RouteNoLegs`, 6118, is never
+reached).
 
 ```ts
 // Same quote / tail as above.
@@ -130,7 +136,9 @@ every deployment, including programs that predate rc5):
   client (`probeRoutedSupport(payer, true)` re-probes); an inconclusive one
   is not. `payer` must exist on chain for the simulation to run.
 
-A plan with no swap leg always resolves to planned.
+In `"auto"` a plan with no swap leg resolves to planned without probing (a
+join-only plan needs no route and no heap frame); `"routed"` is honoured as
+requested.
 
 `PlannedZapQuote` carries the plan (`plan.allocations`, `plan.expectedState`,
 `plan.quotedAt`, `plan.validUntilSlot`), the exact replay (`economics`: swap
@@ -146,11 +154,19 @@ and the account layout.
   `0 ≤ clock − quoted_at ≤ 90 s`. `nowSeconds` only re-prices the sell-off
   window in the simulator and never changes `quotedAt`.
 - `validUntilSlot = snapshot slot + validForSlots` (1..150, default 120).
-- `expectedState` is `sha256` chained over `"coffer-stld-v6-plan-v1"`, the
-  epoch, then `(key, owner, data)` of the pool, the LP mint and every pool
-  mint. Any trade, join, exit, admin or range-manager update, a LP supply
-  change, a mint change or an **epoch rollover** makes the plan
-  `AllocationPlanStale`: quote again.
+- `expectedState` is `sha256` chained over `"coffer-stld-v6-plan-v2"`, the
+  epoch, `(key, owner, data)` of the pool, then `(key, owner, fingerprint)` of
+  the LP mint and of every pool mint (`mintFingerprint`: initialized flag,
+  decimals, the Token-2022 extension ids, both transfer-fee schedules, the
+  transfer-hook program, the paused flag; the supply of the LP mint only).
+  Any trade, join, exit, admin or range-manager update, a LP supply change,
+  a change to a committed mint field or an **epoch rollover** makes the plan
+  `AllocationPlanStale`: quote again. An underlying mint's supply, withheld
+  fees, authorities or metadata do not; a sidelined slot's closed mint hashes
+  as "not a mint" and does not block the zap.
+- The join is priced on the pool's priced LP supply: the mint supply net of
+  the part of the LP burn stream that has vested at the snapshot clock
+  (`pricedLpSupply`), as the program does.
 - `minimumLp` is the only slippage guard on the route; internal swaps run
   with `min_out = 0`.
 - The plan's budget must sum to `amountIn`, with zero allocations exactly on

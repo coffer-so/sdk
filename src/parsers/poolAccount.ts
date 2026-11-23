@@ -224,7 +224,7 @@ export const POOL_V4_LEN = POOL_LEN_V5;
 export const POOL_V3_LEN = POOL_LEN_V3;
 export { POOL_LEN_V5, POOL_LEN_V61 };
 
-/** `CofferPool::V5_MIGRATION_MARKER`: stamped into `reserved[0..4]` by `migrate_to_v5` and at creation. */
+/** `CofferPool::V5_MIGRATION_MARKER`: stamped into `reserved[0..4]` at creation (and by the removed v4 → v5 migration). */
 export const V5_MIGRATION_MARKER = Buffer.from("V5M1", "ascii");
 
 /** `true` for the two sizes the decoder accepts. */
@@ -241,7 +241,7 @@ export function decodePoolAccount(data: Buffer): RawPoolAccount {
   if (data.length === POOL_V3_LEN) {
     throw new Error(
       `decodePoolAccount: account is at v3 size (${POOL_V3_LEN}). ` +
-        `Legacy v3 accounts require a separate migration; migrate_to_v5 supports only 1683-byte v4 accounts.`,
+        `Legacy v3 accounts are not supported by the v6.1 programs (no migration path remains).`,
     );
   }
   if (!isDecodablePoolLen(data.length)) {

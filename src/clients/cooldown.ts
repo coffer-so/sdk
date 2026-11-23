@@ -20,7 +20,7 @@
 import { PublicKey, TransactionInstruction, type AccountMeta } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
-import { CofferConfig, MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS } from "../config";
+import { CofferConfig, MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS, MAX_UNFREEZE_POOLS } from "../config";
 import { validateLpTransferFeeBps } from "../math/lpTransferFee";
 import { deriveLpMint } from "../utils/pda";
 import {
@@ -175,7 +175,11 @@ export const ProtocolActions = {
   poolSetPoolEnabled: (pool: PublicKey): ProtocolAction => ({ PoolSetPoolEnabled: { pool } }),
   /** Queues reactivation (`is_active = true`); deactivation is the immediate restrictive path. */
   poolSetTokenActive: (pool: PublicKey, tokenIndex: number): ProtocolAction => ({ PoolSetTokenActive: { pool, token_index: tokenIndex } }),
-  unfreezePools: (pools: PublicKey[]): ProtocolAction => ({ UnfreezePools: { pools } }),
+  /** 1..=`MAX_UNFREEZE_POOLS` pools (the program refuses an empty or longer list with `InvalidAccountLayout`). */
+  unfreezePools: (pools: PublicKey[]): ProtocolAction => {
+    if (pools.length === 0 || pools.length > MAX_UNFREEZE_POOLS) throw new Error(`UnfreezePools: 1..=${MAX_UNFREEZE_POOLS} pools per proposal, got ${pools.length}`);
+    return { UnfreezePools: { pools } };
+  },
   poolProtocolAdminTransfer: (config: PublicKey, newAdmin: PublicKey): ProtocolAction => ({ PoolProtocolAdminTransfer: { config, new_admin: newAdmin } }),
   /** The upgrade BUFFER must also be passed as remaining account 0 of `propose_action` (authority check). */
   upgradeProgram: (program: PublicKey, buffer: PublicKey): ProtocolAction => ({ UpgradeProgram: { program, buffer } }),

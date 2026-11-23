@@ -8,6 +8,7 @@
  * told apart from garbage. RETIRED events have no successor (their content
  * was folded into `SwapV2` / `LiquidityAddedV2` / `LiquidityRemovedV2`).
  * None of these decode on the v6.1 IDL — v6 history needs the v6 SDK.
+ * The removed instructions' discriminators are pinned in `REMOVED_INSTRUCTIONS`.
  */
 import type { ContractProgram } from "../types/contracts";
 
@@ -32,7 +33,6 @@ export const RECUT_EVENTS: Record<ContractProgram, Record<string, { legacyName: 
     PoolAdminTransferredV2: { legacyName: "PoolAdminTransferred", legacyDiscriminator: "7b30e7ba35439cfe", discriminator: "3dc416f376a01a4c" },
     PoolInfoV2: { legacyName: "PoolInfo", legacyDiscriminator: "cf145761fbd4ea2d", discriminator: "dc53525432ea5787" },
     PoolInitializedV2: { legacyName: "PoolInitialized", legacyDiscriminator: "6476ad570cc6fee5", discriminator: "a5d9f342e388a1f3" },
-    PoolMigrationV5Applied: { legacyName: "PoolMigratedToV5", legacyDiscriminator: "5f379d3d5c064f69", discriminator: "616a221fe1d0ea87" },
     PoolSolWithdrawnV2: { legacyName: "PoolSolWithdrawn", legacyDiscriminator: "52dcadaf18a5ace9", discriminator: "ef1ee5f879dd9a06" },
     ProtocolFeesCollectedV2: { legacyName: "ProtocolFeesCollected", legacyDiscriminator: "a5227d9b0f5663bf", discriminator: "e0745cf7453e5e47" },
     RangeManagerSetV2: { legacyName: "RangeManagerSet", legacyDiscriminator: "3e98eb5bc3ee53ca", discriminator: "2c67ccdbb0b9379a" },
@@ -74,10 +74,17 @@ export const RECUT_EVENTS: Record<ContractProgram, Record<string, { legacyName: 
   },
 };
 
-/** Retired events (no successor): legacy name → discriminator (hex). */
+/**
+ * Retired events (no successor): legacy name → discriminator (hex). The v5
+ * migration events went with their instructions (`migrate_to_v5`,
+ * `pool_migrate_to_v5`); both the v6 and the re-cut discriminator stay pinned.
+ */
 export const RETIRED_EVENTS: Record<ContractProgram, Record<string, string>> = {
-  cofferPool: { PoolStateLog: "3bfeed6fa30a8ce0", MaxSelloffWindowAdvanced: "e5e3a31e16b74e39" },
-  protocolAdmin: {},
+  cofferPool: {
+    PoolStateLog: "3bfeed6fa30a8ce0", MaxSelloffWindowAdvanced: "e5e3a31e16b74e39",
+    PoolMigratedToV5: "5f379d3d5c064f69", PoolMigrationV5Applied: "616a221fe1d0ea87",
+  },
+  protocolAdmin: { PoolMigratedToV5ViaTreasury: "01aaffd102322e8f" },
   singleTokenLiquidity: { SingleTokenDeposit: "d7368968db27a4eb" },
 };
 
@@ -94,3 +101,10 @@ export const LEGACY_EVENT_DISCRIMINATORS: ReadonlyMap<string, LegacyEventPin> = 
   }
   return map;
 })();
+
+/** Instructions deleted from the programs: name → discriminator (hex). Nothing may reuse them. */
+export const REMOVED_INSTRUCTIONS: Record<ContractProgram, Record<string, string>> = {
+  cofferPool: { migrate_to_v5: "7f3c87ccb55acaf9" },
+  protocolAdmin: { pool_migrate_to_v5: "99e1b28a081b9326" },
+  singleTokenLiquidity: { deposit_single_token: "a688a62fc7c056a9", deposit_single_token_direct: "e81a601a718cfd83" },
+};

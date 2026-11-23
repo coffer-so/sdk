@@ -5,6 +5,37 @@ Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 
 ## Unreleased
 
+### 2026-11-23: dead-code removal, helper-account recovery, priced LP supply, plan commitment v2 (contracts `v6.1` working tree on `e545874`)
+
+- IDLs re-synced from `contracts-v6.1/idl` (== `target/idl`; coffer_pool `ee6863f9…`, protocol_admin `fbb98b89…`,
+  single_token_liquidity `dac31462…`): 118 instructions / 87 events (56+58+4 / 44+40+3), epoch `abi-sync-20261123`.
+  Generated types and event fixtures regenerated; the Rust math reference (`fixtures:rust`) builds again against the
+  current sources (`udiv` kernel, decimals-free `calc_out_given_in`) and its 1085 vectors are unchanged.
+- REMOVED: `AdminClient.migratePoolToV5Ix` (`pool_migrate_to_v5` / `migrate_to_v5` no longer exist); the
+  `PoolMigrationV5Applied` / `PoolMigratedToV5ViaTreasury` events (their discriminators and the v6
+  `PoolMigratedToV5` one are pinned in `RETIRED_EVENTS`; removed instruction discriminators in the new
+  `REMOVED_INSTRUCTIONS`). STLD `deposit_single_token` / `deposit_single_token_direct` are gone from the IDL (the
+  SDK never built them). `setSupervisorIx` no longer passes `system_program`.
+- NEW: `AdminClient.stldCloseHelperTokenAccountIx(admin, config, pool, helperTokenAccount, mint, tokenProgram?, tail?)`
+  — `stld_close_helper_token_account` (sweep to the Treasury vault PDA of the mint, rent to the Treasury; helper PDA
+  derived). Errors 6120 `RecipientIsVault`, 6121 `MaxSelloffCapZero`, PA 6020 `SelfCloseForbidden`, STLD 6041
+  `InvalidRecoveryDestination` mapped with user-facing messages.
+- Priced LP supply: `pricedLpSupply(mintSupply, stream, now)` / `pricedLpSupplyOf(pool, nowSeconds?)` mirror
+  `CofferPool::priced_lp_supply` (mint supply net of the vested LP burn stream). `quoteAddLiquidity(amounts, slip?,
+  nowSeconds?)`, `quoteRemove(lpIn, nowSeconds?)`, `quoteFundSidelinedToken`, `quoteRedeemLpTransferFees` and the
+  planned / routed zap quote price on it (default clock: the synced `chainTimestamp`; a pending stream without any
+  clock is `unsupported_pool_state`). `quoteRemove` mirrors `exit_withdraw_fee_bps` (new export): a burn of the whole
+  priced supply pays no withdraw fee.
+- Plan commitment v2: `PLAN_DOMAIN = "coffer-stld-v6-plan-v2"`, new `mintFingerprint` / `MAX_FINGERPRINT_EXTENSIONS`;
+  the LP mint and every token mint are committed by fingerprint (decimals, extension ids, fee schedules, hook program,
+  paused flag; LP supply), so an underlying mint's supply / withheld fees / authorities no longer stale a plan and a
+  sidelined slot's closed mint does not block the zap. `V6_PLAN_HASH_VECTOR` updated, `V6_PLAN_HASH_VECTOR_RICH`
+  added (both `plan.rs` cross-language vectors, byte-exact tests).
+- Zap: `sidelinedTokenIndices` is NAV-based (`actual + surge_fees_owed == 0`); `ensureUserTokenAccountIxs` skips
+  sidelined slots (the program no longer validates their mint / user account / vault); the quote no longer validates
+  a sidelined slot's mint. `buildRoutedIx` accepts a join-only plan (the program runs the planned path); `"routed"`
+  honours the request, `"auto"` still resolves a join-only plan to planned without probing.
+
 ### 2026-11-22 rc7: pool `vault_bump_cache` (contracts `v6.1` `e22707d`)
 
 - IDLs re-synced from `contracts-v6.1/target/idl` (coffer_pool `167baeb9…`, single_token_liquidity

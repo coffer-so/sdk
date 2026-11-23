@@ -551,7 +551,7 @@ describe("error map 6111–6115", () => {
     expect(describeProgramError(6113)).toMatchObject({ name: "LpTransferFeeProtocolShareMaxExceeded", sdkCode: "invalid_input" });
     expect(describeProgramError(6114)).toMatchObject({ name: "NoLpTransferFeesOwed", sdkCode: "unsupported_pool_state" });
     expect(describeProgramError(6115)).toMatchObject({ name: "LpFeeAccountUnderfunded", sdkCode: "unsupported_pool_state" });
-    expect(describeProgramError(6120)).toBeUndefined(); // rc5 appended 6116–6119
+    expect(describeProgramError(6122)).toBeUndefined(); // the table ends at 6121
     expect(describeProgramError(6111)!.message).toMatch(/10 %/); expect(describeProgramError(6112)!.message).toMatch(/no Token-2022 transfer fee extension/);
     expect(describeProgramError(6114)!.message).toMatch(/collect_lp_transfer_fees first/); expect(describeProgramError(6115)!.message).toMatch(/do not redeem/);
     expect(toSdkError(new Error("custom program error: 0x17e0")).code).toBe("unsupported_pool_state"); // 6112

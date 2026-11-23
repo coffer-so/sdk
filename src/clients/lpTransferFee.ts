@@ -30,7 +30,7 @@ import { CofferConfig, MIN_LP_SUPPLY } from "../config";
 import { COFFER_POOL_IDL, PROTOCOL_ADMIN_IDL } from "../idl";
 import { MathError } from "../math/fixedPoint";
 import { calcEffectiveLpBurn, calcTokensOutGivenLpIn } from "../math/poolMath";
-import { lpBurnStreamOf, lpTransferFeeDrip, validateLpTransferFeeBps, validateLpTransferFeeProtocolShareBps } from "../math/lpTransferFee";
+import { lpBurnStreamOf, lpTransferFeeDrip, pricedLpSupplyOf, validateLpTransferFeeBps, validateLpTransferFeeProtocolShareBps } from "../math/lpTransferFee";
 import { POOL_ACTION_KIND } from "../parsers/layout";
 import { decodeMintAccount } from "../parsers/mintAccount";
 import type { PoolInfo } from "../types/pool";
@@ -399,7 +399,9 @@ function requireRedeemable(pool: PoolInfo, op: string): void {
     throw new Error(`${op}: pool ${pool.address.toBase58()} owes the protocol no LP transfer fees (NoLpTransferFeesOwed, 6114)`);
   }
   // At or below the floor the whole fee account must go; an unburned stream next to the owed LP makes that impossible.
-  if (BigInt(pool.lpTotalSupply.toString()) <= MIN_LP_SUPPLY && pool.lpTransferFeesPendingBurn !== undefined && !pool.lpTransferFeesPendingBurn.isZero()) {
+  // Without a chain timestamp the mint supply stands in for the priced one (the program decides).
+  const supply = pool.chainTimestamp === undefined ? BigInt(pool.lpTotalSupply.toString()) : pricedLpSupplyOf(pool);
+  if (supply <= MIN_LP_SUPPLY && pool.lpTransferFeesPendingBurn !== undefined && !pool.lpTransferFeesPendingBurn.isZero()) {
     throw new Error(`${op}: LP supply is at the floor and ${pool.lpTransferFeesPendingBurn.toString()} LP are still pending in the burn stream (FullExitRequiredBelowFloor, 6109) — run collect_lp_transfer_fees after the burn window first`);
   }
 }
@@ -467,7 +469,7 @@ export function buildPoolRedeemLpTransferFeesIx(cfg: CofferConfig, p: PoolRedeem
 
 /** `quoteRedeemLpTransferFees` result. */
 export interface RedeemLpTransferFeesQuote {
-  /** `calcEffectiveLpBurn(owed, supply)`: capped at `supply − MIN_LP_SUPPLY` above the floor, the whole `owed` at or below it. */
+  /** `calcEffectiveLpBurn(owed, supply)` on the priced supply: capped at `supply − MIN_LP_SUPPLY` above the floor, the whole `owed` at or below it. */
   lpBurn: bigint;
   /** `owed − lpBurn`, stays owed for a later redemption. */
   remainderOwed: bigint;
@@ -487,8 +489,12 @@ export interface RedeemLpTransferFeesQuote {
  * What a redemption pays out of the snapshot, pending-aware (L-1): the
  * effective burn, the gross reserve + surge legs per slot (no withdraw fee),
  * the stream that stays behind and the balance the fee account must show.
+ * Priced on `pricedLpSupplyOf(pool, now)` (the mint supply net of the
+ * vested burn stream; `now` defaults to the synced `chainTimestamp`).
  *
  * Throws `MathError`:
+ * - a pending burn stream without any timestamp (sync or pass `now`).
+ * - `MathUnderflow` — the vested stream exceeds the mint supply.
  * - `FullExitRequiredBelowFloor` (6109) — `supply ≤ MIN_LP_SUPPLY` while
  *   `pendingBurn > 0` (or, with `feeAccountAmount`, while the account holds
  *   more than `lpBurn`): the program insists on burning the whole fee
@@ -499,7 +505,8 @@ export interface RedeemLpTransferFeesQuote {
 export function quoteRedeemLpTransferFees(pool: PoolInfo, opts: { feeAccountAmount?: bigint; now?: bigint | number } = {}): RedeemLpTransferFeesQuote {
   const owed = BigInt((pool.lpTransferFeesOwedProtocol ?? new BN(0)).toString());
   const pendingBurn = BigInt((pool.lpTransferFeesPendingBurn ?? new BN(0)).toString());
-  const supply = BigInt(pool.lpTotalSupply.toString());
+  // The redemption is priced on the supply net of the vested burn stream, like a user exit.
+  const supply = pricedLpSupplyOf(pool, opts.now);
   const feeAccountReserved = owed + pendingBurn;
   if (opts.feeAccountAmount !== undefined && opts.feeAccountAmount < feeAccountReserved) throw new MathError("LpFeeAccountUnderfunded");
   const lpBurn = calcEffectiveLpBurn(owed, supply);

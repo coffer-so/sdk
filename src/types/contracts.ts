@@ -1,5 +1,5 @@
 // Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.
-// Epoch rc7-vault-bump-20261122; cofferPool=167baeb9667062021a24f032624c1dabe12a0b87425965416ea80e0592a4f23b; protocolAdmin=7de8e983782cdb37d7c9d05ea5cd1d342f7f6061cb7120451cb340107d3fe228; singleTokenLiquidity=471c9500d8c794e645a9a7a9b062c3a1e3354d0dadfef8eab72aeb9d648b6a32
+// Epoch abi-sync-20261123; cofferPool=ee6863f9718d16f4f308bd0e8749091e5eb177bee11ffde48b67e8350123bb29; protocolAdmin=fbb98b891c874eb30c1564b1149021aef10f69ae3adec628be02aca35829cb3f; singleTokenLiquidity=dac314621df31896781158a0c47436d91a25ced2e339148a489ef9ee0a58289b
 import BN from "bn.js";
 import { PublicKey } from "@solana/web3.js";
 
@@ -50,7 +50,6 @@ export interface ContractTypes {
     "PoolInfoV2": { "pool": PublicKey; "config": PublicKey; "pool_id": BN; "layout_version": number; "pool_admin": PublicKey; "pending_pool_admin": PublicKey; "pending_pool_admin_eta": BN; "lp_mint": PublicKey; "token_count": number; "tokens": Array<PublicKey>; "token_vaults": Array<PublicKey>; "token_programs": Array<PublicKey>; "decimals": Buffer; "normalized_weights": Array<BN>; "virtual_balances": Array<BN>; "actual_balances": Array<BN>; "protocol_fees_owed": Array<BN>; "creator_fees_owed": Array<BN>; "surge_fees_owed": Array<BN>; "is_active": Array<boolean>; "selloff_policy": Array<ContractTypes["cofferPool"]["SelloffParams"]>; "swap_fee_rate": number; "protocol_fee_rate": number; "creator_fee_bps": number; "deposit_fee_bps": number; "withdraw_fee_bps": number; "liquidity_fee_lock": number; "pool_enabled": boolean; "swaps_enabled": boolean; "range_manager": PublicKey; "range_manager_enabled": boolean; "range_manager_locked": boolean; "range_manager_max_vb_change_pct": number; "range_manager_max_weight_change_pct": number; "range_manager_min_update_interval_secs": number; "range_manager_max_concentration_factor_bps": number; "range_manager_min_concentration_factor_bps": number; "range_manager_last_updated": BN; "lookup_table": PublicKey; "pool_admin_delay_secs": number; "pool_admin_epoch": number; "pending_actions_mask": number; "pending_etas": Array<BN>; "hook_program": PublicKey; "hook_flags": number; "hook_disabled": number; "hook_fee_min": number; "hook_fee_max": number; "hook_max_cu": number; "hook_accounts_len": number; "timestamp": BN };
     "PoolInitializedV2": { "pool": PublicKey; "config": PublicKey; "pool_id": BN; "pool_admin": PublicKey; "lp_mint": PublicKey; "lp_token_program": PublicKey; "token_count": number; "mints": Array<PublicKey>; "token_programs": Array<PublicKey>; "decimals": Buffer; "normalized_weights": Array<BN>; "initial_virtual_balances": Array<BN>; "swap_fee_rate": number; "protocol_fee_rate": number; "creator_fee_bps": number; "deposit_fee_bps": number; "withdraw_fee_bps": number; "lp_name": string; "lp_symbol": string; "lp_uri": string; "hook_program": PublicKey; "hook_flags": number; "hook_fee_min": number; "hook_fee_max": number; "hook_max_cu": number; "hook_accounts_len": number; "timestamp": BN };
     "PoolLayoutMigrated": { "pool": PublicKey; "payer": PublicKey; "old_len": number; "new_len": number; "layout_version": number; "timestamp": BN };
-    "PoolMigrationV5Applied": { "pool": PublicKey; "authority": PublicKey; "actor_kind": number; "reactivate_tokens": boolean; "token_count": number; "reactivated": number; "timestamp": BN };
     "PoolSolWithdrawnV2": { "source": PublicKey; "authority": PublicKey; "recipient": PublicKey; "amount": BN; "source_lamports_before": BN; "source_lamports_after": BN; "timestamp": BN };
     "ProtocolAdminTransferCancelled": { "config": PublicKey; "admin": PublicKey; "cancelled_pending": PublicKey; "timestamp": BN };
     "ProtocolAdminTransferInitiated": { "config": PublicKey; "current_admin": PublicKey; "pending_admin": PublicKey; "timestamp": BN };
@@ -103,7 +102,6 @@ export interface ContractTypes {
     "PoolHookDisabledSet": { "treasury": PublicKey; "pool": PublicKey; "hook_program": PublicKey; "old_disabled": boolean; "new_disabled": boolean; "admin": PublicKey; "timestamp": BN };
     "PoolLpTransferFeeProtocolShareSet": { "treasury": PublicKey; "admin": PublicKey; "pool": PublicKey; "old_bps": number; "new_bps": number; "timestamp": BN };
     "PoolLpTransferFeesRedeemed": { "treasury": PublicKey; "admin": PublicKey; "pool": PublicKey; "lp_owed_before": BN; "timestamp": BN };
-    "PoolMigratedToV5ViaTreasury": { "treasury": PublicKey; "admin": PublicKey; "pool": PublicKey; "reactivate_tokens": boolean; "timestamp": BN };
     "PoolProtocolAdminTransferAcceptedV2": { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "timestamp": BN };
     "PoolProtocolAdminTransferCancelledV2": { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "timestamp": BN };
     "PoolProtocolAdminTransferInitiatedV2": { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "new_admin": PublicKey; "timestamp": BN };
@@ -121,6 +119,7 @@ export interface ContractTypes {
     "ProgramUpgradedV2": { "treasury": PublicKey; "admin": PublicKey; "program": PublicKey; "buffer": PublicKey; "spill": PublicKey; "timestamp": BN };
     "ProtocolAction": { "SetDelay": { "secs": number } } | { "SetSupervisor": { "key": PublicKey } } | { "Withdraw": { "mint": PublicKey; "recipient": PublicKey; "amount": BN } } | { "WithdrawSol": { "route": number; "source": PublicKey; "recipient": PublicKey; "amount": BN } } | { "PoolDebugWithdraw": { "pool": PublicKey; "token_amounts": Array<BN>; "recipients": Array<PublicKey> } } | { "PoolSetProtocolFeeRate": { "pool": PublicKey; "rate": number } } | { "PoolSetPoolEnabled": { "pool": PublicKey } } | { "PoolSetTokenActive": { "pool": PublicKey; "token_index": number } } | { "UnfreezePools": { "pools": Array<PublicKey> } } | { "PoolProtocolAdminTransfer": { "config": PublicKey; "new_admin": PublicKey } } | { "UpgradeProgram": { "program": PublicKey; "buffer": PublicKey } } | { "ProgramOp": { "op": number; "program": PublicKey; "target": PublicKey } } | { "PoolRescaleVirtualBalances": { "pool": PublicKey; "multiplier": BN } } | { "PoolEnableRangeManager": { "pool": PublicKey } } | { "PoolSetLpTransferFeeProtocolShare": { "pool": PublicKey; "bps": number } };
     "SolWithdrawnV2": { "treasury": PublicKey; "admin": PublicKey; "recipient": PublicKey; "amount": BN; "treasury_lamports_before": BN; "treasury_lamports_after": BN; "timestamp": BN };
+    "StldHelperTokenAccountClosedViaTreasury": { "treasury": PublicKey; "admin": PublicKey; "pool": PublicKey; "token_account": PublicKey; "mint": PublicKey; "vault": PublicKey; "lamports": BN; "timestamp": BN };
     "StldSolWithdrawnViaTreasury": { "treasury": PublicKey; "admin": PublicKey; "source": PublicKey; "recipient": PublicKey; "amount": BN; "timestamp": BN };
     "SupervisorSet": { "treasury": PublicKey; "admin": PublicKey; "old_supervisor": PublicKey; "new_supervisor": PublicKey; "timestamp": BN };
     "TokenRegisteredV2": { "treasury": PublicKey; "admin": PublicKey; "mint": PublicKey; "vault": PublicKey; "token_index": number; "token_count_before": number; "token_count_after": number; "timestamp": BN };
@@ -148,6 +147,7 @@ export interface ContractTypes {
     "PendingSetSwapFeeRate": { "eta": BN; "rate": number };
     "PendingSetTokenActive": { "eta": BN; "token_index": number };
     "SingleTokenDepositDirectV2": { "pool": PublicKey; "user": PublicKey; "token_in_index": number; "amount_in": BN; "minimum_lp_amount": BN; "allocations": Array<BN>; "plan_expected_state": Array<number>; "plan_quoted_at": BN; "plan_valid_until_slot": BN; "inner_swap_count": number; "deposited_amounts": Array<BN>; "lp_received": BN; "dust_remaining": Array<BN>; "lp_supply_before": BN; "lp_supply_after": BN; "timestamp": BN };
+    "StldHelperTokenAccountClosed": { "pool": PublicKey; "helper": PublicKey; "token_account": PublicKey; "mint": PublicKey; "token_program": PublicKey; "authority": PublicKey; "destination": PublicKey; "amount": BN; "lamports": BN; "timestamp": BN };
     "StldSolWithdrawnV2": { "source": PublicKey; "authority": PublicKey; "recipient": PublicKey; "amount": BN; "source_lamports_before": BN; "source_lamports_after": BN; "timestamp": BN };
     "TokenSlot": { "config": ContractTypes["singleTokenLiquidity"]["AssetConfig"]; "dynamics": ContractTypes["singleTokenLiquidity"]["AssetDynamics"] };
   };
@@ -187,7 +187,6 @@ export interface ContractInstructionMap {
     "lock_liquidity_fees": { args: Record<string, never>; accounts: { "pool": PublicKey; "authority": PublicKey } };
     "lock_range_manager": { args: Record<string, never>; accounts: { "pool": PublicKey; "authority": PublicKey } };
     "migrate_pool_layout_v61": { args: Record<string, never>; accounts: { "pool": PublicKey; "payer": PublicKey; "system_program": PublicKey } };
-    "migrate_to_v5": { args: { "reactivate_tokens": boolean }; accounts: { "pool": PublicKey; "config": PublicKey; "authority": PublicKey; "system_program": PublicKey } };
     "propose_pool_action": { args: { "action": ContractTypes["cofferPool"]["PoolAction"] }; accounts: { "pool": PublicKey; "authority": PublicKey } };
     "range_manager_update": { args: { "vb_changes": Array<ContractTypes["cofferPool"]["TokenChange"]>; "weight_changes": Array<ContractTypes["cofferPool"]["TokenChange"]> }; accounts: { "pool": PublicKey; "authority": PublicKey } };
     "redeem_lp_transfer_fees": { args: Record<string, never>; accounts: { "config": PublicKey; "pool": PublicKey; "lp_mint": PublicKey; "lp_fee_account": PublicKey; "authority": PublicKey; "lp_token_program": PublicKey } };
@@ -252,7 +251,6 @@ export interface ContractInstructionMap {
     "pool_initialize_alt": { args: { "recent_slot": BN }; accounts: { "treasury": PublicKey; "admin": PublicKey; "pool": PublicKey; "config": PublicKey; "lookup_table": PublicKey; "system_program": PublicKey; "alt_program": PublicKey; "coffer_pool_program": PublicKey } };
     "pool_initialize_config": { args: { "default_protocol_fee_rate": number }; accounts: { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "coffer_pool_program": PublicKey; "system_program": PublicKey } };
     "pool_initiate_protocol_admin_transfer": { args: { "new_admin": PublicKey }; accounts: { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "coffer_pool_program": PublicKey } };
-    "pool_migrate_to_v5": { args: { "reactivate_tokens": boolean }; accounts: { "treasury": PublicKey; "admin": PublicKey; "pool": PublicKey; "config": PublicKey; "system_program": PublicKey; "coffer_pool_program": PublicKey } };
     "pool_redeem_lp_transfer_fees": { args: Record<string, never>; accounts: { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "pool": PublicKey; "lp_mint": PublicKey; "lp_fee_account": PublicKey; "lp_token_program": PublicKey; "coffer_pool_program": PublicKey } };
     "pool_rescale_virtual_balances": { args: { "multiplier": BN }; accounts: { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "pool": PublicKey; "coffer_pool_program": PublicKey } };
     "pool_set_hook_disabled": { args: { "disabled": boolean }; accounts: { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "pool": PublicKey; "coffer_pool_program": PublicKey } };
@@ -265,7 +263,8 @@ export interface ContractInstructionMap {
     "propose_action": { args: { "action": ContractTypes["protocolAdmin"]["ProtocolAction"] }; accounts: { "treasury": PublicKey; "admin": PublicKey } };
     "register_token": { args: Record<string, never>; accounts: { "treasury": PublicKey; "mint": PublicKey; "vault": PublicKey; "admin": PublicKey; "token_program": PublicKey; "system_program": PublicKey } };
     "set_delay": { args: { "secs": number }; accounts: { "treasury": PublicKey; "admin": PublicKey } };
-    "set_supervisor": { args: { "new_supervisor": PublicKey }; accounts: { "treasury": PublicKey; "admin": PublicKey; "system_program": PublicKey } };
+    "set_supervisor": { args: { "new_supervisor": PublicKey }; accounts: { "treasury": PublicKey; "admin": PublicKey } };
+    "stld_close_helper_token_account": { args: Record<string, never>; accounts: { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "pool": PublicKey; "helper": PublicKey; "helper_token_account": PublicKey; "mint": PublicKey; "vault": PublicKey; "token_program": PublicKey; "stld_program": PublicKey } };
     "stld_withdraw_sol": { args: { "amount": BN }; accounts: { "treasury": PublicKey; "admin": PublicKey; "config": PublicKey; "pool": PublicKey; "source": PublicKey; "recipient": PublicKey; "system_program": PublicKey; "stld_program": PublicKey } };
     "transfer_upgrade_authority": { args: Record<string, never>; accounts: { "treasury": PublicKey; "admin": PublicKey; "program": PublicKey; "programdata": PublicKey; "new_authority": PublicKey; "bpf_loader_upgradeable": PublicKey } };
     "unfreeze_pools": { args: Record<string, never>; accounts: { "treasury": PublicKey; "authority": PublicKey; "coffer_pool_program": PublicKey } };
@@ -274,8 +273,7 @@ export interface ContractInstructionMap {
     "withdraw_sol": { args: { "amount": BN }; accounts: { "treasury": PublicKey; "admin": PublicKey; "recipient": PublicKey } };
   };
   "singleTokenLiquidity": {
-    "deposit_single_token": { args: { "amount_in": BN; "token_in_index": number; "minimum_lp_amount": BN }; accounts: { "pool": PublicKey; "helper": PublicKey; "lp_mint": PublicKey; "helper_lp_account": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "coffer_pool_program": PublicKey; "lp_token_program": PublicKey } };
-    "deposit_single_token_direct": { args: { "amount_in": BN; "token_in_index": number; "minimum_lp_amount": BN }; accounts: { "pool": PublicKey; "lp_mint": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "coffer_pool_program": PublicKey; "lp_token_program": PublicKey } };
+    "close_helper_token_account": { args: Record<string, never>; accounts: { "config": PublicKey; "pool": PublicKey; "helper": PublicKey; "helper_token_account": PublicKey; "mint": PublicKey; "destination": PublicKey; "authority": PublicKey; "token_program": PublicKey } };
     "deposit_single_token_planned": { args: { "amount_in": BN; "token_in_index": number; "minimum_lp_amount": BN; "plan": ContractTypes["singleTokenLiquidity"]["AllocationPlan"] }; accounts: { "pool": PublicKey; "lp_mint": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "coffer_pool_program": PublicKey; "lp_token_program": PublicKey } };
     "deposit_single_token_routed": { args: { "amount_in": BN; "token_in_index": number; "minimum_lp_amount": BN; "plan": ContractTypes["singleTokenLiquidity"]["AllocationPlan"] }; accounts: { "pool": PublicKey; "lp_mint": PublicKey; "user_lp_account": PublicKey; "user": PublicKey; "coffer_pool_program": PublicKey; "lp_token_program": PublicKey } };
     "withdraw_sol": { args: { "amount": BN }; accounts: { "config": PublicKey; "pool": PublicKey; "source": PublicKey; "recipient": PublicKey; "authority": PublicKey; "system_program": PublicKey } };
@@ -326,7 +324,6 @@ export interface ContractEventMap {
     "PoolInfoV2": ContractTypes["cofferPool"]["PoolInfoV2"];
     "PoolInitializedV2": ContractTypes["cofferPool"]["PoolInitializedV2"];
     "PoolLayoutMigrated": ContractTypes["cofferPool"]["PoolLayoutMigrated"];
-    "PoolMigrationV5Applied": ContractTypes["cofferPool"]["PoolMigrationV5Applied"];
     "PoolSolWithdrawnV2": ContractTypes["cofferPool"]["PoolSolWithdrawnV2"];
     "ProtocolAdminTransferCancelled": ContractTypes["cofferPool"]["ProtocolAdminTransferCancelled"];
     "ProtocolAdminTransferInitiated": ContractTypes["cofferPool"]["ProtocolAdminTransferInitiated"];
@@ -360,7 +357,6 @@ export interface ContractEventMap {
     "PoolHookDisabledSet": ContractTypes["protocolAdmin"]["PoolHookDisabledSet"];
     "PoolLpTransferFeeProtocolShareSet": ContractTypes["protocolAdmin"]["PoolLpTransferFeeProtocolShareSet"];
     "PoolLpTransferFeesRedeemed": ContractTypes["protocolAdmin"]["PoolLpTransferFeesRedeemed"];
-    "PoolMigratedToV5ViaTreasury": ContractTypes["protocolAdmin"]["PoolMigratedToV5ViaTreasury"];
     "PoolProtocolAdminTransferAcceptedV2": ContractTypes["protocolAdmin"]["PoolProtocolAdminTransferAcceptedV2"];
     "PoolProtocolAdminTransferCancelledV2": ContractTypes["protocolAdmin"]["PoolProtocolAdminTransferCancelledV2"];
     "PoolProtocolAdminTransferInitiatedV2": ContractTypes["protocolAdmin"]["PoolProtocolAdminTransferInitiatedV2"];
@@ -377,6 +373,7 @@ export interface ContractEventMap {
     "ProgramFrozenV2": ContractTypes["protocolAdmin"]["ProgramFrozenV2"];
     "ProgramUpgradedV2": ContractTypes["protocolAdmin"]["ProgramUpgradedV2"];
     "SolWithdrawnV2": ContractTypes["protocolAdmin"]["SolWithdrawnV2"];
+    "StldHelperTokenAccountClosedViaTreasury": ContractTypes["protocolAdmin"]["StldHelperTokenAccountClosedViaTreasury"];
     "StldSolWithdrawnViaTreasury": ContractTypes["protocolAdmin"]["StldSolWithdrawnViaTreasury"];
     "SupervisorSet": ContractTypes["protocolAdmin"]["SupervisorSet"];
     "TokenRegisteredV2": ContractTypes["protocolAdmin"]["TokenRegisteredV2"];
@@ -388,6 +385,7 @@ export interface ContractEventMap {
   };
   "singleTokenLiquidity": {
     "SingleTokenDepositDirectV2": ContractTypes["singleTokenLiquidity"]["SingleTokenDepositDirectV2"];
+    "StldHelperTokenAccountClosed": ContractTypes["singleTokenLiquidity"]["StldHelperTokenAccountClosed"];
     "StldSolWithdrawnV2": ContractTypes["singleTokenLiquidity"]["StldSolWithdrawnV2"];
   };
 }

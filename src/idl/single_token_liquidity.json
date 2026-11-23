@@ -11,153 +11,75 @@
   ],
   "instructions": [
     {
-      "name": "deposit_single_token",
+      "name": "close_helper_token_account",
       "docs": [
-        "Deprecated v5 ABI: always rejects before any token movement."
+        "Sweep and close one token account owned by a pool's helper PDA. Treasury PDA only.",
+        "The balance goes to the Treasury's token account of that mint, the lamports to the",
+        "Treasury. `remaining_accounts`: Token-2022 transfer-hook accounts of the sweep."
       ],
       "discriminator": [
-        166,
-        136,
-        166,
-        47,
-        199,
-        192,
-        86,
-        169
+        50,
+        107,
+        81,
+        80,
+        139,
+        67,
+        218,
+        162
       ],
       "accounts": [
         {
+          "name": "config",
+          "docs": [
+            "Coffer-pool config; its `protocol_admin` (Treasury PDA) is the authority."
+          ]
+        },
+        {
           "name": "pool",
           "docs": [
-            "Pool account targeted by this operation."
-          ],
-          "writable": true
+            "discriminator and `config` key from the fixed prefix."
+          ]
         },
         {
           "name": "helper"
         },
         {
-          "name": "lp_mint",
+          "name": "helper_token_account",
           "docs": [
-            "Pool LP mint whose supply prices proportional liquidity."
+            "Token account to close; its token-level owner must be the helper PDA."
           ],
           "writable": true
         },
         {
-          "name": "helper_lp_account",
+          "name": "mint",
           "docs": [
-            "Helper's LP account."
+            "Mint of the token account; writable for the withheld-fee harvest."
           ],
           "writable": true
         },
         {
-          "name": "user_lp_account",
+          "name": "destination",
           "docs": [
-            "User-owned destination for newly minted LP tokens."
+            "the authority's token account of `mint`."
           ],
           "writable": true
         },
         {
-          "name": "user",
+          "name": "authority",
           "docs": [
-            "User signer authorizing the gross input debit and LP destination."
+            "Signer; must equal `config.protocol_admin`. Receives the closed account's lamports."
           ],
           "writable": true,
           "signer": true
         },
         {
-          "name": "coffer_pool_program"
-        },
-        {
-          "name": "lp_token_program",
+          "name": "token_program",
           "docs": [
-            "Token program owning the LP mint and LP destination."
+            "SPL Token or Token-2022, owner of the mint and the token account."
           ]
         }
       ],
-      "args": [
-        {
-          "name": "amount_in",
-          "type": "u64"
-        },
-        {
-          "name": "token_in_index",
-          "type": "u8"
-        },
-        {
-          "name": "minimum_lp_amount",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "deposit_single_token_direct",
-      "docs": [
-        "Deprecated unplanned direct ABI: always rejects before token movement."
-      ],
-      "discriminator": [
-        232,
-        26,
-        96,
-        26,
-        113,
-        140,
-        253,
-        131
-      ],
-      "accounts": [
-        {
-          "name": "pool",
-          "docs": [
-            "Pool account targeted by this operation."
-          ],
-          "writable": true
-        },
-        {
-          "name": "lp_mint",
-          "docs": [
-            "Pool LP mint whose supply prices proportional liquidity."
-          ],
-          "writable": true
-        },
-        {
-          "name": "user_lp_account",
-          "docs": [
-            "User-owned destination for newly minted LP tokens."
-          ],
-          "writable": true
-        },
-        {
-          "name": "user",
-          "docs": [
-            "User signer authorizing the gross input debit and LP destination."
-          ],
-          "signer": true
-        },
-        {
-          "name": "coffer_pool_program"
-        },
-        {
-          "name": "lp_token_program",
-          "docs": [
-            "Token program owning the LP mint and LP destination."
-          ]
-        }
-      ],
-      "args": [
-        {
-          "name": "amount_in",
-          "type": "u64"
-        },
-        {
-          "name": "token_in_index",
-          "type": "u8"
-        },
-        {
-          "name": "minimum_lp_amount",
-          "type": "u64"
-        }
-      ]
+      "args": []
     },
     {
       "name": "deposit_single_token_planned",
@@ -241,6 +163,7 @@
       "docs": [
         "Same plan and accounts as `deposit_single_token_planned`, executed as one",
         "coffer-pool `swap_route_join_v1` CPI; floors are checked after the CPI on every slot.",
+        "A plan without swap legs runs as one `add_liquidity` CPI instead.",
         "The transaction should request a 64 KiB heap frame: one pool invocation runs every leg."
       ],
       "discriminator": [
@@ -319,7 +242,7 @@
       "name": "withdraw_sol",
       "docs": [
         "Recover lamports from a pool's helper PDA. Treasury PDA only.",
-        "No rent floor: the helper is dataless and System-owned."
+        "The helper is dataless and System-owned: drain it to zero or leave it rent-exempt."
       ],
       "discriminator": [
         145,
@@ -414,6 +337,19 @@
         202,
         203,
         242
+      ]
+    },
+    {
+      "name": "StldHelperTokenAccountClosed",
+      "discriminator": [
+        206,
+        105,
+        15,
+        176,
+        248,
+        153,
+        141,
+        51
       ]
     },
     {
@@ -534,7 +470,7 @@
     {
       "code": 6020,
       "name": "InvalidLpMint",
-      "msg": "Deprecated: enforced by the lp_mint seeds constraint"
+      "msg": "LP mint authority is not the pool"
     },
     {
       "code": 6021,
@@ -609,7 +545,7 @@
     {
       "code": 6035,
       "name": "ZapTokenExtensionsUnsupported",
-      "msg": "Direct zap requires plain mints and token accounts (ImmutableOwner is allowed)"
+      "msg": "LP mint carries an unsupported Token-2022 extension"
     },
     {
       "code": 6036,
@@ -635,6 +571,11 @@
       "code": 6040,
       "name": "RoutedReturnDataInvalid",
       "msg": "Routed deposit: coffer-pool return data missing, foreign, malformed or inconsistent with the wallet"
+    },
+    {
+      "code": 6041,
+      "name": "InvalidRecoveryDestination",
+      "msg": "Recovery destination must be the authority's token account of the same mint"
     }
   ],
   "types": [
@@ -991,7 +932,7 @@
           {
             "name": "_deprecated_banned_extensions",
             "docs": [
-              "Legacy extension-policy bitmap, bytes 1651..1659; still read by legacy checks, preserve."
+              "Legacy extension-policy bitmap, bytes 1651..1659. Never read; may be non-zero on old pools."
             ],
             "type": "u64"
           },
@@ -1012,7 +953,7 @@
           {
             "name": "reserved",
             "docs": [
-              "Frozen legacy padding, bytes 1667..1683; `reserved[..4]` holds the `V5M1` marker."
+              "Frozen legacy padding, bytes 1667..1683. Never read; may hold a retired 4-byte marker."
             ],
             "type": {
               "array": [
@@ -1272,7 +1213,7 @@
           {
             "name": "hook_max_cu",
             "docs": [
-              "Compute-unit ceiling per callback, CPI base cost included. Immutable. @2097"
+              "Advisory compute figure chosen at creation: stored, not enforced. Immutable. @2097"
             ],
             "type": "u32"
           },
@@ -1354,7 +1295,7 @@
             "docs": [
               "Per-slot canonical vault (ATA) bump, encoded `bump + 1`; `0` = not cached (bump 255 is",
               "never cached: its `find` costs one attempt, same as `create`). Written only by this",
-              "program from `find_program_address`; a reader falls back to `find` on any mismatch. @2168"
+              "program from `find_program_address` and trusted by readers without re-derivation. @2168"
             ],
             "type": {
               "array": [
@@ -1728,7 +1669,7 @@
     {
       "name": "SingleTokenDepositDirectV2",
       "docs": [
-        "`deposit_single_token_planned` receipt, emitted last, after the inner coffer-pool events."
+        "`deposit_single_token_planned` / `deposit_single_token_routed` receipt, emitted last, after the inner coffer-pool events."
       ],
       "type": {
         "kind": "struct",
@@ -1846,6 +1787,87 @@
             "name": "lp_supply_after",
             "docs": [
               "LP mint supply after the join, in raw LP units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Operation time as Unix seconds."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StldHelperTokenAccountClosed",
+      "docs": [
+        "`close_helper_token_account`: a helper-owned token account swept and closed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "docs": [
+              "Pool whose helper PDA owned the token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "helper",
+            "docs": [
+              "Helper PDA `[HELPER_SEED, pool]`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_account",
+            "docs": [
+              "Closed token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "Mint of the closed token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "docs": [
+              "Token program owning the mint and the token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Operation signer (Treasury PDA); received the lamports."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "destination",
+            "docs": [
+              "Token account credited with the swept balance; unused when `amount` is 0."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Token balance swept before the close, in raw units, gross of any transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "lamports",
+            "docs": [
+              "Lamports the closed account paid out to the authority."
             ],
             "type": "u64"
           },

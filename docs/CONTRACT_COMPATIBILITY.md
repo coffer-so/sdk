@@ -12,9 +12,22 @@ refresh in that working tree, seen 2026-11-22 00:01, has the same bytes as `targ
 
 | Program | Instructions | Events | IDL sha256 |
 | --- | ---: | ---: | --- |
-| coffer_pool | 57 | 45 | `167baeb9667062021a24f032624c1dabe12a0b87425965416ea80e0592a4f23b` (rc5: `9e3df59d…`) |
-| protocol_admin | 58 | 40 | `7de8e983782cdb37d7c9d05ea5cd1d342f7f6061cb7120451cb340107d3fe228` |
-| single_token_liquidity | 5 | 2 | `471c9500d8c794e645a9a7a9b062c3a1e3354d0dadfef8eab72aeb9d648b6a32` (rc5: `87c764fa…`) |
+| coffer_pool | 56 | 44 | `ee6863f9718d16f4f308bd0e8749091e5eb177bee11ffde48b67e8350123bb29` (rc7: `167baeb9…`) |
+| protocol_admin | 58 | 40 | `fbb98b891c874eb30c1564b1149021aef10f69ae3adec628be02aca35829cb3f` (rc7: `7de8e983…`) |
+| single_token_liquidity | 4 | 3 | `dac314621df31896781158a0c47436d91a25ced2e339148a489ef9ee0a58289b` (rc7: `471c9500…`) |
+
+Current source: `contracts-v6.1` working tree on top of `e545874` (2026-11-23, `idl/*.json` == `target/idl/*.json`).
+Changes vs the rc7 ABI: coffer_pool removed `migrate_to_v5` and `PoolMigrationV5Applied`, appended errors 6120
+`RecipientIsVault` and 6121 `MaxSelloffCapZero`; every join / exit / redemption / route join / sidelined funding is
+priced on `priced_lp_supply = mint_supply − lp_transfer_fee_drip(now)` and a burn of the whole supply pays no
+withdraw fee. protocol_admin removed `pool_migrate_to_v5` and `PoolMigratedToV5ViaTreasury`, dropped the unused
+`set_supervisor.system_program` account, appended `stld_close_helper_token_account` +
+`StldHelperTokenAccountClosedViaTreasury` and error 6020 `SelfCloseForbidden`; `UnfreezePools` proposals carry at
+most 14 pools; fee recipients may be any Treasury-owned token account. single_token_liquidity removed
+`deposit_single_token` / `deposit_single_token_direct`, appended `close_helper_token_account` +
+`StldHelperTokenAccountClosed` and error 6041 `InvalidRecoveryDestination`; the plan commitment moved to domain
+`coffer-stld-v6-plan-v2` with mint fingerprints (`mintFingerprint`), a zero-leg routed plan runs the planned path,
+and a sidelined slot's mint / user account / vault are no longer validated (only mint and vault keys).
 
 rc5 vs the previous vendored ABI (rc4 docs refresh of `c9f8f1c`): coffer_pool appends
 `swap_route_join_v1` (discriminator `c81d70ad5bfad0c2`, returns `RouteReturnV1 { received, charged, lp_amount }`)
