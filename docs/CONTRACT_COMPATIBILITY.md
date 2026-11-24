@@ -12,11 +12,14 @@ refresh in that working tree, seen 2026-11-22 00:01, has the same bytes as `targ
 
 | Program | Instructions | Events | IDL sha256 |
 | --- | ---: | ---: | --- |
-| coffer_pool | 56 | 44 | `ee6863f9718d16f4f308bd0e8749091e5eb177bee11ffde48b67e8350123bb29` (rc7: `167baeb9…`) |
+| coffer_pool | 56 | 44 | `230618ce6efdc9d2b5865efa2a33b3ae48bd46fbb989cdf24a0542f6e17b3c4e` (rc8: `ee6863f9…`) |
 | protocol_admin | 58 | 40 | `fbb98b891c874eb30c1564b1149021aef10f69ae3adec628be02aca35829cb3f` (rc7: `7de8e983…`) |
-| single_token_liquidity | 4 | 3 | `dac314621df31896781158a0c47436d91a25ced2e339148a489ef9ee0a58289b` (rc7: `471c9500…`) |
+| single_token_liquidity | 4 | 3 | `efa1491b969897b632339062a26f7634b35bfbf917d75ed3044b964d82cdd6c8` (rc8: `dac31462…`) |
 
 Current source: `contracts-v6.1` working tree on top of `e545874` (2026-11-23, `idl/*.json` == `target/idl/*.json`).
+rc9 vs rc8: `CofferPool.hook_caller_bump: u8` at 2178 (carved from `reserved_v61`); the hook caller PDA is per hook
+program, seeds `["coffer_hook_caller", hook_program]` (`hookCallerPda`). No instruction, event or error change.
+
 Changes vs the rc7 ABI: coffer_pool removed `migrate_to_v5` and `PoolMigrationV5Applied`, appended errors 6120
 `RecipientIsVault` and 6121 `MaxSelloffCapZero`; every join / exit / redemption / route join / sidelined funding is
 priced on `priced_lp_supply = mint_supply − lp_transfer_fee_drip(now)` and a burn of the whole supply pays no
