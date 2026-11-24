@@ -77,15 +77,21 @@ export const DEVNET_V61_CANDIDATE_PROGRAMS: NetworkPrograms = {
 };
 
 /**
- * Devnet factory that runs the v6.1 release candidate (upgraded in place from
- * the v5 devnet copy, pools migrated). Select explicitly:
- * getConfig("devnet", { programs: DEVNET_V61_UPGRADED_PROGRAMS }).
+ * Devnet stand that runs the v6.1 release candidate (rc9, fresh deployment of 2026-11-24;
+ * the earlier upgraded-in-place factory was closed). Select explicitly:
+ * getConfig("devnet", { programs: DEVNET_V61_PROGRAMS }).
  */
-export const DEVNET_V61_UPGRADED_PROGRAMS: NetworkPrograms = {
-  cofferPool: new PublicKey("E6YAKuLAd8vBgJnXsVdPCFCdgUef6ZinfDst3JMxuhJJ"),
-  singleTokenLiquidity: new PublicKey("7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2"),
-  protocolAdmin: new PublicKey("6bFDi7RrLJSbhBpJ2AjHAQfbzBiHGXQXND7no8gv8gux"),
+export const DEVNET_V61_PROGRAMS: NetworkPrograms = {
+  cofferPool: new PublicKey("6dBwFi4fJX2uuQQPvsnjSMF1WRZz2hL1iBGJ2AKfUSem"),
+  singleTokenLiquidity: new PublicKey("3z28EafwCzVHGFRXDXDbfhQ3wHA6hMJguHXxaDsmct59"),
+  protocolAdmin: new PublicKey("HXNSDFfFhY9mJp8NATAuWSLfp2eFDtRddnPgGoesm8i7"),
 };
+
+/** coffer_rewards on the same devnet stand. */
+export const DEVNET_V61_REWARDS_PROGRAM_ID = new PublicKey("AWX5kWCVJ6UxBtQceNM6G39sq1n8DjJPSpHbtS345pP7");
+
+/** @deprecated the old name; same value as `DEVNET_V61_PROGRAMS`. */
+export const DEVNET_V61_UPGRADED_PROGRAMS: NetworkPrograms = DEVNET_V61_PROGRAMS;
 
 export const DEFAULT_RPC_ENDPOINT: Record<Network, string> = {
   mainnet: "https://solana.drpc.org",
