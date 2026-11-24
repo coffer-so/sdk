@@ -157,6 +157,8 @@ export interface RawPoolAccount {
   hookMaxCu: number;
   /** v6.1 (T9): length of the hook account slice `[hook_program, hook_caller, extras..]`. */
   hookAccountsLen: number;
+  /** Canonical bump of the hook program's caller PDA `[b"coffer_hook_caller", hook_program]` @2178; 0 without a hook. */
+  hookCallerBump: number;
   /** rc2: seed history and protocol-imposed restrictions (bit 0 seed, 1..10 tokens, 11 swaps, 12 range manager). */
   safetyFlags: number;
   rangeManagerWeightAnchors: number[];
@@ -186,7 +188,7 @@ export interface RawPoolAccount {
    * zeros on an unmigrated account.
    */
   vaultBumpCache: number[];
-  /** `reserved_v61` @2178 (126 bytes, zero); empty on an unmigrated account. */
+  /** `reserved_v61` @2179 (125 bytes, zero); empty on an unmigrated account. */
   reservedV61: Buffer;
   /**
    * Non-empty when a 2304-byte account carries bytes the v6.1 layout does
@@ -457,7 +459,7 @@ function v61Defaults(): Pick<RawPoolAccount,
   | "layoutVersion" | "tokenDecimals" | "creatorFeeBps" | "creatorFeesOwed" | "surgeFeesOwed" | "depositFeeBps"
   | "withdrawFeeBps" | "liquidityFeeLock" | "rangeManagerLocked" | "poolAdminDelaySecs" | "poolAdminEpoch"
   | "pendingPoolAdminEta" | "pendingActions" | "pendingActionsMask" | "hookProgram" | "hookFlags" | "hookDisabled"
-  | "hookFeeMin" | "hookFeeMax" | "hookMaxCu" | "hookAccountsLen" | "reservedV61" | "layoutDrift"
+  | "hookFeeMin" | "hookFeeMax" | "hookMaxCu" | "hookAccountsLen" | "hookCallerBump" | "reservedV61" | "layoutDrift"
   | "safetyFlags" | "rangeManagerWeightAnchors" | "lpTransferFeeProtocolShareBps" | "lpTransferFeesOwedProtocol"
   | "lpTransferFeesPendingBurn" | "lpTransferFeeBurnLastTs" | "lpTransferFeeBurnEndTs" | "vaultBumpCache"
 > {
@@ -484,6 +486,7 @@ function v61Defaults(): Pick<RawPoolAccount,
     hookFeeMax: 0,
     hookMaxCu: 0,
     hookAccountsLen: 0,
+    hookCallerBump: 0,
     safetyFlags: 0,
     rangeManagerWeightAnchors: Array(MAX_TOKENS).fill(0),
     lpTransferFeeProtocolShareBps: 0,
@@ -531,7 +534,8 @@ function decodeV61Block(data: Buffer, tokenCount: number): ReturnType<typeof v61
   const hookFeeMax = data.readUInt32LE(L.HOOK_FEE_MAX.offset);
   const hookMaxCu = data.readUInt32LE(L.HOOK_MAX_CU.offset);
   const hookAccountsLen = data.readUInt8(L.HOOK_ACCOUNTS_LEN.offset);
-  if (hookProgram.equals(PublicKey.default) && (hookFlags | hookDisabled | hookFeeMin | hookFeeMax | hookMaxCu | hookAccountsLen) !== 0) {
+  const hookCallerBump = data.readUInt8(L.HOOK_CALLER_BUMP.offset);
+  if (hookProgram.equals(PublicKey.default) && (hookFlags | hookDisabled | hookFeeMin | hookFeeMax | hookMaxCu | hookAccountsLen | hookCallerBump) !== 0) {
     drift.push("hook block is non-zero without a hook program");
   }
 
@@ -573,6 +577,7 @@ function decodeV61Block(data: Buffer, tokenCount: number): ReturnType<typeof v61
     hookFeeMax,
     hookMaxCu,
     hookAccountsLen,
+    hookCallerBump,
     safetyFlags,
     rangeManagerWeightAnchors,
     lpTransferFeeProtocolShareBps,

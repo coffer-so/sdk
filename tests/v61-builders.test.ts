@@ -210,9 +210,13 @@ describe("initialize_pool v6.1 args (T1 / T7 / T9 / T14)", () => {
     expect(ix.keys.slice(7).map((k) => k.pubkey.toBase58())).toEqual(p.tokens.map((k) => k.toBase58()));
   });
   test("[P12] fee bps and a hook config are encoded; the hook slice follows the mints", () => {
-    const hookProgram = pk(); const caller = pk();
+    const hookProgram = pk(); const caller = PublicKey.findProgramAddressSync([Buffer.from("coffer_hook_caller"), hookProgram.toBuffer()], cfg.programs.cofferPool)[0];
     const hookConfig = { program: hookProgram, flags: HOOK_FLAGS.BEFORE_SWAP | HOOK_FLAGS.DYNAMIC_FEE, feeMin: 100, feeMax: 10_000, maxCu: 20_000, accountsLen: 2 };
     const hookAccounts = [{ pubkey: hookProgram, isSigner: false, isWritable: false }, { pubkey: caller, isSigner: false, isWritable: false }];
+    // any other key in the caller position (another hook's PDA, the old shared PDA) is refused before the transaction is built
+    for (const wrong of [pk(), PublicKey.findProgramAddressSync([Buffer.from("coffer_hook_caller")], cfg.programs.cofferPool)[0]]) {
+      expect(() => buildInitializePoolIx(cfg, { ...base(), hookConfig, hookAccounts: [hookAccounts[0], { ...hookAccounts[1], pubkey: wrong }] })).toThrow(/caller PDA/);
+    }
     const ix = buildInitializePoolIx(cfg, { ...base(), creatorFeeBps: 2500, depositFeeBps: 10, withdrawFeeBps: 20, hookConfig, hookAccounts, lpTransferFeeBps: 250 });
     const o = argsOffset + encodeLpMetadataArgs(LP_METADATA_GOOD).length;
     expect([ix.data.readUInt16LE(o), ix.data.readUInt16LE(o + 2), ix.data.readUInt16LE(o + 4), ix.data[o + 6]]).toEqual([2500, 10, 20, 1]);

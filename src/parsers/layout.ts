@@ -111,7 +111,9 @@ export const POOL_LAYOUT = {
   LP_TRANSFER_FEE_BURN_END_TS:     { offset: 2160, size: 8 },
   /** rc7: per-slot canonical vault (ATA) bump cache, `bump + 1` (0 = not cached; bump 255 is never cached); written by `initialize_pool` / `migrate_pool_layout_v61` only. */
   VAULT_BUMP_CACHE:                 { offset: 2168, size: 10 },
-  RESERVED_V61:                     { offset: 2178, size: 126 },
+  /** Canonical bump of the hook program's caller PDA `[b"coffer_hook_caller", hook_program]`; 0 without a hook. Written by `initialize_pool` only. */
+  HOOK_CALLER_BUMP:                 { offset: 2178, size: 1 },
+  RESERVED_V61:                     { offset: 2179, size: 125 },
   TOTAL:                            2304,
 } as const;
 

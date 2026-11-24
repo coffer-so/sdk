@@ -41,7 +41,7 @@ const C = {
   LP_TRANSFER_FEE_BLOCK_LEN: 26, LP_TRANSFER_FEE_BURN_WINDOW_SECS: 86_400, PENDING_SET_LP_TRANSFER_FEE_OFFSET: 2150, LP_TRANSFER_FEE_SLOT_LEN: 10,
   LP_TRANSFER_FEE_BURN_END_TS_OFFSET: 2160, LP_TRANSFER_FEE_END_TS_LEN: 8,
   // rc7: per-slot vault bump cache @2168 (`bump + 1`, 0 = not cached) carved from the reserve's front.
-  VAULT_BUMP_CACHE_OFFSET: 2168, VAULT_BUMP_CACHE_LEN: 10, RESERVED_V61_OFFSET: 2178, RESERVED_V61_LEN: 126,
+  VAULT_BUMP_CACHE_OFFSET: 2168, VAULT_BUMP_CACHE_LEN: 10, HOOK_CALLER_BUMP_OFFSET: 2178, RESERVED_V61_OFFSET: 2179, RESERVED_V61_LEN: 125,
   TREASURY_LEN_V1: 786, TREASURY_LEN_V2: 818, TREASURY_LEN_V3: 1624,
   TREASURY_DELAY_SECS_OFFSET: 818, TREASURY_ADMIN_EPOCH_OFFSET: 822, TREASURY_PENDING_ADMIN_ETA_OFFSET: 826,
   TREASURY_PENDING_SET_DELAY_OFFSET: 834, TREASURY_PENDING_SET_SUPERVISOR_OFFSET: 846, TREASURY_PENDING_WITHDRAW_OFFSET: 886,
@@ -220,7 +220,7 @@ describe("v6.1 layout constants agree with the contracts' v61-layout.ts", () => 
       "PENDING_SET_CREATOR_FEE_BPS", "PENDING_SET_LIQUIDITY_FEES", "PENDING_LOCK_LIQUIDITY_FEES", "PENDING_LOCK_RANGE_MANAGER", "PENDING_SET_RANGE_MANAGER",
       "PENDING_SET_RANGE_MANAGER_CONFIG", "PENDING_SET_MAX_SELLOFF", "PENDING_SET_TOKEN_ACTIVE", "HOOK_PROGRAM", "HOOK_FLAGS", "HOOK_DISABLED", "HOOK_FEE_MIN",
       "HOOK_FEE_MAX", "HOOK_MAX_CU", "HOOK_ACCOUNTS_LEN", "SAFETY_FLAGS", "RANGE_MANAGER_WEIGHT_ANCHORS", "LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS", "LP_TRANSFER_FEES_OWED_PROTOCOL",
-      "LP_TRANSFER_FEES_PENDING_BURN", "LP_TRANSFER_FEE_BURN_LAST_TS", "PENDING_SET_LP_TRANSFER_FEE", "LP_TRANSFER_FEE_BURN_END_TS", "VAULT_BUMP_CACHE", "RESERVED_V61"];
+      "LP_TRANSFER_FEES_PENDING_BURN", "LP_TRANSFER_FEE_BURN_LAST_TS", "PENDING_SET_LP_TRANSFER_FEE", "LP_TRANSFER_FEE_BURN_END_TS", "VAULT_BUMP_CACHE", "HOOK_CALLER_BUMP", "RESERVED_V61"];
     for (let i = 1; i < order.length; i++) expect(L[order[i - 1]].offset + L[order[i - 1]].size).toBe(L[order[i]].offset);
     expect(L.RESERVED.offset + L.RESERVED.size).toBe(1683);
     expect(L.RESERVED_V61.offset + L.RESERVED_V61.size).toBe(2304);
@@ -282,7 +282,7 @@ describe("decodePoolAccount on a 2304-byte v6.1 account", () => {
   test("[P13] T9 hook block", () => {
     expect(raw.hookProgram.equals(key(41))).toBe(true); expect(raw.hookFlags).toBe(0b1110000); expect(raw.hookDisabled).toBe(0);
     expect(raw.hookFeeMin).toBe(100); expect(raw.hookFeeMax).toBe(50_000); expect(raw.hookMaxCu).toBe(60_000); expect(raw.hookAccountsLen).toBe(4);
-    expect(raw.reservedV61.length).toBe(126); expect(raw.reservedV61.every((b) => b === 0)).toBe(true);
+    expect(raw.reservedV61.length).toBe(125); expect(raw.hookCallerBump).toBe(0); expect(raw.reservedV61.every((b) => b === 0)).toBe(true);
   });
   test("[P13b] LP transfer fee block: protocol share bps @2124, owed LP @2126, pending burn @2134, burn last ts @2142, burn end ts @2160 (after slot 11)", () => {
     expect(raw.lpTransferFeeProtocolShareBps).toBe(1_500); expect(raw.lpTransferFeesOwedProtocol.toString()).toBe("123456789012");
@@ -293,9 +293,10 @@ describe("decodePoolAccount on a 2304-byte v6.1 account", () => {
     const negEnd = v61Pool(); negEnd.writeBigInt64LE(-2n, C.LP_TRANSFER_FEE_BURN_END_TS_OFFSET);
     expect(decodePoolAccount(negEnd).lpTransferFeeBurnEndTs.toString()).toBe("-2"); expect(decodePoolAccount(negEnd).layoutDrift.join()).toMatch(/lp_transfer_fee_burn_end_ts is negative/);
     // the end ts is not the reserve: a non-zero byte @2167 is the end ts's top byte, @2168 is the reserve
-    // the end ts is not the cache: @2168 is vault_bump_cache[0] (a populated slot: no drift); @2178 is the reserve
+    // the end ts is not the cache: @2168 is vault_bump_cache[0] (a populated slot: no drift); @2178 is the hook caller bump, @2179 the reserve
     const edge = v61Pool(); edge[2167] = 0; edge[2168] = 1; expect(decodePoolAccount(edge).layoutDrift).toEqual([]); expect(decodePoolAccount(edge).vaultBumpCache[0]).toBe(1);
-    const edge2 = v61Pool(); edge2[2178] = 1; expect(decodePoolAccount(edge2).layoutDrift).toContain("reserved_v61 is not all zero");
+    const edge2 = v61Pool(); edge2[2179] = 1; expect(decodePoolAccount(edge2).layoutDrift).toContain("reserved_v61 is not all zero");
+    const bump = v61Pool(); bump[2178] = 254; expect(decodePoolAccount(bump).hookCallerBump).toBe(254); expect(decodePoolAccount(bump).layoutDrift.join()).not.toMatch(/reserved_v61/);
     const b = v61Pool(); b.writeUInt16LE(10_001, C.LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS_OFFSET);
     expect(decodePoolAccount(b).layoutDrift.join()).toMatch(/lp_transfer_fee_protocol_share_bps is 10001/);
   });
@@ -485,7 +486,7 @@ describe("decodePoolAccount refusals and drift notes", () => {
     expect(raw.layoutDrift.join()).not.toMatch(/vault_bump_cache|reserved_v61/);
     const past = v61Pool(3); past[C.VAULT_BUMP_CACHE_OFFSET + 3] = 7;
     expect(decodePoolAccount(past).layoutDrift).toContain("vault_bump_cache[3] past token_count is 7");
-    expect(C.VAULT_BUMP_CACHE_OFFSET + C.VAULT_BUMP_CACHE_LEN).toBe(C.RESERVED_V61_OFFSET);
+    expect(C.VAULT_BUMP_CACHE_OFFSET + C.VAULT_BUMP_CACHE_LEN).toBe(C.HOOK_CALLER_BUMP_OFFSET); expect(C.HOOK_CALLER_BUMP_OFFSET + 1).toBe(C.RESERVED_V61_OFFSET);
     const legacy = Buffer.alloc(1683); legacyPrefix(3).copy(legacy, 0);
     expect(decodePoolAccount(legacy).vaultBumpCache).toEqual(Array(10).fill(0));
   });

@@ -80,7 +80,8 @@ function fixture(): State {
     pending_set_lp_transfer_fee: { eta: bn(1700000012), bps: 250 },
     lp_transfer_fee_burn_end_ts: bn(1700086411),
     vault_bump_cache: Array.from({length: 10}, (_, i) => i < 2 ? 250 + i : 0),
-    reserved_v61: Array.from({length: 126}, () => 0),
+    hook_caller_bump: 253,
+    reserved_v61: Array.from({length: 125}, () => 0),
   };
 }
 const poolMap = {
@@ -98,7 +99,7 @@ const poolMap = {
   pending_pool_admin_eta: "pendingPoolAdminEta", hook_program: "hookProgram", hook_flags: "hookFlags", hook_disabled: "hookDisabled",
   hook_fee_min: "hookFeeMin", hook_fee_max: "hookFeeMax", hook_max_cu: "hookMaxCu", hook_accounts_len: "hookAccountsLen", safety_flags: "safetyFlags", range_manager_weight_anchors: "rangeManagerWeightAnchors",
   lp_transfer_fee_protocol_share_bps: "lpTransferFeeProtocolShareBps", lp_transfer_fees_owed_protocol: "lpTransferFeesOwedProtocol",
-  lp_transfer_fees_pending_burn: "lpTransferFeesPendingBurn", lp_transfer_fee_burn_last_ts: "lpTransferFeeBurnLastTs", lp_transfer_fee_burn_end_ts: "lpTransferFeeBurnEndTs", vault_bump_cache: "vaultBumpCache", reserved_v61: "reservedV61",
+  lp_transfer_fees_pending_burn: "lpTransferFeesPendingBurn", lp_transfer_fee_burn_last_ts: "lpTransferFeeBurnLastTs", lp_transfer_fee_burn_end_ts: "lpTransferFeeBurnEndTs", vault_bump_cache: "vaultBumpCache", hook_caller_bump: "hookCallerBump", reserved_v61: "reservedV61",
 } as const;
 /** v6.1 (T3) typed slots: wire field → (pendingActions kind, payload keys in wire order). */
 const pendingMap: Record<string, [number, string[]]> = {
@@ -167,11 +168,12 @@ test("an unmigrated 1683-byte pool decodes read-only with layout_version 0 and v
     if (["layout_version", "token_decimals", "creator_fee_bps", "creator_fees_owed", "surge_fees_owed", "deposit_fee_bps", "withdraw_fee_bps",
       "liquidity_fee_lock", "range_manager_locked", "pool_admin_delay_secs", "pool_admin_epoch", "pending_pool_admin_eta", "hook_program", "hook_flags",
       "hook_disabled", "hook_fee_min", "hook_fee_max", "hook_max_cu", "hook_accounts_len", "safety_flags", "range_manager_weight_anchors",
-      "lp_transfer_fee_protocol_share_bps", "lp_transfer_fees_owed_protocol", "lp_transfer_fees_pending_burn", "lp_transfer_fee_burn_last_ts", "lp_transfer_fee_burn_end_ts", "vault_bump_cache", "reserved_v61"].includes(wire)) continue;
+      "lp_transfer_fee_protocol_share_bps", "lp_transfer_fees_owed_protocol", "lp_transfer_fees_pending_burn", "lp_transfer_fee_burn_last_ts", "lp_transfer_fee_burn_end_ts", "vault_bump_cache", "hook_caller_bump", "reserved_v61"].includes(wire)) continue;
     expect(normalize(raw[name])).toEqual(normalize((state as any)[wire]));
   }
   expect(raw.tokenDecimals).toEqual(Array(10).fill(0));
   expect(raw.vaultBumpCache).toEqual(Array(10).fill(0));
+  expect(raw.hookCallerBump).toBe(0);
   expect(raw.creatorFeesOwed.every((x: BN) => x.isZero())).toBe(true);
   expect(raw.surgeFeesOwed.every((x: BN) => x.isZero())).toBe(true);
   expect(raw.hookProgram.equals(PublicKey.default)).toBe(true);
@@ -211,7 +213,7 @@ test("sync maps every operational field and token program with full-width balanc
   const info = result.data as any;
   const hookMap: Record<string, string> = { hook_program: "program", hook_flags: "flags", hook_fee_min: "feeMin", hook_fee_max: "feeMax", hook_max_cu: "maxCu", hook_accounts_len: "accountsLen" };
   for (const [wire,name] of Object.entries(poolMap)) {
-    if (wire === "_deprecated_banned_extensions" || wire === "reserved_v61" || wire === "vault_bump_cache" || wire === "safety_flags") { expect(info[name]).toBeUndefined(); continue; }
+    if (wire === "_deprecated_banned_extensions" || wire === "reserved_v61" || wire === "vault_bump_cache" || wire === "hook_caller_bump" || wire === "safety_flags") { expect(info[name]).toBeUndefined(); continue; }
     if (hookMap[wire]) { expect(normalize(info.hook[hookMap[wire]])).toEqual(normalize((state as any)[wire])); continue; }
     if (wire === "hook_disabled") { expect(info.hook.disabled).toBe(true); expect(info.hook.active).toBe(false); continue; }
     if (wire === "token_decimals" || wire === "creator_fees_owed" || wire === "surge_fees_owed" || wire === "range_manager_weight_anchors") {

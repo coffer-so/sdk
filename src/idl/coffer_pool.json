@@ -4474,14 +4474,22 @@
             }
           },
           {
+            "name": "hook_caller_bump",
+            "docs": [
+              "Canonical bump of the hook program's caller PDA `[b\"coffer_hook_caller\", hook_program]`;",
+              "0 without a hook. Immutable. @2178"
+            ],
+            "type": "u8"
+          },
+          {
             "name": "reserved_v61",
             "docs": [
-              "Zeroed reserve; shrinks as fields are appended before it. @2178"
+              "Zeroed reserve; shrinks as fields are appended before it. @2179"
             ],
             "type": {
               "array": [
                 "u8",
-                126
+                125
               ]
             }
           }

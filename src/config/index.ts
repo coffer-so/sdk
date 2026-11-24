@@ -169,7 +169,7 @@ export const HOOK_MIN_ACCOUNTS = 2;
 export const HOOK_MAX_ACCOUNTS = 12;
 export const HOOK_FEE_FLOOR = 0;
 export const HOOK_INTERFACE_VERSION = 1;
-/** T9: PDA `[b"coffer_hook_caller"]` under coffer-pool — the only signer of a hook CPI (never the pool PDA). */
+/** T9: first seed of the caller PDA `[b"coffer_hook_caller", hook_program]` under coffer-pool — the only signer of a hook CPI (never the pool PDA), one per hook program. */
 export const HOOK_CALLER_SEED = Buffer.from("coffer_hook_caller");
 /** T9: `sha256("coffer-hook-interface:<name>")[..8]` per callback (`HookInvoked.callback` index order). */
 export const HOOK_CALLBACKS = [

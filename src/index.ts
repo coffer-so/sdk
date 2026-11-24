@@ -306,7 +306,7 @@ export {
 } from "./clients/atomicDeploy";
 export type { DeployBuildConnection, DeploySendConnection } from "./clients/atomicDeploy";
 export {
-  HOOK_CONFIG_LEN, hookCallerPda, HOOK_CALLER_LOCALNET, validateHookConfig, encodeHookConfig, encodeOptionHookConfig, hookConfigArg, hookAccountSlice, hookAccountSliceFor,
+  HOOK_CONFIG_LEN, hookCallerPda, validateHookConfig, encodeHookConfig, encodeOptionHookConfig, hookConfigArg, hookAccountSlice, hookAccountSliceFor,
   requireHookSlice, HOOK_FIXTURE_PROGRAM_ID, hookFixtureCfgAddress, hookFixtureKycAddress, fixtureHookExtras, resolveHookSlice, hookOpFlags, hookCallbackCount,
   HOOK_BASE_CU, HOOK_CALLBACK_OVERHEAD_CU, hookCuBudget, readonlyMeta, writableMeta,
 } from "./utils/hooks";

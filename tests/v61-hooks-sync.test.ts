@@ -46,7 +46,7 @@ describe("T9 on the final ABI — builders", () => {
     const pool = hooked(), user = pk(), slice = sliceOf(pool), n = pool.tokenCount;
     const expectSlice = (ix: { keys: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] }, fixed: number, perToken: number) => {
       const start = fixed + perToken * n;
-      expect(keysOf(ix).slice(start, start + 3)).toEqual([key(41).toBase58(), hookCallerPda(cfg.programs.cofferPool)[0].toBase58(), key(42).toBase58()]);
+      expect(keysOf(ix).slice(start, start + 3)).toEqual([key(41).toBase58(), hookCallerPda(key(41), cfg.programs.cofferPool)[0].toBase58(), key(42).toBase58()]);
       expect(ix.keys[start].isWritable).toBe(false); expect(ix.keys[start + 1].isWritable).toBe(false); expect(ix.keys[start + 2].isWritable).toBe(true);
       expect(ix.keys.every((k, i) => i < fixed || !k.isSigner)).toBe(true);
       expect(keysOf(ix).at(-1)).toBe(memo.toBase58());
@@ -73,7 +73,7 @@ describe("T9 on the final ABI — builders", () => {
   test("[P03] initialize_pool: hook_config follows the three u16 (Option tag + 47 B) and precedes the trailing lp_transfer_fee_bps u16; the slice follows the mints", () => {
     const cfgHook = { program: key(41), flags: HOOK_FLAGS.BEFORE_SWAP | HOOK_FLAGS.DYNAMIC_FEE, feeMin: 100, feeMax: 50_000, maxCu: 60_000, accountsLen: 3 };
     const mints = [pk(), pk()];
-    const slice = [{ pubkey: key(41), isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: key(42), isSigner: false, isWritable: true }];
+    const slice = [{ pubkey: key(41), isSigner: false, isWritable: false }, { pubkey: hookCallerPda(key(41), cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: key(42), isSigner: false, isWritable: true }];
     const base = { payer: pk(), configKey: pk(), poolId: new BN(1), tokens: mints, weightsBps: [5000, 5000], virtualBalances: [new BN(1_000_000_000), new BN(1_000_000_000)], swapFeeRate: 3000, lpMetadata: LP_METADATA_GOOD, creatorFeeBps: 100, depositFeeBps: 5, withdrawFeeBps: 7 };
     const plain = buildInitializePoolIx(cfg, base);
     const withHook = buildInitializePoolIx(cfg, { ...base, hookConfig: cfgHook, hookAccounts: slice });
@@ -183,7 +183,7 @@ describe("T9 on the final ABI — refusals", () => {
   });
   test("[N02] a disabled hook takes no slice; the bypass never takes one", () => {
     const disabled = hooked({ hook: { program: key(41), flags: HOOK_FLAGS.ALL_CALLBACKS, accountsLen: 3, disabled: true } }), user = pk();
-    const slice = [{ pubkey: key(41), isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: key(42), isSigner: false, isWritable: true }];
+    const slice = [{ pubkey: key(41), isSigner: false, isWritable: false }, { pubkey: hookCallerPda(key(41), cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: key(42), isSigner: false, isWritable: true }];
     expect(() => buildSwapIx(cfg, disabled, { user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(1_000), minAmountOut: new BN(1), hookAccounts: slice })).toThrow(/disabled.*slice must be absent/);
     expect(() => buildSwapIx(cfg, disabled, { user, tokenInIndex: 0, tokenOutIndex: 1, amountIn: new BN(1_000), minAmountOut: new BN(1) })).not.toThrow();
     expect(() => buildRemoveLiquidityBypassHooksIx(cfg, hooked(), { user, lpAmount: new BN(1_000), minimumTokenAmounts: [new BN(0), new BN(0)], hookAccounts: slice })).toThrow(/never takes a hook slice/);
@@ -192,7 +192,7 @@ describe("T9 on the final ABI — refusals", () => {
   test("[N03] initialize_pool: slice without config, wrong slice length, wrong program first, a signer in the slice", () => {
     const base = { payer: pk(), configKey: pk(), poolId: new BN(1), tokens: [pk(), pk()], weightsBps: [5000, 5000], virtualBalances: [new BN(1_000_000_000), new BN(1_000_000_000)], swapFeeRate: 3000, lpMetadata: LP_METADATA_GOOD };
     const cfgHook = { program: key(41), flags: HOOK_FLAGS.BEFORE_SWAP, feeMin: 0, feeMax: 0, maxCu: 50_000, accountsLen: 2 };
-    const slice = [{ pubkey: key(41), isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }];
+    const slice = [{ pubkey: key(41), isSigner: false, isWritable: false }, { pubkey: hookCallerPda(key(41), cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }];
     expect(() => buildInitializePoolIx(cfg, { ...base, hookAccounts: slice })).toThrow(/without a hookConfig/);
     expect(() => buildInitializePoolIx(cfg, { ...base, hookConfig: cfgHook, hookAccounts: slice.slice(0, 1) })).toThrow(/HookAccountsInvalid/);
     expect(() => buildInitializePoolIx(cfg, { ...base, hookConfig: cfgHook, hookAccounts: [slice[1], slice[0]] })).toThrow(/hookAccounts\[0\] must be the hook program/);

@@ -172,7 +172,7 @@ describe("paused launch, Jito marker, hooks", () => {
   test("[P10] a hooked deploy: Option<HookConfig>=Some in init, the slice after the mints and after the seed's ×4 block", async () => {
     const hookProgram = pk();
     const hookConfig = { program: hookProgram, flags: HOOK_FLAGS.BEFORE_SWAP | HOOK_FLAGS.BEFORE_ADD_LIQUIDITY, feeMin: 0, feeMax: 0, maxCu: 20_000, accountsLen: 2 };
-    const hookAccounts = deployHookAccounts({ hookConfig, hookAccounts: [{ pubkey: hookProgram, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }] });
+    const hookAccounts = deployHookAccounts({ hookConfig, hookAccounts: [{ pubkey: hookProgram, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(hookProgram, cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }] });
     expect(hookAccounts.length).toBe(2);
     const p = params(2, { hookConfig, hookAccounts, externalCpiTraceBudget: 2 }); const r = await buildAtomicDeploy(cfg, fakeConnection(p.config, { occupied: new Map([[hookProgram.toBase58(), { owner: SystemProgram.programId, data: Buffer.alloc(0), executable: true }]]) }), p);
     const init = r.instructions[0].find((ix) => ix.data.subarray(0, 8).toString("hex") === INIT_DISC)!;
@@ -357,7 +357,7 @@ describe("current source seed combinations (concentration-factor-20261102)", () 
   });
   test("swap-only native hooks require OnRegister budget and charge it to split initialization", async () => {
     const hookProgram = pk();
-    const p = params(10, { hookConfig: { program: hookProgram, flags: HOOK_FLAGS.BEFORE_SWAP, feeMin: 0, feeMax: 0, maxCu: 20000, accountsLen: 2 }, hookAccounts: [{ pubkey: hookProgram, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }] });
+    const p = params(10, { hookConfig: { program: hookProgram, flags: HOOK_FLAGS.BEFORE_SWAP, feeMin: 0, feeMax: 0, maxCu: 20000, accountsLen: 2 }, hookAccounts: [{ pubkey: hookProgram, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(hookProgram, cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }] });
     const reader = () => fakeConnection(p.config, { occupied: new Map([[hookProgram.toBase58(), { owner: SystemProgram.programId, data: Buffer.alloc(0), executable: true }]]) });
     await expect(buildAtomicDeploy(cfg, reader(), p)).rejects.toThrow(/externalCpiTraceBudget.*OnRegister/);
     const result = await buildAtomicDeploy(cfg, reader(), { ...p, externalCpiTraceBudget: 40 });
@@ -384,7 +384,7 @@ describe("current source seed combinations (concentration-factor-20261102)", () 
     p.tokenPrograms[0] = TOKEN_2022_PROGRAM_ID;
     p.seedMintSnapshots[0] = { address: p.mints[0], owner: TOKEN_2022_PROGRAM_ID, data: extendedMint([[14, hookBody]]) };
     p.hookConfig = { program: nativeHook, flags: HOOK_FLAGS.BEFORE_ADD_LIQUIDITY, feeMin: 0, feeMax: 0, maxCu: 20_000, accountsLen: 2 };
-    p.hookAccounts = [{ pubkey: nativeHook, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }];
+    p.hookAccounts = [{ pubkey: nativeHook, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(nativeHook, cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }];
     p.externalCpiTraceBudget = 4;
     const { getExtraAccountMetaAddress } = await import("@solana/spl-token");
     const registryAddress = getExtraAccountMetaAddress(p.mints[0], transferHook);

@@ -1,6 +1,6 @@
 /**
  * hooks — v6.1 (T9) native pool hooks, client side: the `HookConfig`
- * encoder, the HOOK_CALLER PDA, the account slice every hooked operation
+ * encoder, the per-hook caller PDA, the account slice every hooked operation
  * carries, and the CU heuristic.
  *
  * ## Account slice
@@ -11,8 +11,12 @@
  * exactly `hook.accountsLen` accounts:
  *
  * ```text
- *   [hook_program (ro), HOOK_CALLER (ro), extra_0, extra_1, ..]   then the Token-2022 transfer-hook / memo tail
+ *   [hook_program (ro), hook_caller (ro), extra_0, extra_1, ..]   then the Token-2022 transfer-hook / memo tail
  * ```
+ *
+ * `hook_caller` is the PDA `["coffer_hook_caller", hook_program]` under
+ * coffer-pool: one per hook program ({@link hookCallerPda}), so a signature
+ * coffer-pool gives one hook is useless against another.
  *
  * At `initialize_pool` the slice comes AFTER the mints. While the hook is
  * disabled the slice is ABSENT (the tail is the Token-2022 tail only);
@@ -48,13 +52,13 @@ import type { HookConfigArgs, HookExtrasContext, HookExtrasResolver, HookOp } fr
 /** Borsh `HookConfig` size: pubkey + u16 + u32 + u32 + u32 + u8. */
 export const HOOK_CONFIG_LEN = 32 + 2 + 4 + 4 + 4 + 1; // 47
 
-/** The `[b"coffer_hook_caller"]` PDA under `cofferPoolProgramId` — the only signer of a hook CPI. */
-export function hookCallerPda(cofferPoolProgramId: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([HOOK_CALLER_SEED], cofferPoolProgramId);
+/**
+ * The caller PDA `[b"coffer_hook_caller", hookProgram]` under `cofferPoolProgramId` and its canonical bump —
+ * the only signer of a CPI into `hookProgram`. The pool stores the bump at `POOL_LAYOUT.HOOK_CALLER_BUMP`.
+ */
+export function hookCallerPda(hookProgram: PublicKey, cofferPoolProgramId: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([HOOK_CALLER_SEED, hookProgram.toBuffer()], cofferPoolProgramId);
 }
-
-/** HOOK_CALLER of the historical / production coffer-pool id (`E92oov7r…`, bump 255). */
-export const HOOK_CALLER_LOCALNET = hookCallerPda(NETWORK_PROGRAMS.localnet.cofferPool)[0];
 
 export const readonlyMeta = (pubkey: PublicKey): AccountMeta => ({ pubkey, isSigner: false, isWritable: false });
 export const writableMeta = (pubkey: PublicKey): AccountMeta => ({ pubkey, isSigner: false, isWritable: true });
@@ -108,12 +112,12 @@ export function hookConfigArg(cfg: HookConfigArgs | null | undefined): { program
 // ─── Account slice ───────────────────────────────────────────────────────────
 
 /**
- * `[hook.program ro, HOOK_CALLER ro, ...extras]` for a pool whose hook is
+ * `[hook.program ro, hook_caller ro, ...extras]` for a pool whose hook is
  * active. Length must equal `hook.accountsLen` (throws otherwise, mirroring
  * `HookAccountsInvalid`). Returns `[]` for a pool without an active hook —
  * `extras` are then refused (they would be read as the Token-2022 tail).
  *
- * `cofferPoolProgramId` derives HOOK_CALLER; pass `cfg.programs.cofferPool`
+ * `cofferPoolProgramId` derives the hook's caller PDA; pass `cfg.programs.cofferPool`
  * (default: the production / localnet id `8iQt…`).
  */
 export function hookAccountSlice(
@@ -126,7 +130,7 @@ export function hookAccountSlice(
     if (extras.length) throw new Error("hookAccountSlice: the pool has no active hook; extras would be misread as the Token-2022 tail");
     return [];
   }
-  const slice: AccountMeta[] = [readonlyMeta(hook.program), readonlyMeta(hookCallerPda(cofferPoolProgramId)[0])];
+  const slice: AccountMeta[] = [readonlyMeta(hook.program), readonlyMeta(hookCallerPda(hook.program, cofferPoolProgramId)[0])];
   for (const extra of extras) {
     if (extra.isSigner) throw new Error(`hookAccountSlice: extras cannot be signers (${extra.pubkey.toBase58()})`);
     slice.push({ pubkey: extra.pubkey, isSigner: false, isWritable: extra.isWritable });
@@ -144,7 +148,7 @@ export function hookAccountSliceFor(cfg: CofferConfig, pool: Pick<PoolInfo, "hoo
 
 /**
  * Validate a caller-supplied slice against the pool: present iff the hook
- * is active, exact length, `[0] == hook.program`, `[1] == HOOK_CALLER`, no
+ * is active, exact length, `[0] == hook.program`, `[1] ==` the hook's caller PDA, no
  * signers. Returns the normalised slice to prepend (or `[]`).
  *
  * `bypass = true` (`remove_liquidity_bypass_hooks`) never takes a slice.
@@ -178,8 +182,8 @@ export function requireHookSlice(
     throw new Error(`${op}: hookAccounts length ${hookAccounts.length} != hook.accountsLen ${hook!.accountsLen} (HookAccountsInvalid)`);
   }
   if (!hookAccounts[0].pubkey.equals(hook!.program)) throw new Error(`${op}: hookAccounts[0] must be the hook program ${hook!.program.toBase58()}`);
-  const [caller] = hookCallerPda(cfg.programs.cofferPool);
-  if (!hookAccounts[1].pubkey.equals(caller)) throw new Error(`${op}: hookAccounts[1] must be HOOK_CALLER ${caller.toBase58()}`);
+  const [caller] = hookCallerPda(hook!.program, cfg.programs.cofferPool);
+  if (!hookAccounts[1].pubkey.equals(caller)) throw new Error(`${op}: hookAccounts[1] must be the hook's caller PDA (HOOK_CALLER) ${caller.toBase58()}`);
   const seen = new Set<string>();
   return hookAccounts.map((meta, i) => {
     const key = meta.pubkey.toBase58();
@@ -187,7 +191,7 @@ export function requireHookSlice(
     seen.add(key);
     if (i >= 2 && meta.pubkey.equals(pool.address)) throw new Error(`${op}: hook extras cannot repeat the pool`);
     if (meta.isSigner) throw new Error(`${op}: hook slice accounts cannot be signers (${meta.pubkey.toBase58()})`);
-    if (i < 2 && meta.isWritable) throw new Error(`${op}: hook program / HOOK_CALLER must be read-only`);
+    if (i < 2 && meta.isWritable) throw new Error(`${op}: hook program / hook caller must be read-only`);
     return { pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable };
   });
 }

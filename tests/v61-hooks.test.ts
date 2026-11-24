@@ -1,12 +1,12 @@
 /**
- * T9 hooks (client side): HookConfig validation / encoding, HOOK_CALLER PDA,
+ * T9 hooks (client side): HookConfig validation / encoding, the per-hook caller PDA,
  * the account slice, requireHookSlice on every op, the fixture resolver and
  * the CU heuristic.
  */
 import { Keypair, PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import {
-  HOOK_CONFIG_LEN, hookCallerPda, HOOK_CALLER_LOCALNET, validateHookConfig, encodeHookConfig, encodeOptionHookConfig, hookConfigArg,
+  HOOK_CONFIG_LEN, hookCallerPda, validateHookConfig, encodeHookConfig, encodeOptionHookConfig, hookConfigArg,
   hookAccountSlice, hookAccountSliceFor, requireHookSlice, HOOK_FIXTURE_PROGRAM_ID, hookFixtureCfgAddress, hookFixtureKycAddress,
   fixtureHookExtras, resolveHookSlice, hookOpFlags, hookCallbackCount, HOOK_BASE_CU, HOOK_CALLBACK_OVERHEAD_CU, hookCuBudget, readonlyMeta, writableMeta,
 } from "../src/utils/hooks";
@@ -66,18 +66,28 @@ describe("HookConfig", () => {
 });
 
 describe("HOOK_CALLER and the slice", () => {
-  test("[P03] HOOK_CALLER = PDA [\"coffer_hook_caller\"] of coffer-pool", () => {
-    const [pda, bump] = hookCallerPda(cfg.programs.cofferPool);
-    expect(pda.equals(PublicKey.findProgramAddressSync([Buffer.from("coffer_hook_caller")], cfg.programs.cofferPool)[0])).toBe(true);
+  test("[P03] the caller PDA = [\"coffer_hook_caller\", hook_program] of coffer-pool: one per hook program, never the old shared PDA", () => {
+    const hookA = pk(), hookB = pk();
+    const [pda, bump] = hookCallerPda(hookA, cfg.programs.cofferPool);
+    expect(pda.equals(PublicKey.findProgramAddressSync([Buffer.from("coffer_hook_caller"), hookA.toBuffer()], cfg.programs.cofferPool)[0])).toBe(true);
     expect(bump).toBeLessThanOrEqual(255);
-    expect(HOOK_CALLER_LOCALNET.equals(hookCallerPda(NETWORK_PROGRAMS.localnet.cofferPool)[0])).toBe(true);
-    expect(hookCallerPda(pk())[0].equals(pda)).toBe(false);
+    expect(hookCallerPda(hookB, cfg.programs.cofferPool)[0].equals(pda)).toBe(false);
+    expect(hookCallerPda(hookA, pk())[0].equals(pda)).toBe(false);
+    expect(PublicKey.findProgramAddressSync([Buffer.from("coffer_hook_caller")], cfg.programs.cofferPool)[0].equals(pda)).toBe(false);
+    // the slice of a pool names the caller of ITS hook program
+    const poolA = mockPool({ hook: { program: hookA, accountsLen: 2 } }), poolB = mockPool({ hook: { program: hookB, accountsLen: 2 } });
+    const sliceA = hookAccountSlice(poolA, [], cfg.programs.cofferPool), sliceB = hookAccountSlice(poolB, [], cfg.programs.cofferPool);
+    expect(sliceA[1].pubkey.equals(pda)).toBe(true);
+    expect(sliceB[1].pubkey.equals(hookCallerPda(hookB, cfg.programs.cofferPool)[0])).toBe(true);
+    // a slice built for another hook is refused before the transaction is built
+    expect(() => requireHookSlice(cfg, poolA, [sliceA[0], sliceB[1]], "swap")).toThrow(/HOOK_CALLER/);
+    expect(() => requireHookSlice(cfg, poolA, sliceA, "swap")).not.toThrow();
   });
   test("[P04] slice = [program ro, caller ro, ...extras] of exactly accountsLen; [] for no / disabled hook", () => {
     const pool = mockPool({ hook: { accountsLen: 4 } });
     const a = pk(), b = pk();
     const slice = hookAccountSlice(pool, [writableMeta(a), readonlyMeta(b)], cfg.programs.cofferPool);
-    expect(slice.map((m) => [m.pubkey.toBase58(), m.isWritable, m.isSigner])).toEqual([[pool.hook!.program.toBase58(), false, false], [hookCallerPda(cfg.programs.cofferPool)[0].toBase58(), false, false], [a.toBase58(), true, false], [b.toBase58(), false, false]]);
+    expect(slice.map((m) => [m.pubkey.toBase58(), m.isWritable, m.isSigner])).toEqual([[pool.hook!.program.toBase58(), false, false], [hookCallerPda(pool.hook!.program, cfg.programs.cofferPool)[0].toBase58(), false, false], [a.toBase58(), true, false], [b.toBase58(), false, false]]);
     expect(hookAccountSliceFor(cfg, pool, [writableMeta(a), readonlyMeta(b)])).toEqual(slice);
     expect(hookAccountSlice(mockPool())).toEqual([]);
     expect(hookAccountSlice(mockPool({ hook: { disabled: true } }))).toEqual([]);

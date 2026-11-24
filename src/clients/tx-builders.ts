@@ -57,7 +57,7 @@ import { applyDepositFee } from "../math/liquidityFee";
 import { assertDepositRoundingLoss, checkDepositRounding } from "../math/liquidityRounding";
 import { assertTokensSupported } from "../utils/extensions";
 import { encodeLpMetadataArgs, validateLpMetadata } from "../utils/lpMetadata";
-import { encodeOptionHookConfig, hookCuBudget, requireHookSlice, validateHookConfig } from "../utils/hooks";
+import { encodeOptionHookConfig, hookCallerPda, hookCuBudget, requireHookSlice, validateHookConfig } from "../utils/hooks";
 
 
 /**
@@ -1073,6 +1073,9 @@ export function buildInitializePoolIx(
   }
   if (hookConfig && !hookAccounts[0].pubkey.equals(hookConfig.program)) {
     throw new Error("initialize_pool: hookAccounts[0] must be the hook program");
+  }
+  if (hookConfig && !hookAccounts[1].pubkey.equals(hookCallerPda(hookConfig.program, cfg.programs.cofferPool)[0])) {
+    throw new Error("initialize_pool: hookAccounts[1] must be the hook program's caller PDA [\"coffer_hook_caller\", hook_program] (HookAccountsInvalid)");
   }
 
   const [pool] = derivePoolPda(cfg.programs.cofferPool, params.configKey, params.poolId);

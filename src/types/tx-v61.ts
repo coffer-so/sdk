@@ -66,7 +66,7 @@ export interface HookExtrasContext {
 /** Optional hook slice carried by every hooked user operation. */
 export interface HookedParams {
   /**
-   * v6.1 (T9): the hook account slice `[hook_program, HOOK_CALLER, ...extras]`
+   * v6.1 (T9): the hook account slice `[hook_program, hook_caller, ...extras]`
    * (`hookAccountSlice`), exactly `pool.hook.accountsLen` metas. REQUIRED
    * when `pool.hook.active`; must be absent otherwise. Prepended BEFORE the
    * Token-2022 `extraAccounts` tail.

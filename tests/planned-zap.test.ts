@@ -483,7 +483,7 @@ describe("current source native + Token-2022 planned tails", () => {
     const { POOL_LAYOUT } = await import("../src/parsers/layout");
     const { hookCallerPda } = await import("../src/utils/hooks");
     const full = Buffer.alloc(2304); Buffer.from(q.snapshots.pool.data).copy(full); full[1683] = 1;
-    const native = key(200), caller = hookCallerPda(m.cfg.programs.cofferPool)[0], dataAccount = key(201);
+    const native = key(200), caller = hookCallerPda(native, m.cfg.programs.cofferPool)[0], dataAccount = key(201);
     native.toBuffer().copy(full, POOL_LAYOUT.HOOK_PROGRAM.offset); full[POOL_LAYOUT.HOOK_ACCOUNTS_LEN.offset] = 3;
     q.snapshots.pool.data = full;
     const hookAccounts = [{ pubkey: native, isSigner: false, isWritable: false }, { pubkey: caller, isSigner: false, isWritable: false }, { pubkey: dataAccount, isSigner: false, isWritable: true }];
@@ -544,7 +544,7 @@ test("combined native + real Token-2022 amount-seeded route resolves every gross
   m.infos.set(vault.toBase58(), { owner: TOKEN_2022_PROGRAM_ID, data: token, executable: false, lamports: 1 });
   const res = await m.client.quote(0, 50_000_000n); if (!res.ok) throw new Error(res.error.humanMessage);
   const q = res.data;
-  const hookAccounts = [{ pubkey: native, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(m.cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: dynamicData, isSigner: false, isWritable: true }];
+  const hookAccounts = [{ pubkey: native, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(native, m.cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: dynamicData, isSigner: false, isWritable: true }];
   const resolved = await m.client.resolveExtraAccounts(q,user,{hookAccounts}); if (!resolved.ok) throw new Error(resolved.error.humanMessage);
   const amounts = q.economics.swaps.flatMap(s => s.output === 1 ? [s.grossOutput] : s.input === 1 ? [s.grossInput] : []);
   if (q.economics.depositedGross[1] > 0n) amounts.push(q.economics.depositedGross[1]);

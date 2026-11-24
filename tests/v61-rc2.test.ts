@@ -100,7 +100,7 @@ describe("rc2 wire flags and closed-mint reads", () => {
     const raw = decodePoolAccount(b);
     expect(raw.safetyFlags).toBe(14_341);
     expect(raw.rangeManagerWeightAnchors.slice(0, 2)).toEqual([5_000, 5_000]);
-    expect(raw.reservedV61).toHaveLength(126);
+    expect(raw.reservedV61).toHaveLength(125);
     expect(raw.layoutDrift).toEqual([]);
   });
   test.each(["absent", "closed"])("sync preserves exits when an empty leg's mint is %s", async kind => {
