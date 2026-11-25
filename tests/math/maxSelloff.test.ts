@@ -1,24 +1,24 @@
 /**
- * v5.1 max-selloff window + piecewise-linear surge curve.
- *
- * Curve vectors mirror `programs/cubic-pool/src/math/surge_fee.rs` unit
- * tests; window vectors mirror `max_selloff.rs::check_and_advance`
- * (including the v5.1 previous-rescale on window open). Exact expected
- * numbers are hand-derived from the contract formulas — if a port drifts
- * from the integer math (division order, CEILs), these fail.
+ * v6 max-selloff window: the read-only projection used by the UI and the
+ * contract-exact state machine used by the quote engine. Window vectors
+ * mirror `max_selloff.rs` unit tests and `tests/v6_windows.rs`; exact
+ * expected numbers are hand-derived from the contract formulas — if a port
+ * drifts from the integer math (division order, CEILs), these fail.
  */
 import BN from "bn.js";
 import {
-  calcSegmentedSurgeFeeAmount,
-  calcSurgeFeeAmount,
-  calcSurgeFeePct,
+  checkAndAdvanceSelloff,
   computeSelloffWindow,
   projectSelloffWindow,
+  rebaseSnapshot,
+  rescaleWindowOnVbChange,
+  SelloffState,
 } from "../../src/math/maxSelloff";
+import { MathError } from "../../src/math/fixedPoint";
 
-const SCALE = 10_000;
+const U64_MAX = (1n << 64n) - 1n;
 
-describe("projectSelloffWindow (v5.1 check_and_advance mirror)", () => {
+describe("projectSelloffWindow (check_and_advance mirror, read-only)", () => {
   const base = {
     maxSelloffPct: 1_000, // 10%
     periodLength: 100,
@@ -71,7 +71,7 @@ describe("projectSelloffWindow (v5.1 check_and_advance mirror)", () => {
     expect(p.vbSnapshot).toBe(1_000_000n); // re-snapshotted from live vb
   });
 
-  test("v5.1: carried previous is rescaled to the fresh vb snapshot on open", () => {
+  test("carried previous is rescaled to the fresh vb snapshot on open", () => {
     const p = projectSelloffWindow({
       ...base,
       currentSelloff: 1_000n,
@@ -83,6 +83,17 @@ describe("projectSelloffWindow (v5.1 check_and_advance mirror)", () => {
     // previous = old current 1000, rescaled 1000 * 500k / 1000k = 500
     expect(p.previous).toBe(500n);
     expect(p.cap).toBe(50_000n); // 10% of the NEW snapshot
+  });
+
+  test("v6: the carryover rounds UP, a raw unit of pressure is never erased", () => {
+    const p = projectSelloffWindow({
+      ...base,
+      currentSelloff: 1n,
+      selloffVbSnapshot: 3n,
+      virtualBalance: 1n,
+      now: 1_100,
+    });
+    expect(p.previous).toBe(1n); // ceil(1 · 1 / 3), v5 floored this to 0
   });
 
   test("computeSelloffWindow: disabled when maxSelloffPct = 0", () => {
@@ -101,158 +112,144 @@ describe("projectSelloffWindow (v5.1 check_and_advance mirror)", () => {
   });
 });
 
-describe("calcSurgeFeePct (v5.1 piecewise-linear, integral-averaged)", () => {
-  test("disabled when cap is zero", () => {
-    expect(calcSurgeFeePct(0n, 100n, 0n, 8_000, 200, 200, 3_000, 0)).toBe(0);
-  });
-
-  test("disabled when slope_high is zero", () => {
-    expect(calcSurgeFeePct(0n, 100n, 100n, 8_000, 0, 0, 0, 0)).toBe(0);
-  });
-
-  test("zero at/below threshold", () => {
-    // f1 = 50*SCALE/100 = 5000 <= thr 8000
-    expect(calcSurgeFeePct(0n, 50n, 100n, 8_000, 200, 200, 3_000, 0)).toBe(0);
-  });
-
-  test("full sweep pays the curve AVERAGE, not the endpoint", () => {
-    // thr=8000, low=0, high=3000, no kink; span [0, cap] ⇒ t ∈ [0, 1]:
-    // ∫(0→1) 3000·t dt = 1500 exactly (integer path leaves no remainder).
-    const avg = calcSurgeFeePct(0n, 10_000n, 10_000n, 8_000, 0, 0, 3_000, 0);
-    expect(avg).toBe(1_500);
-    expect(avg).toBeGreaterThan(0);
-    expect(avg).toBeLessThan(3_000);
-  });
-
-  test("empty span falls back to the point rate (endpoint)", () => {
-    // f0 = f1 = SCALE ⇒ t1 = 1 ⇒ rate = low + (high-low) = 3000.
-    expect(calcSurgeFeePct(1_000n, 1_000n, 1_000n, 8_000, 0, 0, 3_000, 0)).toBe(3_000);
-  });
-
-  test("kinked curve hits exactly `mid` at the kink position", () => {
-    // thr=2000, kink=50% ⇒ kink_fill=5000 ⇒ point f=5000 sits ON the kink.
-    expect(calcSurgeFeePct(5_000n, 5_000n, 10_000n, 2_000, 100, 700, 3_000, 50)).toBe(700);
-  });
-
-  test("kink at/outside the (threshold, 100%) band degenerates to low→high", () => {
-    // kink 10% => kink_fill 1000 <= thr 2000 ⇒ ignored: rate(t=1) = high.
-    expect(calcSurgeFeePct(10_000n, 10_000n, 10_000n, 2_000, 100, 700, 3_000, 10)).toBe(3_000);
-  });
-
-  test("integral averaging is path-independent (audit M-05)", () => {
-    // Width-weighted sum of split averages equals the whole-span charge,
-    // modulo the per-call CEIL (≤ 1 unit each).
-    const cap = 10_000n;
-    const args = [8_000, 0, 0, 3_000, 0] as const;
-    const whole = calcSurgeFeePct(8_000n, 10_000n, cap, ...args) * 2_000;
-    const partA = calcSurgeFeePct(8_000n, 9_000n, cap, ...args) * 1_000;
-    const partB = calcSurgeFeePct(9_000n, 10_000n, cap, ...args) * 1_000;
-    expect(Math.abs(whole - (partA + partB))).toBeLessThanOrEqual(2 * 1_000);
-  });
-});
-
-describe("calcSegmentedSurgeFeeAmount (v5.1 swap.rs charge)", () => {
-  // Identity curve: output == input slice. Makes expected values exact and
-  // isolates the segmentation logic from AMM concavity.
-  const identity = (x: bigint) => x;
-
-  const curveArgs = {
-    cap: 1_000n,
-    thresholdPct: 8_000,
-    slopeLowPct: 0,
-    slopeMidPct: 0,
-    slopeHighPct: 3_000,
-    kinkPct: 0,
+describe("checkAndAdvanceSelloff (max_selloff.rs unit vectors)", () => {
+  const VB = 10_000n;
+  const FULL = 10_000;
+  const fresh = (windowStart: bigint): SelloffState => ({ previousSelloff: 0n, currentSelloff: 0n, windowStartTimestamp: windowStart, selloffVbSnapshot: 0n });
+  const advance = (state: SelloffState, pct: number, period: number, amountIn: bigint, vb: bigint, now: bigint) => {
+    const r = checkAndAdvanceSelloff({ state, maxSelloffPct: pct, period, amountIn, virtualBalance: vb, now })!;
+    return { r, state: { previousSelloff: r.previousSelloff, currentSelloff: r.currentSelloff, windowStartTimestamp: r.windowStartTimestamp, selloffVbSnapshot: r.vbSnapshot } };
   };
 
-  test("zero when the whole trade stays below the threshold", () => {
-    const fee = calcSegmentedSurgeFeeAmount({
-      ...curveArgs,
-      effectiveSelloffBefore: 0n,
-      effectiveSelloffAfter: 700n, // thr_units = 800
-      amountInAfterFee: 700n,
-      amountOut: 700n,
-      curveOut: identity,
-    });
-    expect(fee).toBe(0n);
+  test("disabled_returns_none", () => {
+    expect(checkAndAdvanceSelloff({ state: fresh(0n), maxSelloffPct: 0, period: 0, amountIn: 1_000n, virtualBalance: VB, now: 0n })).toBeNull();
   });
 
-  test("taxes only the above-threshold remainder of the output", () => {
-    const fee = calcSegmentedSurgeFeeAmount({
-      ...curveArgs,
-      effectiveSelloffBefore: 0n,
-      effectiveSelloffAfter: 1_000n,
-      amountInAfterFee: 1_000n,
-      amountOut: 1_000n,
-      curveOut: identity,
-    });
-    // Taxed span [800, 1000] in 4 segments of 50; identity output = 50 each.
-    // Segment-average rates of 3000·t over quarters of t∈[0,1]:
-    // 375, 1125, 1875, 2625 ⇒ per-segment CEIL(50·avg/10000) = 2+6+10+14.
-    expect(fee).toBe(32n);
-    expect(fee).toBeLessThan(1_000n);
+  test("within_first_window_accumulates", () => {
+    const { r } = advance(fresh(0n), FULL, 60, 300n, VB, 10n);
+    expect([r.effectiveSelloff, r.maxSelloffCap, r.vbSnapshot, r.currentSelloff, r.previousSelloff]).toEqual([300n, VB, VB, 300n, 0n]);
   });
 
-  test("splitting the sell does not materially reduce the fee", () => {
-    const whole = calcSegmentedSurgeFeeAmount({
-      ...curveArgs,
-      effectiveSelloffBefore: 0n,
-      effectiveSelloffAfter: 1_000n,
-      amountInAfterFee: 1_000n,
-      amountOut: 1_000n,
-      curveOut: identity,
-    });
-    const parts =
-      calcSegmentedSurgeFeeAmount({
-        ...curveArgs,
-        effectiveSelloffBefore: 0n,
-        effectiveSelloffAfter: 800n,
-        amountInAfterFee: 800n,
-        amountOut: 800n,
-        curveOut: identity,
-      }) +
-      calcSegmentedSurgeFeeAmount({
-        ...curveArgs,
-        effectiveSelloffBefore: 800n,
-        effectiveSelloffAfter: 900n,
-        amountInAfterFee: 100n,
-        amountOut: 100n,
-        curveOut: identity,
-      }) +
-      calcSegmentedSurgeFeeAmount({
-        ...curveArgs,
-        effectiveSelloffBefore: 900n,
-        effectiveSelloffAfter: 1_000n,
-        amountInAfterFee: 100n,
-        amountOut: 100n,
-        curveOut: identity,
-      });
-    expect(parts).toBeGreaterThan(0n);
-    const spread = Number(whole > parts ? whole - parts : parts - whole);
-    expect(spread).toBeLessThanOrEqual(Number(whole) * 0.15 + 8);
+  test("cap_is_percent_of_snapshot and cap_floors_down", () => {
+    const { r, state } = advance(fresh(0n), 1_000, 60, 1_000n, VB, 0n);
+    expect(r.maxSelloffCap).toBe(1_000n);
+    expect(() => advance(state, 1_000, 60, 1n, VB, 1n)).toThrow("MaxSelloffExceeded");
+    expect(() => advance(fresh(0n), 1, 60, 1n, 9_999n, 0n)).toThrow("MaxSelloffExceeded");
   });
 
-  test("fee is clamped to amountOut", () => {
-    const fee = calcSegmentedSurgeFeeAmount({
-      ...curveArgs,
-      slopeLowPct: SCALE,
-      slopeMidPct: SCALE,
-      slopeHighPct: SCALE,
-      effectiveSelloffBefore: 800n,
-      effectiveSelloffAfter: 1_000n,
-      amountInAfterFee: 200n,
-      amountOut: 200n,
-      curveOut: identity,
-    });
-    expect(fee).toBe(200n);
+  test("snapshot_not_inflated_by_growing_vb_within_window", () => {
+    const a = advance(fresh(0n), 1_000, 600, 600n, VB, 0n);
+    const b = advance(a.state, 1_000, 600, 400n, 1_000_000n, 100n);
+    expect(b.r.maxSelloffCap).toBe(1_000n);
+    expect(b.r.vbSnapshot).toBe(VB);
+    expect(() => advance(b.state, 1_000, 600, 1n, 1_000_000n, 200n)).toThrow("MaxSelloffExceeded");
+  });
+
+  test("single_boundary_rotation", () => {
+    const a = advance(fresh(0n), FULL, 60, 500n, VB, 0n);
+    const { r, state } = advance(a.state, FULL, 60, 100n, VB, 70n);
+    expect([state.previousSelloff, state.currentSelloff, state.windowStartTimestamp]).toEqual([500n, 100n, 60n]);
+    // weighted_prev = 500 * (60 - 10) / 60 = 416, effective = 416 + 100
+    expect(r.effectiveSelloff).toBe(516n);
+  });
+
+  test("double_boundary_clears", () => {
+    const a = advance(fresh(0n), FULL, 60, 500n, VB, 0n);
+    const { r, state } = advance({ ...a.state, previousSelloff: 700n }, FULL, 60, 100n, VB, 200n);
+    expect([state.previousSelloff, state.currentSelloff, state.windowStartTimestamp, r.effectiveSelloff]).toEqual([0n, 100n, 200n, 100n]);
+  });
+
+  test("clock_skew_clamps_to_zero", () => {
+    const { r, state } = advance(fresh(100n), FULL, 60, 50n, VB, 80n);
+    expect([state.windowStartTimestamp, state.currentSelloff, r.effectiveSelloff]).toEqual([100n, 50n, 50n]);
+  });
+
+  test("l11: rotation rounds the carryover UP and does not erase a raw unit", () => {
+    // tests/v6_windows.rs::l11_rotation_rounds_carryover_up_and_does_not_erase_a_raw_unit
+    const d: SelloffState = { previousSelloff: 0n, currentSelloff: 1n, windowStartTimestamp: 100n, selloffVbSnapshot: 3n };
+    const a = advance(d, FULL, 60, 0n, 1n, 160n);
+    expect([a.r.vbSnapshot, a.r.previousSelloff, a.r.effectiveSelloff]).toEqual([1n, 1n, 1n]);
+    const b = advance(a.state, FULL, 60, 1n, 1n, 280n);
+    expect([b.r.previousSelloff, b.r.effectiveSelloff]).toEqual([0n, 1n]);
+  });
+
+  test("rejects beyond cap and is pure on rejection", () => {
+    const state = fresh(0n);
+    const a = advance(state, FULL, 60, VB, VB, 0n);
+    expect(() => advance(a.state, FULL, 60, 1n, VB, 1n)).toThrow(MathError);
+    expect(a.state.currentSelloff).toBe(VB);
+  });
+
+  test("config guards: period 0 and pct above scale", () => {
+    expect(() => advance(fresh(0n), FULL, 0, 10n, VB, 0n)).toThrow();
+    expect(() => advance(fresh(0n), 10_001, 60, 1n, VB, 0n)).toThrow();
   });
 });
 
-describe("calcSurgeFeeAmount (flat helper)", () => {
-  test("CEIL and clamp", () => {
-    expect(calcSurgeFeeAmount(0n, 3_000)).toBe(0n);
-    expect(calcSurgeFeeAmount(1_000n, 0)).toBe(0n);
-    expect(calcSurgeFeeAmount(1_000n, 1)).toBe(1n); // ceil(0.1)
-    expect(calcSurgeFeeAmount(10n, SCALE)).toBe(10n);
+describe("rescaleWindowOnVbChange / rebaseSnapshot (tests/v6_windows.rs)", () => {
+  const state = (snapshot: bigint, previous: bigint, current: bigint): SelloffState => ({ previousSelloff: previous, currentSelloff: current, windowStartTimestamp: 100n, selloffVbSnapshot: snapshot });
+  const triple = (s: SelloffState) => [s.selloffVbSnapshot, s.previousSelloff, s.currentSelloff];
+
+  test("l14: a buy-side shrink does not keep a loose snapshot", () => {
+    const d = rescaleWindowOnVbChange(state(800_000n, 50_000n, 150_000n), 1_000_000n, 250_000n);
+    expect(triple(d)).toEqual([200_000n, 12_500n, 37_500n]);
+    expect(() => checkAndAdvanceSelloff({ state: d, maxSelloffPct: 5_000, period: 1_000, amountIn: 50_001n, virtualBalance: 250_000n, now: 100n })).toThrow("MaxSelloffExceeded");
+  });
+
+  test("l15: a disabled window still tracks every change; re-enabling grants no reset", () => {
+    const d = rescaleWindowOnVbChange(state(950_000n, 47_500n, 95_000n), 950_000n, 475_000n);
+    expect(triple(d)).toEqual([475_000n, 23_750n, 47_500n]);
+    expect(d.windowStartTimestamp).toBe(100n);
+    expect(() => checkAndAdvanceSelloff({ state: d, maxSelloffPct: 1_500, period: 1_000, amountIn: 1n, virtualBalance: 475_000n, now: 100n })).toThrow("MaxSelloffExceeded");
+  });
+
+  test("h04: tiny rebases cannot zero the snapshot or forgive pressure", () => {
+    let d = state(1n, 1n, 1n);
+    for (let i = 0; i < 100; i++) {
+      d = rescaleWindowOnVbChange(d, 1_000n, 1n);
+      expect(d.selloffVbSnapshot).toBe(1n);
+      expect(d.previousSelloff >= 1n && d.currentSelloff >= 1n).toBe(true);
+      d = rescaleWindowOnVbChange(d, 1n, 1_000n);
+    }
+    expect(() => checkAndAdvanceSelloff({ state: d, maxSelloffPct: 10_000, period: 1_000, amountIn: 1n, virtualBalance: 1_000n, now: 100n })).toThrow("MaxSelloffExceeded");
+  });
+
+  test("h04: an uninitialised window stays uninitialised; a bad rescale is atomic", () => {
+    expect(triple(rescaleWindowOnVbChange(state(0n, 0n, 0n), 1n, U64_MAX))).toEqual([0n, 0n, 0n]);
+    const d = state(1n, U64_MAX, 1n);
+    expect(() => rescaleWindowOnVbChange(d, 1n, 2n)).toThrow(MathError);
+    expect(() => rescaleWindowOnVbChange(d, 1n, 0n)).toThrow("InvalidVirtualBalances");
+    expect(() => rescaleWindowOnVbChange(d, 0n, 1n)).toThrow("InvalidVirtualBalances");
+    expect(triple(d)).toEqual([1n, U64_MAX, 1n]);
+  });
+
+  test("no-ops: unchanged vb, unchanged snapshot", () => {
+    const d = state(5n, 2n, 3n);
+    expect(rescaleWindowOnVbChange(d, 7n, 7n)).toEqual(d);
+    expect(rebaseSnapshot(d, 5n)).toEqual(d);
+    expect(rebaseSnapshot(state(0n, 5n, 5n), 7n)).toEqual(state(0n, 5n, 5n));
+  });
+
+  test("rebase scales both buckets UP by new / old", () => {
+    expect(triple(rebaseSnapshot(state(10_000n, 300n, 500n), 15_000n))).toEqual([15_000n, 450n, 750n]);
+    expect(triple(rebaseSnapshot(state(3n, 1n, 2n), 2n))).toEqual([2n, 1n, 2n]); // ceil(2/3), ceil(4/3)
+    expect(() => rebaseSnapshot(state(1n, U64_MAX, 0n), 2n)).toThrow(MathError);
+  });
+
+  test("h04 property: rebase preserves both bucket fractions (never forgives)", () => {
+    let seed = 0x9e3779b97f4a7c15n;
+    const next = () => { seed = (seed * 6364136223846793005n + 1442695040888963407n) & U64_MAX; return seed; };
+    for (let i = 0; i < 2_000; i++) {
+      const oldVb = 1n + (next() % 1_000_000_000_000n);
+      const newVb = 1n + (next() % 1_000_000_000_000n);
+      const snapshot = 1n + (next() % oldVb);
+      const previous = next() % (snapshot + 1n);
+      const current = next() % (snapshot + 1n);
+      const d = rescaleWindowOnVbChange(state(snapshot, previous, current), oldVb, newVb);
+      expect(d.selloffVbSnapshot > 0n).toBe(true);
+      expect(d.previousSelloff * snapshot >= previous * d.selloffVbSnapshot).toBe(true);
+      expect(d.currentSelloff * snapshot >= current * d.selloffVbSnapshot).toBe(true);
+      expect(d.windowStartTimestamp).toBe(100n);
+    }
   });
 });

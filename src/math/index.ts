@@ -1,13 +1,18 @@
 export * from "./fixedPoint";
 export * from "./logExp";
-export * from "./cubicMath";
+export * from "./poolMath";
 export * from "./weightedMath";
 export * from "./singleToken";
 export * from "./slippage";
 export * from "./maxSelloff";
+export * from "./surgeFee";
+export * from "./transferFee";
+export * from "./feeSplit";
+export * from "./liquidityFee";
+export * from "./liquidityRounding";
+export * from "./surgeBucket";
+export * from "./lpPrice";
+export * from "./swapSim";
 export * from "./lpLoss";
-// NOTE: "./surgeFee" is deliberately NOT star-exported — its
-// calcSurgeFeePct/calcSurgeFeeAmount would shadow the same-named maxSelloff
-// exports (an ambiguous star re-export silently drops the name, breaking
-// existing consumers). The quote engine imports it by path; only the
-// SurgeCurve type is re-exported from the package root.
+export * from "./concentrationFactor";
+export * from "./lpTransferFee";

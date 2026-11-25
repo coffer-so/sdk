@@ -1,9 +1,8 @@
-node_modules/
+node_modules
 dist/
 *.log
 .env
 .env.*
 !.env.example
 !.env.*.example
-package-lock.json
 *.tgz

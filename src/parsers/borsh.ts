@@ -90,12 +90,72 @@ export class BorshReader {
     return out;
   }
 
+  vecI64(): BN[] {
+    const len = this.u32();
+    this.requireBytes(len * 8);
+    const out: BN[] = [];
+    for (let i = 0; i < len; i++) out.push(this.i64());
+    return out;
+  }
+
+  /** Borsh `String`: u32 LE byte length + UTF-8 bytes. */
+  string(): string {
+    const len = this.u32();
+    this.requireBytes(len);
+    const s = this.buf.toString("utf8", this.offset, this.offset + len);
+    this.offset += len;
+    return s;
+  }
+
+  /** Borsh `Vec<u8>` / `bytes`. */
+  bytes(): Buffer {
+    const len = this.u32();
+    this.requireBytes(len);
+    const b = Buffer.from(this.buf.subarray(this.offset, this.offset + len));
+    this.offset += len;
+    return b;
+  }
+
   vecPubkey(): PublicKey[] {
     const len = this.u32();
     this.requireBytes(len * 32);
     const out: PublicKey[] = [];
     for (let i = 0; i < len; i++) out.push(this.pubkey());
     return out;
+  }
+
+  /** Borsh `Vec<bool>` (one canonical byte per entry). */
+  vecBool(): boolean[] {
+    const len = this.u32();
+    this.requireBytes(len);
+    const out: boolean[] = [];
+    for (let i = 0; i < len; i++) out.push(this.bool());
+    return out;
+  }
+
+  /** Borsh `Vec<T>` with a per-element reader (nested structs). */
+  vec<T>(read: (r: BorshReader) => T): T[] {
+    const len = this.u32();
+    if (len > this.remaining()) throw new Error(`BorshReader: vector length ${len} exceeds the ${this.remaining()} remaining bytes`);
+    const out: T[] = [];
+    for (let i = 0; i < len; i++) out.push(read(this));
+    return out;
+  }
+
+  /** Borsh fixed `[u8; n]`. */
+  u8Array(n: number): Buffer {
+    this.requireBytes(n);
+    const b = Buffer.from(this.buf.subarray(this.offset, this.offset + n));
+    this.offset += n;
+    return b;
+  }
+
+  /** Borsh `Option<T>`: tag byte `0` ⇒ `null`, `1` ⇒ value; any other tag is a wire error. */
+  option<T>(read: (r: BorshReader) => T): T | null {
+    const tag = this.u8();
+    if (tag === 0) return null;
+    if (tag !== 1) throw new Error(`BorshReader: invalid Option tag ${tag}`);
+    return read(this);
   }
 
   private requireBytes(length: number): void {

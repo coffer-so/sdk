@@ -944,7 +944,7 @@ export interface PortfolioChartEvent {
    * the LP price at that moment. `null` when a transfer could not be priced.
    */
   usd: number | null;
-  /** LP tokens (BPT) moved, human units, same sign as `usd`. */
+  /** LP tokens moved, human units, same sign as `usd`. */
   bptDelta: number;
   /**
    * Transaction signature — pass it as `highlight` to `getPortfolioActivity`
@@ -1093,7 +1093,7 @@ export interface PortfolioPositionItem {
     tokens: ActivityTokenInfo[];
   };
   /**
-   * Position value from the 30s-fresh wallet BPT balance. In a
+   * Position value from the 30s-fresh wallet LP balance. In a
    * `getPublicPortfolioPositions` answer — from the balance of the
    * backend's stored position snapshot.
    */
@@ -1438,7 +1438,7 @@ export interface TokenPairChartResponse {
 // ── Pool chart types (pool page) ──
 
 /**
- * `lpPrice` — USD price of ONE LP token (BPT) of the pool (backend release
+ * `lpPrice` — USD price of ONE LP token of the pool (backend release
  * of November 2026; backends before it answer 400 for it, and 404 before the
  * chart route existed, September 2026).
  */
@@ -2385,7 +2385,7 @@ export class CofferBackendClient {
 
   /**
    * Position Pools: the user's ACTIVE LP positions with per-pool money
-   * metrics — value (from the fresh wallet BPT balance), fees earned,
+   * metrics — value (from the fresh wallet LP balance), fees earned,
    * unrealized + realized IL, net PnL and personal compounded APY.
    * A freshly received (transferred) position appears immediately with
    * its value and zeroed metrics until the background snapshot builds.
@@ -2600,8 +2600,8 @@ export class CofferBackendClient {
    * Ranges: `1m` (default), `6m`, `1y`, `all` (whole history, never
    * shorter than a year); `24h`/`1w` remain accepted for older UIs.
    *
-   * `metric: "lpPrice"` — the pool's LP token (BPT) price in USD per token,
-   * from the metrics cron's per-bucket pool snapshot ÷ BPT supply (no
+   * `metric: "lpPrice"` — the pool's LP token price in USD per token,
+   * from the metrics cron's per-bucket pool snapshot ÷ LP supply (no
    * external price feed on the request path). Its points start where the
    * backend's snapshots start (2026-07-26), so an older pool's `all`/`1y`
    * line begins there.

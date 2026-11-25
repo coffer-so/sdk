@@ -3,15 +3,15 @@
 // See LICENSE at the repository root.
 
 /**
- * @coffer_so/sdk — client library for the Cubic Pool AMM on Solana.
+ * @coffer_so/sdk — client library for the Coffer Pool AMM on Solana.
  *
  * Entry point barrel. Most consumers will want to import from this root:
  *
  * ```ts
- * import { CubicPoolClient, CofferBackendClient, getConfig } from "@coffer_so/sdk";
+ * import { CofferPoolClient, CofferBackendClient, getConfig } from "@coffer_so/sdk";
  *
  * const cfg = getConfig("mainnet", { backendEndpoint: "https://api.coffer.so" });
- * const pool = new CubicPoolClient({ config: cfg, poolAddress });
+ * const pool = new CofferPoolClient({ config: cfg, poolAddress });
  * const info = await pool.sync();
  * if (info.ok) console.log(info.data.tokens.map(t => t.metadata?.symbol));
  * ```
@@ -31,8 +31,8 @@ export * from "./rewards";
 export {
   getConfig,
   programId,
-  CUBIC_POOL_SEED,
-  BPT_MINT_SEED,
+  POOL_SEED,
+  LP_MINT_SEED,
   STLD_HELPER_SEED,
   TREASURY_SEED,
   WEIGHT_SCALE,
@@ -40,13 +40,13 @@ export {
   MAX_WEIGHT,
   MIN_TOKENS,
   MAX_TOKENS,
-  BPT_DECIMALS,
+  LP_DECIMALS,
   SWAP_FEE_PRECISION,
   PROTOCOL_FEE_PRECISION,
   PERCENT_SCALE,
   MAX_SWAP_FEE_RATE,
   MAX_PROTOCOL_FEE_RATE,
-  MINIMUM_INITIAL_BPT,
+  MIN_LP_SUPPLY,
   SLIPPAGE_PRECISION,
   MIN_SLIPPAGE_HBPS,
 } from "./config";
@@ -70,29 +70,38 @@ export {
 export { lnFp, expFp, powFp } from "./math/logExp";
 export {
   calcOutGivenIn,
-  calcBptOutGivenExactTokensIn,
-  calcTokensOutGivenBptIn,
+  calcLpOutGivenExactTokensIn,
+  calcJoinRatioAndLp,
+  calcTokensOutGivenLpIn,
   calcSpotOut,
-} from "./math/cubicMath";
+  calcDepositCredit,
+  virtualBalanceAfterDeposit,
+  virtualBalanceAfterWithdrawal,
+  calcEffectiveLpBurn,
+} from "./math/poolMath";
+export { ceilDiv, MathError } from "./math/fixedPoint";
+export { selectEpochFee, transferFeeOf, netOfTransferFee, inverseTransferFee, grossOfTransferFee, MAX_FEE_BASIS_POINTS } from "./math/transferFee";
+export type { TransferFee, TransferFeeConfig } from "./math/transferFee";
 export { validateWeights, calcSpotPrice } from "./math/weightedMath";
-export {
-  capDepositAmountsToLpRatio,
-  computeAllocations,
-  computeTwoTokenOptimalAllocations,
-} from "./math/singleToken";
+export { computeAllocations } from "./math/singleToken";
+export { quoteZap, replay, swapInPool, validatePlanBudget, validateQuotePool, assertZapDepositRoundingLoss, SimError, isSimFailure } from "./math/planner";
+export { assertDepositRoundingLoss, checkDepositRounding, sizeDepositForLp, DepositRoundingLossError } from "./math/liquidityRounding";
+export type { QuotePool, ZapQuote, PlannerSwapQuote } from "./math/planner";
 export { applySlippage, applySwapFee, lpBalances, priceImpactHbps } from "./math/slippage";
-export {
-  computeSelloffWindow,
-  projectSelloffWindow,
-  calcSurgeFeePct,
-  calcSurgeFeeAmount,
-  calcSegmentedSurgeFeeAmount,
-  SURGE_FEE_SEGMENTS,
-} from "./math/maxSelloff";
+export { computeSelloffWindow, projectSelloffWindow } from "./math/maxSelloff";
+export { calcSurgeFeeRate, calcSurgeFeePct, calcSurgeFeeAmount, SURGE_FEE_SEGMENTS } from "./math/surgeFee";
+export type { SurgeFeeAmountParams } from "./math/surgeFee";
 export { RpcClient } from "./clients/RpcClient";
 export { CofferBackendClient } from "./clients/CofferBackendClient";
-export { CubicPoolClient } from "./clients/CubicPoolClient";
-export { SingleTokenDepositClient } from "./clients/SingleTokenDepositClient";
+export { CofferPoolClient } from "./clients/CofferPoolClient";
+export { PlannedZapClient, planHasSwapLeg, probeInstructionPresence, classifyInstructionProbe } from "./clients/plannedZap/PlannedZapClient";
+export type { PlannedZapClientParams, PlannedZapQuote, PlannedZapExtraAccounts, PlannedZapRoute, RoutedSupport, RoutedProbeStatus, BuiltDirectZapTx } from "./clients/plannedZap/PlannedZapClient";
+export { buildPlannedZapIx, buildRoutedZapIx, buildRoutedZapInstruction, buildDirectZapIx, routedZapComputeBudgetIxs, plannedZapAccounts, encodeAllocationPlan, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS, PLANNED_ZAP_DISCRIMINATOR_HEX, ROUTED_ZAP_DISCRIMINATOR_HEX, ROUTED_ZAP_HEAP_FRAME_BYTES } from "./clients/plannedZap/instruction";
+export type { AllocationPlan, PlannedZapAccounts, PlannedZapArgs, DirectZapRoute } from "./clients/plannedZap/instruction";
+export { stateCommitment, mintFingerprint, PLAN_DOMAIN, MAX_PLAN_AGE_SECONDS, MAX_VALID_FOR_SLOTS, MAX_FINGERPRINT_EXTENSIONS, V6_PLAN_HASH_VECTOR, V6_PLAN_HASH_VECTOR_RICH } from "./clients/plannedZap/stateCommitment";
+export type { SnapshotAccount } from "./clients/plannedZap/stateCommitment";
+export { buildWalletLookupPreparation, resolveWalletLookupTable, waitForWalletLookupTable, compilePlannedZapTransaction, PACKET_BYTES, DEFAULT_SETUP_WALLET_RESERVE, DEFAULT_FINANCIAL_WALLET_RESERVE } from "./clients/plannedZap/walletAlt";
+export type { AltConnection, WalletLookupPreparation, CompiledPlannedZap } from "./clients/plannedZap/walletAlt";
 export { PoolFactoryClient } from "./clients/PoolFactoryClient";
 export { AdminClient } from "./clients/AdminClient";
 export {
@@ -100,15 +109,14 @@ export {
   buildSwapTx,
   buildAddLiquidityIx,
   buildAddLiquidityTx,
+  buildSwapRouteJoinV1Ix,
+  buildSwapRouteJoinV1Tx,
+  SWAP_ROUTE_JOIN_HEAP_FRAME_BYTES,
   buildRemoveLiquidityIx,
   buildRemoveLiquidityTx,
-  buildSingleTokenDepositIx,
-  buildSingleTokenDepositTx,
-  buildSingleTokenDepositTxs,
-  buildSingleTokenDepositAtaIxs,
   buildInitializeConfigIx,
   buildPoolInitializeConfigIx,
-  buildInitializeCubicPoolIx,
+  buildInitializePoolIx,
   buildDeployPoolTx,
   buildInitializePoolAltIx,
   buildInitializePoolAltTx,
@@ -116,15 +124,18 @@ export {
   buildSetRangeManagerConfigIx,
   buildRangeManagerUpdateIx,
   deriveAltAddress,
-  STLD_MAX_TOKENS,
-  STLD_DEPOSIT_CU_LIMIT,
 } from "./clients/tx-builders";
+export type { SwapRouteJoinParams } from "./clients/tx-builders";
 export { buildVersionedTx, compileBuiltTx } from "./clients/versioned";
+export { resolveSwapExtraAccounts, resolveAddLiquidityExtraAccounts, resolveRemoveLiquidityExtraAccounts } from "./clients/extra-accounts";
+export type { ResolveExtraAccountsParams } from "./clients/extra-accounts";
+export { resolveTransferExtraAccounts, executeMetas, MEMO_PROGRAM_ID, UnsupportedTransferProfileError } from "./utils/transferProfile";
+export type { AccountReader, TransferLeg, MintSnapshot, ResolveTransferExtraAccountsOptions } from "./utils/transferProfile";
 export type { InitializePoolAltParams } from "./clients/tx-builders";
-export { decodePoolAccount, POOL_DISCRIMINATOR_LEN, POOL_LEN, POOL_V4_LEN } from "./parsers/poolAccount";
-export { toSdkError, describeProgramError } from "./utils/errors";
-export { decodeMintAccount } from "./parsers/mintAccount";
-export { parseCubicPoolEvents } from "./parsers/events";
+export { decodePoolAccount, POOL_DISCRIMINATOR_LEN, POOL_LEN, POOL_V4_LEN, V5_MIGRATION_MARKER } from "./parsers/poolAccount";
+export { toSdkError, describeProgramError, containsRoutedDepositInstruction } from "./utils/errors";
+export { decodeMintAccount, validatePlannedZapLpMint, validateTransferMintSnapshot } from "./parsers/mintAccount";
+export { parseCofferPoolEvents } from "./parsers/events";
 export { BorshReader } from "./parsers/borsh";
 export { getRewardsApiError } from "./clients/CofferBackendClient";
 export { buildContractInstructionWithProgramId } from "./clients/contract-instructions";
@@ -195,29 +206,17 @@ export type {
   SwapQuote,
   AddLiquidityParams,
   RemoveLiquidityParams,
-  SingleTokenDepositParams,
-  SingleTokenDepositQuote,
+  PlannedZapQuoteOptions,
   BuiltTx,
   DeployPoolParams,
-  CubicPoolEvent,
-  PoolInitializedEvent,
-  SwapEvent,
-  LiquidityAddedEvent,
-  LiquidityRemovedEvent,
-  ProtocolFeesCollectedEvent,
-  PoolEnabledUpdatedEvent,
-  SwapsEnabledUpdatedEvent,
-  SingleTokenDepositEvent,
-  PoolStateLogEvent,
-  MaxSelloffWindowAdvancedEvent,
-  BannedExtensionsUpdatedEvent,
+  CofferPoolEvent,
   UnknownEvent,
   TokenChange,
   RangeManagerUpdateParams,
   SetRangeManagerParams,
   SetRangeManagerConfigParams,
 } from "./types";
-export type { CofferProgram } from "./utils/errors";
+export type { CofferProgram, SdkErrorContext } from "./utils/errors";
 export type {
   AllocationResult,
 } from "./math/singleToken";
@@ -320,8 +319,7 @@ export type {
   RewardVoucherErrorCode,
   RewardsApiErrorBody,
   RewardsApiError,
-  CubicPoolClientParams,
-  SingleTokenDepositClientParams,
+  CofferPoolClientParams,
   PoolFactoryClientParams,
   InitializeConfigParams,
 } from "./clients";
@@ -355,27 +353,131 @@ export type {
 } from "./rewards";
 export type { ContractProgram, ContractInstructionMap, ContractAccountMap, ContractEventMap, ContractTypes } from "./types/contracts";
 export { buildSetSwapFeeRateIx, buildSetMaxSelloffIx, buildInitiatePoolAdminTransferIx, buildAcceptPoolAdminTransferIx, buildCancelPoolAdminTransferIx, buildDisablePoolAdminIx, buildGetPoolInfoIx } from "./clients/tx-builders";
-export type { SelloffParams, AddLiquidityQuote } from "./types/tx";
+export type { SelloffParams, AddLiquidityQuote, RemoveLiquidityQuote } from "./types/tx";
+export { simulateSwap } from "./math/swapSim";
+export type { SwapLeg, SwapLegAfter, SwapSimParams, SwapSimResult } from "./math/swapSim";
 export { calculateSwapFee, calculateProtocolFee } from "./math/slippage";
-export { checkAndAdvanceSelloff, rescaleSelloffWindow } from "./math/maxSelloff";
+export { checkAndAdvanceSelloff, rebaseSnapshot, rescaleWindowOnVbChange } from "./math/maxSelloff";
 export type { SelloffState, SelloffResult } from "./math/maxSelloff";
 export type { SurgeCurve } from "./math/surgeFee";
-export { calculateInvariant } from "./math/weightedMath";
 
-export { MintExtension, MAX_KNOWN_MINT_EXTENSION, HARD_UNSUPPORTED_MINT_EXTENSIONS, DEFAULT_BANNED_EXTENSIONS, mintExtensionName, parseMintExtensions, unsupportedMintExtensions, bannedMintExtensions, describeUnsupportedToken, assertTokensSupported } from "./utils/extensions";
+export { MintExtension, MAX_KNOWN_MINT_EXTENSION, HARD_UNSUPPORTED_MINT_EXTENSIONS, MINT_TLV_OFFSET, mintExtensionName, parseMintExtensions, unsupportedMintExtensions, tokenTransferBlockers, isTokenTransferable, describeUnsupportedToken, assertTokensSupported } from "./utils/extensions";
 
-// ── Legacy aliases (pre-rebrand identifiers) ────────────────────────────
-// The package was renamed @cubee_ee/sdk → @coffer_so/sdk. These aliases
-// keep old import names compiling so migration is just a package-name
-// swap. New code should use the Coffer* names.
-/** @deprecated Use `CofferBackendClient`. */
-export { CofferBackendClient as CubeBackendClient } from "./clients/CofferBackendClient";
-/** @deprecated Use `CofferConfig` / `CofferConfigOverrides`. */
-export type {
-  CofferConfig as CubeConfig,
-  CofferConfigOverrides as CubeConfigOverrides,
+// ─── v6.1 (SDK 0.2.0): layout, builders, quotes, events ─────────────────────
+export { POOL_LEN_V5, POOL_LEN_V61, POOL_LEN_V3, POOL_DECODABLE_LENS, POOL_LAYOUT_VERSION_V61, POOL_LAYOUT, TOKEN_SLOT_LAYOUT, TREASURY_LAYOUT, POOL_ACTION_KINDS, POOL_ACTION_KIND, PROTOCOL_ACTION_KINDS, PROTOCOL_ACTION_KIND, GRACE_PERIOD_SECS, pendingStatus } from "./parsers/layout";
+export type { PoolActionKindName, ProtocolActionKindName, PendingStatus } from "./parsers/layout";
+export { isDecodablePoolLen, poolNeedsLayoutMigration, decodePoolCooldownBlock } from "./parsers/poolAccount";
+export { decodeTreasuryAccount, decodeTreasuryCooldownBlock, treasuryNeedsLayoutMigration, TREASURY_DISCRIMINATOR } from "./parsers/treasuryAccount";
+export type { RawTreasuryAccount } from "./parsers/treasuryAccount";
+export { parseTokenMetadataExtension, lpMetadataOf } from "./parsers/mintAccount";
+export {
+  MAINNET_V51_FACTORY_PROGRAMS,
+} from "./config/networks";
+export {
+  MIN_INITIAL_LP_SUPPLY, MAX_INITIAL_LP_SUPPLY, DEFAULT_INITIAL_LP_SUPPLY, MAX_CREATOR_FEE_BPS, MAX_LIQUIDITY_FEE_BPS,
+  LP_NAME_MAX_LEN, LP_SYMBOL_MAX_LEN, LP_URI_MAX_LEN, LP_METADATA_POOL_KEY, HOOK_FLAGS, HOOK_MIN_CU, HOOK_MAX_CU_CAP, HOOK_DEFAULT_MAX_CU,
+  HOOK_MIN_ACCOUNTS, HOOK_MAX_ACCOUNTS, TREASURY_VAULT_SEED,
 } from "./config";
-/** @deprecated Use `CofferProgram`. */
-export type { CofferProgram as CubeProgram } from "./utils/errors";
-/** @deprecated Use `CofferBackendClientParams`. */
-export type { CofferBackendClientParams as CubeBackendClientParams } from "./clients";
+export { splitFee, nonLpShare, feeSplitTotal } from "./math/feeSplit";
+export type { FeeSplit } from "./math/feeSplit";
+export { applyLiquidityFee, applyDepositFee, applyWithdrawFee, lpBurnNetOfWithdrawFee, exitWithdrawFeeBps } from "./math/liquidityFee";
+export { nav, navBalances, splitDepositCredit, splitExitPayout, calculateExitPayout } from "./math/surgeBucket";
+export { poolNavBalances, lpPositionValue, lpPriceUsd } from "./math/lpPrice";
+export { simulatePoolSwap, swapLegOf, tokenSurgeBucket, hasDynamicFeeHook, hookPaused, pendingActionsStatusOf } from "./clients/quote-math";
+export { clampHookFeeOverride, effectiveSwapFeeRate } from "./math/swapSim";
+export {
+  buildSeedLiquidityRawIx, buildSeedLiquidityIx, buildSeedLiquidityTx, buildFundSidelinedTokenIx, buildFundSidelinedTokenTx,
+  buildMigratePoolLayoutV61Ix, prependLayoutMigration, buildRemoveLiquidityBypassHooksIx, buildSetSwapsEnabledIx,
+  buildSetCreatorFeeBpsIx, buildSetLiquidityFeesIx, buildLockLiquidityFeesIx, buildLockRangeManagerIx, buildSetPoolAdminDelayIx,
+} from "./clients/tx-builders";
+export {
+  PoolActions, ProtocolActions, poolActionKindOf, poolActionKindName, protocolActionKindOf, protocolActionKindName,
+  POOL_EXECUTE_INSTRUCTION, PROTOCOL_EXECUTE_INSTRUCTIONS, buildProposePoolActionIx, buildCancelPoolActionIx, buildExecutePoolActionIx,
+  proposeActionRemainingAccounts, selloffParamsArg,
+} from "./clients/cooldown";
+export type { PoolAction, ProtocolAction } from "./clients/cooldown";
+export {
+  treasuryVaultPda, buildClaimAccounts, buildCreatorClaimAccounts, buildCollectProtocolFeesIx, buildClaimCreatorFeesIx, buildRegisterTokenIx,
+  buildTreasuryWithdrawIx, legacyTxSize, v0TxSize, uniqueKeys, chooseTxForm, claimComputeBudgetIx, MAX_TX_BYTES, CLAIM_CU_LIMIT, CLAIM_ACCOUNTS_PER_TOKEN, CLAIM_ERROR_NAMES,
+} from "./clients/feeClaim";
+export type { CollectProtocolFeesParams, TxForm, TxFormOptions } from "./clients/feeClaim";
+export { validatePoolIdentity, verifyCreatedPool, randomPoolIdU64, POOL_ACCOUNT_DISCRIMINATOR } from "./clients/poolIdentity";
+export type { PoolAccountReader } from "./clients/poolIdentity";
+export {
+  buildAtomicDeploy, sendAtomicDeploy, sendSignedDeploy, waitForNextSlot, computeUnitsOf, bundleTransactions, assertDontFrontReadOnly, deployHookAccounts,
+  v0WireSize, v0AccountCount, randomPoolId, SOLANA_TX_LIMIT, TRACE_BUDGET, ATA_CREATE_TRACE, INIT_POOL_TRACE, seedTrace, JITO_DONT_FRONT, POOL_CONFIG_LEN, POOL_CONFIG_DISCRIMINATOR,
+} from "./clients/atomicDeploy";
+export type { DeployBuildConnection, DeploySendConnection } from "./clients/atomicDeploy";
+export {
+  HOOK_CONFIG_LEN, hookCallerPda, validateHookConfig, encodeHookConfig, encodeOptionHookConfig, hookConfigArg, hookAccountSlice, hookAccountSliceFor,
+  requireHookSlice, HOOK_FIXTURE_PROGRAM_ID, hookFixtureCfgAddress, hookFixtureKycAddress, fixtureHookExtras, resolveHookSlice, hookOpFlags, hookCallbackCount,
+  HOOK_BASE_CU, HOOK_CALLBACK_OVERHEAD_CU, hookCuBudget, readonlyMeta, writableMeta,
+} from "./utils/hooks";
+export {
+  LP_URI_SCHEMES, LP_TOKEN_PROGRAM_ID, LP_METADATA_ERRORS, byteLength, isValidLpName, isValidLpSymbol, isValidLpUri, firstInvalidLpMetadataField, validateLpMetadata,
+  encodeLpMetadataArgs, lpMetadataArgsSize, LP_METADATA_ARGS_MAX_SIZE, lpMintAccountSize, LP_MINT_BASE_SIZE, rentExemptLamports, defaultLpMetadata,
+  LP_METADATA_GOOD, LP_METADATA_MAX, LP_METADATA_FIXTURES, fetchLpMetadata, decodeLpMintAccount,
+} from "./utils/lpMetadata";
+export type { MintAccountReader, FetchedLpMetadata } from "./utils/lpMetadata";
+export { PoolLayoutOutdatedError } from "./types/tx-v61";
+export type {
+  LpMetadataArgs, LpMetadataField, HookConfigArgs, HookOp, HookExtrasResolver, HookExtrasContext, HookedParams, DeployPoolParamsV61, MigratePoolLayoutParams,
+  TxBuildOptionsV61, SeedLiquidityParams, SeedLiquidityRawParams, FundSidelinedTokenParams, ActionKind, ClaimAbi, ClaimSlot, ClaimAccounts, DeployLayout,
+  ExpectedPoolIdentity, VerifiedPoolIdentity, AtomicDeployParams, AtomicDeployResult, SendDeployResult,
+} from "./types/tx-v61";
+export type { PendingPoolAction, PoolHookInfo, LpMetadata } from "./types/pool";
+export type { SwapQuoteOptions, LpPriceQuote } from "./types/tx";
+export type { PendingActionsStatus, PendingActionStatus } from "./clients/quote-math";
+// ─── v6.1 (SDK 0.3.0): T11 re-cut events, T22 concentrationFactor invariant ─────────────
+export {
+  parseTransactionEvents, decodeEventLine, logTruncated, EVENT_TABLES, eventProgramOf, TYPED_EVENT_NAMES, PROGRAM_DATA_PREFIX,
+  swapSurgeLpAmount, swapSlotDeltas, applySwapToVectors,
+} from "./parsers/events";
+export type { AttributedEvent } from "./parsers/events";
+export { RECUT_EVENTS, RETIRED_EVENTS, REMOVED_INSTRUCTIONS, LEGACY_EVENT_DISCRIMINATORS } from "./parsers/eventPins";
+export type { LegacyEventPin } from "./parsers/eventPins";
+export { ACTOR_KINDS, ACTOR_KIND, actorKindName } from "./types/events";
+export {
+  checkConcentrationFactor, concentrationFactorHolds, concentrationFactorViolations, assertConcentrationFactorInvariant, minVirtualBalance, virtualFloorViolations, assertVirtualFloor,
+  checkSeedConcentrationFactor, checkFundConcentrationFactor, applyRescale, minRescaleMultiplier,
+} from "./math/concentrationFactor";
+export type { RescaleResult } from "./math/concentrationFactor";
+export { MIN_VIRTUAL_BALANCE_ABS, MIN_VIRTUAL_RESCALE_MULTIPLIER, MAX_TOKEN_DECIMALS } from "./config";
+export { buildSetHookDisabledIx, buildRescaleVirtualBalancesIx } from "./clients/tx-builders";
+export { rescaleMultiplierArg } from "./clients/AdminClient";
+export type {
+  ActorKindName, SlotState, SelloffWindowState, SwapV2Event, LiquidityAddedV2Event, LiquidityRemovedV2Event, PoolInitializedV2Event, PoolInfoV2Event,
+  ProtocolFeesCollectedV2Event, CreatorFeesClaimedV2Event, SidelinedTokenFundedEvent, VirtualBalancesRescaledEvent, HookInvokedEvent, HookDisabledSetEvent,
+  PoolEnabledUpdatedEvent, SwapsEnabledUpdatedV2Event, TokenActiveSetV2Event, RangeManagerUpdatedV2Event, MaxSelloffSetV2Event, SingleTokenDepositDirectV2Event,
+  AdditionalContractEvent, TypedEventName,
+} from "./types/events";
+
+export { effectiveScaledUiMultiplier, rawAmountToScaledUiString, scaledUiAmountToRaw, scaledUiPriceToUnscaledPrice, unscaledPriceToScaledUiPrice } from "./utils/scaledUi";
+
+// ─── LP transfer fee (2026-11-19): Token-2022 TransferFeeConfig on new LP mints ─
+export {
+  LP_TRANSFER_FEE_PRECISION, MAX_LP_TRANSFER_FEE_BPS, LP_TRANSFER_FEE_MAXIMUM, MAX_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS, DEFAULT_LP_TRANSFER_FEE_PROTOCOL_SHARE_BPS, MAX_UNFREEZE_POOLS,
+  LP_TRANSFER_FEE_BURN_WINDOW_SECS,
+} from "./config";
+export {
+  validateLpTransferFeeBps, validateLpTransferFeeProtocolShareBps, lpTransferFeeAt, lpTransferFeeBpsAt, scheduledLpTransferFeeBps, lpTransferFeeOf, lpNetOfTransferFee,
+  lpReceivedAfterTransferFee, lpGrossForNet, splitLpTransferFee, previewLpTransferFeeCollection, lpTransferFeeDrip, quoteLpTransferFeeBurnStream,
+  lpTransferFeeSettle, lpTransferFeeSchedule, collectLpTransferFeeStep, lpBurnStreamOf, pricedLpSupply, pricedLpSupplyOf,
+} from "./math/lpTransferFee";
+export type { LpFeeSplit, LpBurnStream, LpTransferFeeCollectStep, LpTransferFeeBurnStreamQuote, LpTransferFeeCollectionPreview } from "./math/lpTransferFee";
+export {
+  LP_TRANSFER_FEE_DISC, SET_LP_TRANSFER_FEE_KIND, deriveLpFeeAccount, lpFeeAccountsOf, treasuryPoolTag, treasuryPoolTagHex, readLpTransferFeeConfig, fetchLpTransferFeeConfig, lpTransferFeeSupported,
+  buildSetLpTransferFeeIx, buildProposeSetLpTransferFeeIx, buildCancelSetLpTransferFeeIx, buildExecuteSetLpTransferFeeIx,
+  buildSetLpTransferFeeProtocolShareIx, buildPoolSetLpTransferFeeProtocolShareIx, buildExecutePoolSetLpTransferFeeProtocolShareIx,
+  buildCollectLpTransferFeesIx, buildCreateLpFeeAccountIx, buildCollectLpTransferFeesTx, redeemLpTransferFeesRemainingAccounts, buildRedeemLpTransferFeesIx,
+  buildPoolRedeemLpTransferFeesIx, quoteRedeemLpTransferFees,
+} from "./clients/lpTransferFee";
+export type {
+  FetchedLpTransferFeeConfig, SetLpTransferFeeParams, PoolSetLpTransferFeeProtocolShareParams, CollectLpTransferFeesParams, CollectLpTransferFeesTxParams,
+  RedeemLpTransferFeesParams, PoolRedeemLpTransferFeesParams, RedeemLpTransferFeesQuote,
+} from "./clients/lpTransferFee";
+export {
+  LP_MINT_METADATA_POINTER_TLV_SIZE, LP_MINT_TRANSFER_FEE_TLV_SIZE, LP_MINT_BASE_SIZE_PRE_FEE, lpTokenAccountSize, lpTokenAccountSizeForMint, LP_TOKEN_ACCOUNT_SIZE_WITH_TRANSFER_FEE,
+} from "./utils/lpMetadata";
+export type { LpTransferFeeUpdatedEvent, LpTransferFeeProtocolShareUpdatedEvent, LpTransferFeesCollectedEvent, LpTransferFeesRedeemedEvent } from "./types/events";
+export type { ScaledUiAmountConfig, InterestBearingConfig, ConfidentialTransferMintConfig } from "./parsers/mintAccount";

@@ -1,0 +1,916 @@
+/**
+ * v6 planned zap: state-commitment hash vector, instruction wire layout,
+ * client quote on a mocked bank snapshot, tail/ALT budget; rc5 routed zap
+ * (instruction bytes vs the contracts' raw builder, heap frame, capability fallback).
+ */
+import { AddressLookupTableAccount, AddressLookupTableProgram, ComputeBudgetInstruction, ComputeBudgetProgram, Keypair, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
+import { BorshInstructionCoder } from "@coral-xyz/anchor";
+import { sha256 } from "@noble/hashes/sha256";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import BN from "bn.js";
+import {
+  buildPlannedZapIx,
+  encodeAllocationPlan,
+  stateCommitment,
+  mintFingerprint,
+  V6_PLAN_HASH_VECTOR,
+  V6_PLAN_HASH_VECTOR_RICH,
+  MAX_FINGERPRINT_EXTENSIONS,
+  PLANNED_ZAP_DISCRIMINATOR_HEX,
+  PlannedZapClient,
+  RpcClient,
+  getConfig,
+  deriveAta,
+  deriveLpMint,
+  IDLS,
+  compilePlannedZapTransaction,
+  replay,
+  buildRoutedZapIx,
+  buildRoutedZapInstruction,
+  buildDirectZapIx,
+  routedZapComputeBudgetIxs,
+  ROUTED_ZAP_DISCRIMINATOR_HEX,
+  ROUTED_ZAP_HEAP_FRAME_BYTES,
+  PLANNED_ZAP_CU_LIMIT,
+  planHasSwapLeg,
+  classifyInstructionProbe,
+  probeInstructionPresence,
+  buildContractInstruction,
+  buildSwapRouteJoinV1Ix,
+  buildSwapRouteJoinV1Tx,
+  SWAP_ROUTE_JOIN_HEAP_FRAME_BYTES,
+  describeProgramError,
+  toSdkError,
+  containsRoutedDepositInstruction,
+  calculateExitPayout,
+} from "../src";
+import type { PlannedZapAccounts, SnapshotAccount } from "../src";
+import { ContractAccountMap } from "../src/types/contracts";
+
+const key = (n: number) => new PublicKey(Buffer.alloc(32, n));
+const pk = () => Keypair.generate().publicKey;
+const bn = (v: number | bigint | string) => new BN(v.toString());
+
+describe("stateCommitment", () => {
+  // Fixtures of `plan.rs` (`cross_language_vectors` and the fingerprint tests): the same bytes must hash the same.
+  const SPL = TOKEN_PROGRAM_ID, T22 = TOKEN_2022_PROGRAM_ID;
+  const account = (k: PublicKey, owner: PublicKey, data: Buffer): SnapshotAccount => ({ key: k, owner, data });
+  const baseMint = (decimals: number, supply: bigint): Buffer => { const b = Buffer.alloc(82); b.writeBigUInt64LE(supply, 36); b[44] = decimals; b[45] = 1; return b; };
+  const extendedMint = (decimals: number, supply: bigint, extensions: Array<[number, Buffer]>): Buffer => {
+    const parts = [baseMint(decimals, supply), Buffer.alloc(165 - 82), Buffer.from([1])];
+    for (const [id, body] of extensions) { const h = Buffer.alloc(4); h.writeUInt16LE(id, 0); h.writeUInt16LE(body.length, 2); parts.push(h, body); }
+    return Buffer.concat(parts);
+  };
+  const feeBody = (withheld: bigint, older: [bigint, bigint, number], newer: [bigint, bigint, number]): Buffer => {
+    const b = Buffer.alloc(108); b.fill(0x11, 0, 32); b.fill(0x12, 32, 64); b.writeBigUInt64LE(withheld, 64);
+    [older, newer].forEach(([epoch, max, bps], i) => { const o = 72 + i * 18; b.writeBigUInt64LE(epoch, o); b.writeBigUInt64LE(max, o + 8); b.writeUInt16LE(bps, o + 16); });
+    return b;
+  };
+  const hookBody = (authority: number, program: number): Buffer => Buffer.concat([Buffer.alloc(32, authority), Buffer.alloc(32, program)]);
+  const pausableBody = (authority: number, paused: boolean): Buffer => Buffer.concat([Buffer.alloc(32, authority), Buffer.from([paused ? 1 : 0])]);
+  const richMint = (): Buffer => extendedMint(6, 1_000_000n, [[3, Buffer.alloc(32, 0x21)], [1, feeBody(77n, [5n, 1_000n, 30], [9n, 2_000n, 45])], [14, hookBody(0x31, 0x32)], [26, pausableBody(0x41, false)]]);
+  const pool = account(key(1), key(2), Buffer.alloc(64, 3));
+  const hex = (pool: SnapshotAccount, lp: SnapshotAccount, mints: SnapshotAccount[], epoch: bigint) => Buffer.from(stateCommitment(pool, lp, mints, epoch)).toString("hex");
+
+  test("matches both plan.rs cross-language vectors byte for byte", () => {
+    const plainLp = account(key(4), SPL, baseMint(9, 500n));
+    expect(hex(pool, plainLp, [account(key(7), SPL, baseMint(6, 1_000_000n))], 17n)).toBe(V6_PLAN_HASH_VECTOR);
+    const richLp = account(key(4), T22, extendedMint(9, 500n, [[1, feeBody(3n, [0n, 10n, 25], [2n, 20n, 50])]]));
+    const mints = [account(key(7), T22, richMint()), account(key(20), SPL, baseMint(9, 7n)), account(key(30), PublicKey.default, Buffer.alloc(0))];
+    expect(hex(pool, richLp, mints, 900n)).toBe(V6_PLAN_HASH_VECTOR_RICH);
+  });
+
+  test("mintFingerprint: committed fields, total over foreign / malformed data, TLV walk edge cases", () => {
+    const fp = (owner: PublicKey, data: Buffer, withSupply = false) => Buffer.from(mintFingerprint(owner, data, withSupply)).toString("hex");
+    const rich = richMint();
+    const fee = feeBody(77n, [5n, 1_000n, 30], [9n, 2_000n, 45]).subarray(72, 108);
+    expect(fp(T22, rich, true)).toBe(Buffer.concat([Buffer.from([1, 6, 4]), Buffer.from([3, 0, 1, 0, 14, 0, 26, 0]), fee, Buffer.alloc(32, 0x32), Buffer.from([0]), (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(1_000_000n); return b; })()]).toString("hex"));
+    expect(fp(T22, rich)).toBe(Buffer.concat([Buffer.from([1, 6, 4]), Buffer.from([3, 0, 1, 0, 14, 0, 26, 0]), fee, Buffer.alloc(32, 0x32), Buffer.from([0])]).toString("hex"));
+    // Not an initialized SPL / Token-2022 mint: closed, short, foreign owner, uninitialized.
+    for (const [owner, data] of [[PublicKey.default, Buffer.alloc(0)], [SPL, Buffer.alloc(81, 1)], [key(9), baseMint(6, 1n)], [T22, Buffer.alloc(200)]] as Array<[PublicKey, Buffer]>) {
+      expect(fp(owner, data, true)).toBe("000000");
+    }
+    // SPL Token never has extensions; Token-2022 data without the mint account-type byte neither.
+    expect(fp(SPL, rich)).toBe("010600");
+    expect(fp(T22, rich.subarray(0, 165))).toBe("010600");
+    const asAccount = Buffer.from(rich); asAccount[165] = 2;
+    expect(fp(T22, asAccount)).toBe("010600");
+    // A truncated entry ends the walk; a body shorter than its committed slice commits nothing.
+    const cut = extendedMint(6, 1n, [[3, Buffer.alloc(32)], [14, hookBody(1, 2)]]);
+    expect(fp(T22, cut.subarray(0, cut.length - 1))).toBe("010601" + "0300");
+    const short = extendedMint(6, 1n, [[1, Buffer.alloc(107)], [14, Buffer.alloc(63)], [26, Buffer.alloc(32)]]);
+    expect(fp(T22, short)).toBe("010603" + "01000e001a00");
+    // Zero padding ends the walk; a repeated id keeps its first body.
+    expect(fp(T22, extendedMint(6, 1n, [[14, hookBody(1, 2)], [0, Buffer.alloc(0)], [26, Buffer.alloc(33)]]))).toBe("010601" + "0e00" + "02".repeat(32));
+    expect(fp(T22, extendedMint(6, 1n, [[14, hookBody(1, 2)], [14, hookBody(1, 3)]]))).toBe("010602" + "0e000e00" + "02".repeat(32));
+    // The id list is cut at the cap.
+    const many = extendedMint(6, 1n, Array.from({ length: 40 }, (_, i) => [100 + i, Buffer.alloc(0)] as [number, Buffer]));
+    const manyFp = Buffer.from(mintFingerprint(T22, many));
+    expect(manyFp[2]).toBe(MAX_FINGERPRINT_EXTENSIONS); expect(manyFp).toHaveLength(3 + MAX_FINGERPRINT_EXTENSIONS * 2);
+  });
+
+  test("every committed field stales the plan; uncommitted counters and authorities do not", () => {
+    const base = () => ({ lp: account(key(4), SPL, baseMint(9, 500n)), mints: [account(key(7), T22, richMint())] });
+    const original = hex(pool, base().lp, base().mints, 17n);
+    const withMint = (data: Buffer, owner = T22) => hex(pool, base().lp, [account(key(7), owner, data)], 17n);
+    const rich = (fee: Buffer, hook: Buffer, pausable: Buffer) => extendedMint(6, 1_000_000n, [[3, Buffer.alloc(32, 0x21)], [1, fee], [14, hook], [26, pausable]]);
+    const fee = feeBody(77n, [5n, 1_000n, 30], [9n, 2_000n, 45]), hook = hookBody(0x31, 0x32), pausable = pausableBody(0x41, false);
+    expect(withMint(rich(fee, hook, pausable))).toBe(original);
+    // Uncommitted: an underlying mint's supply, withheld fees, authorities, the body of an extension without committed fields.
+    expect(withMint(extendedMint(6, 2_000_000n, [[3, Buffer.alloc(32, 0x22)], [1, (() => { const b = feeBody((1n << 64n) - 1n, [5n, 1_000n, 30], [9n, 2_000n, 45]); b.fill(0x99, 0, 64); return b; })()], [14, hookBody(0x99, 0x32)], [26, pausableBody(0x99, false)]]))).toBe(original);
+    const splSupply = (supply: bigint) => hex(pool, base().lp, [account(key(7), SPL, baseMint(6, supply))], 17n);
+    expect(splSupply(1_000_000n)).toBe(splSupply(999n));
+    const stale: Array<[string, string]> = [
+      ["epoch", hex(pool, base().lp, base().mints, 18n)],
+      ["pool data", hex({ ...pool, data: (() => { const d = Buffer.from(pool.data); d[63] ^= 1; return d; })() }, base().lp, base().mints, 17n)],
+      ["pool key", hex({ ...pool, key: key(12) }, base().lp, base().mints, 17n)],
+      ["pool owner", hex({ ...pool, owner: key(12) }, base().lp, base().mints, 17n)],
+      ["lp supply", hex(pool, account(key(4), SPL, baseMint(9, 501n)), base().mints, 17n)],
+      ["lp key", hex(pool, account(key(5), SPL, baseMint(9, 500n)), base().mints, 17n)],
+      ["lp owner", hex(pool, account(key(4), T22, baseMint(9, 500n)), base().mints, 17n)],
+      ["lp decimals", hex(pool, account(key(4), SPL, baseMint(8, 500n)), base().mints, 17n)],
+      ["mint key", hex(pool, base().lp, [account(key(8), T22, richMint())], 17n)],
+      ["mint owner", withMint(richMint(), SPL)],
+      ["mint decimals", withMint((() => { const d = richMint(); d[44] = 9; return d; })())],
+      ["mint closed", withMint((() => { const d = richMint(); d[45] = 0; return d; })())],
+      ["extension added", withMint(extendedMint(6, 1_000_000n, [[3, Buffer.alloc(32, 0x21)], [1, fee], [14, hook], [26, pausable], [12, Buffer.alloc(32, 0x61)]]))],
+      ["extension removed", withMint(extendedMint(6, 1_000_000n, [[1, fee], [14, hook], [26, pausable]]))],
+      ["extension replaced", withMint(extendedMint(6, 1_000_000n, [[12, Buffer.alloc(32, 0x21)], [1, fee], [14, hook], [26, pausable]]))],
+      ["hook program", withMint(rich(fee, hookBody(0x31, 0x33), pausable))],
+      ["paused", withMint(rich(fee, hook, pausableBody(0x41, true)))],
+      ["older fee epoch", withMint(rich(feeBody(77n, [6n, 1_000n, 30], [9n, 2_000n, 45]), hook, pausable))],
+      ["older fee maximum", withMint(rich(feeBody(77n, [5n, 1_001n, 30], [9n, 2_000n, 45]), hook, pausable))],
+      ["older fee bps", withMint(rich(feeBody(77n, [5n, 1_000n, 31], [9n, 2_000n, 45]), hook, pausable))],
+      ["newer fee epoch", withMint(rich(feeBody(77n, [5n, 1_000n, 30], [10n, 2_000n, 45]), hook, pausable))],
+      ["newer fee maximum", withMint(rich(feeBody(77n, [5n, 1_000n, 30], [9n, 2_001n, 45]), hook, pausable))],
+      ["newer fee bps", withMint(rich(feeBody(77n, [5n, 1_000n, 30], [9n, 2_000n, 46]), hook, pausable))],
+    ];
+    stale.forEach(([name, commitment], i) => {
+      expect([name, commitment]).not.toEqual([name, original]);
+      for (const [other, earlier] of stale.slice(0, i)) expect([name, other, commitment === earlier]).toEqual([name, other, false]);
+    });
+    // The LP mint's fee schedule is committed, its withheld amount is not.
+    const lp = (withheld: bigint, bps: number) => hex(pool, account(key(4), T22, extendedMint(9, 500n, [[1, feeBody(withheld, [0n, 10n, bps], [0n, 10n, bps])]])), [account(key(7), SPL, baseMint(6, 1n))], 17n);
+    expect(lp(0n, 25)).toBe(lp(1_000n, 25)); expect(lp(0n, 25)).not.toBe(lp(0n, 26));
+  });
+});
+
+function accountsFor(n: number, opts: { lpProgram?: PublicKey; programs?: PublicKey[] } = {}): PlannedZapAccounts {
+  const lpTokenProgram = opts.lpProgram ?? TOKEN_PROGRAM_ID;
+  return {
+    pool: key(1), lpMint: key(2), userLpAccount: key(3), user: key(4), cofferPoolProgram: key(5), lpTokenProgram,
+    mints: Array.from({ length: n }, (_, i) => key(10 + i)),
+    userTokenAccounts: Array.from({ length: n }, (_, i) => key(40 + i)),
+    vaults: Array.from({ length: n }, (_, i) => key(70 + i)),
+    tokenPrograms: opts.programs ?? Array.from({ length: n }, () => TOKEN_PROGRAM_ID),
+  };
+}
+const plan = (allocations: bigint[]) => ({ allocations, expectedState: new Uint8Array(32).fill(7), quotedAt: 100n, validUntilSlot: 300n });
+
+describe("buildPlannedZapIx", () => {
+  const cfg = getConfig("devnet");
+
+  test("Anchor wire layout (plan.rs::anchor_wire_layout_contains_exact_u64_budget_and_freshness)", () => {
+    const ix = buildPlannedZapIx(cfg, accountsFor(2), { amountIn: 33n, tokenInIndex: 0, minimumLp: 7n, plan: plan([11n, 22n]) });
+    expect(ix.programId.equals(cfg.programs.singleTokenLiquidity)).toBe(true);
+    expect(ix.data.length).toBe(77 + 2 * 8);
+    expect(ix.data.subarray(0, 8).toString("hex")).toBe(PLANNED_ZAP_DISCRIMINATOR_HEX);
+    expect(ix.data.subarray(0, 8)).toEqual(Buffer.from((IDLS.singleTokenLiquidity.instructions as any[]).find((i) => i.name === "deposit_single_token_planned").discriminator));
+    expect(ix.data.readBigUInt64LE(8)).toBe(33n);
+    expect(ix.data[16]).toBe(0);
+    expect(ix.data.readBigUInt64LE(17)).toBe(7n);
+    expect(ix.data.readUInt32LE(25)).toBe(2);
+    expect(ix.data.readBigUInt64LE(29)).toBe(11n);
+    expect(ix.data.readBigUInt64LE(37)).toBe(22n);
+    expect(ix.data.subarray(45, 77)).toEqual(Buffer.alloc(32, 7));
+    expect(ix.data.readBigInt64LE(77)).toBe(100n);
+    expect(ix.data.readBigUInt64LE(85)).toBe(300n);
+    expect(encodeAllocationPlan(plan([11n, 22n]))).toEqual(ix.data.subarray(25));
+  });
+
+  test("N=10: 157 data bytes, 36 keys with one token program, 37 with two", () => {
+    const allocations = Array.from({ length: 10 }, (_, i) => BigInt(i + 1));
+    const amountIn = allocations.reduce((a, b) => a + b, 0n);
+    const one = buildPlannedZapIx(cfg, accountsFor(10), { amountIn, tokenInIndex: 0, minimumLp: 1n, plan: plan(allocations) });
+    expect(one.data.length).toBe(157);
+    expect(one.keys).toHaveLength(36);
+    const programs = Array.from({ length: 10 }, (_, i) => (i % 2 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID));
+    const two = buildPlannedZapIx(cfg, accountsFor(10, { programs }), { amountIn, tokenInIndex: 0, minimumLp: 1n, plan: plan(allocations) });
+    expect(two.keys).toHaveLength(37);
+    expect(two.keys[36].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    // The suffix is the program that differs from the LP program, whichever it is.
+    const flipped = buildPlannedZapIx(cfg, accountsFor(10, { programs, lpProgram: TOKEN_2022_PROGRAM_ID }), { amountIn, tokenInIndex: 0, minimumLp: 1n, plan: plan(allocations) });
+    expect(flipped.keys[36].pubkey.equals(TOKEN_PROGRAM_ID)).toBe(true);
+    // Fixed layout: [pool w, lp w, user_lp w, user s, program, lp program] + [mint, user_token w, vault w]×N
+    const flags = one.keys.slice(0, 6).map((k) => [k.isWritable, k.isSigner]);
+    expect(flags).toEqual([[true, false], [true, false], [true, false], [false, true], [false, false], [false, false]]);
+    for (let i = 0; i < 10; i++) {
+      expect(one.keys[6 + 3 * i].isWritable).toBe(false);
+      expect(one.keys[7 + 3 * i].isWritable).toBe(true);
+      expect(one.keys[8 + 3 * i].isWritable).toBe(true);
+    }
+  });
+
+  test("refuses bad shapes, budgets, programs and tails", () => {
+    const base = { amountIn: 3n, tokenInIndex: 0, minimumLp: 1n, plan: plan([1n, 2n]) };
+    expect(() => buildPlannedZapIx(cfg, accountsFor(2), { ...base, plan: plan([1n, 1n]) })).toThrow(/sum to amountIn/);
+    expect(() => buildPlannedZapIx(cfg, accountsFor(2), { ...base, minimumLp: 0n })).toThrow(/minimumLp/);
+    expect(() => buildPlannedZapIx(cfg, accountsFor(2), { ...base, tokenInIndex: 2 })).toThrow(/tokenInIndex/);
+    expect(() => buildPlannedZapIx(cfg, accountsFor(1), { ...base, plan: plan([3n]) })).toThrow(/2\.\.10/);
+    expect(() => buildPlannedZapIx(cfg, accountsFor(2, { programs: [TOKEN_PROGRAM_ID, pk()] }), base)).toThrow(/token program/);
+    const dup = accountsFor(2); dup.mints[1] = dup.mints[0];
+    expect(() => buildPlannedZapIx(cfg, dup, base)).toThrow(/duplicate mint/i);
+    const lpAsMint = accountsFor(2); lpAsMint.mints[0] = lpAsMint.lpMint;
+    expect(() => buildPlannedZapIx(cfg, lpAsMint, base)).toThrow(/LP mint/);
+    for (const forbidden of [key(1), key(2), key(3), key(4)]) {
+      expect(() => buildPlannedZapIx(cfg, { ...accountsFor(2), extraAccounts: [{ pubkey: forbidden, isSigner: false, isWritable: false }] }, base)).toThrow(/core accounts/);
+    }
+    expect(() => buildPlannedZapIx(cfg, { ...accountsFor(2), extraAccounts: [{ pubkey: pk(), isSigner: true, isWritable: false }] }, base)).toThrow(/signers/);
+    const extra = { pubkey: pk(), isSigner: false, isWritable: true };
+    expect(() => buildPlannedZapIx(cfg, { ...accountsFor(2), extraAccounts: [extra, extra] }, base)).toThrow(/duplicate extra/);
+    const ok = buildPlannedZapIx(cfg, { ...accountsFor(2), extraAccounts: [extra] }, base);
+    expect(ok.keys.at(-1)).toEqual({ pubkey: extra.pubkey, isSigner: false, isWritable: true });
+  });
+});
+
+// ---- Client quote on a synthetic bank snapshot ---------------------------
+
+type State = ContractAccountMap["cofferPool"]["CofferPool"];
+const fields = (name: string) => (IDLS.cofferPool.types.find((t) => t.name === name)!.type as any).fields as { name: string; type: any }[];
+function encode(value: any, type: any): Buffer {
+  if (type === "pubkey") return value.toBuffer();
+  if (type === "bool") return Buffer.from([Number(value)]);
+  if (typeof type === "string") {
+    const bits = Number(type.slice(1));
+    return (BN.isBN(value) ? value : bn(value)).toTwos(bits).toArrayLike(Buffer, "le", bits / 8);
+  }
+  if (type.array) return Buffer.concat(value.map((v: any) => encode(v, type.array[0])));
+  if (type.defined) return Buffer.concat(fields(type.defined.name).map((f) => encode(value[f.name], f.type)));
+  throw new Error("Unknown fixture type");
+}
+// The synthetic state is the v5 (1683-byte) prefix of the v6.1 account: the
+// decoder accepts it (every appended v6.1 field reads as 0 / empty), and the
+// recorded fixtures were produced from exactly these bytes.
+const v5Fields = (name: string) => { const all = fields(name); return all.slice(0, all.findIndex((f) => f.name === "reserved") + 1); };
+const poolBytes = (state: State) => Buffer.concat([Buffer.from(IDLS.cofferPool.accounts[0].discriminator), ...v5Fields("CofferPool").map((f) => encode((state as any)[f.name], f.type))]);
+function plainMint(decimals: number, supply: bigint, authority?: PublicKey): Buffer {
+  const b = Buffer.alloc(82); b[44] = decimals; b[45] = 1; b.writeBigUInt64LE(supply, 36); if (authority) { b.writeUInt32LE(1, 0); authority.toBuffer().copy(b, 4); } return b;
+}
+function feeMint(decimals: number, bps: number, maxFee: bigint): Buffer {
+  const base = plainMint(decimals, 0n);
+  const body = Buffer.alloc(108); body.writeBigUInt64LE(0n, 72); body.writeBigUInt64LE(maxFee, 80); body.writeUInt16LE(bps, 88); body.writeBigUInt64LE(0n, 90); body.writeBigUInt64LE(maxFee, 98); body.writeUInt16LE(bps, 106);
+  const h = Buffer.alloc(4); h.writeUInt16LE(1, 0); h.writeUInt16LE(108, 2);
+  return Buffer.concat([base, Buffer.alloc(83), Buffer.from([1]), h, body, Buffer.alloc(8)]);
+}
+function syntheticPool(cfg: ReturnType<typeof getConfig>, address: PublicKey, n: number, programs: PublicKey[]): State {
+  const slot = (i: number) => ({
+    config: { mint: key(100 + i), token_program: programs[i], normalized_weight: bn(Math.floor(10_000 / n)), max_selloff_pct: 0, max_selloff_period_length: 0,
+      variable_fee_threshold_pct: 0, variable_fee_slope_low_pct: 0, variable_fee_slope_high_pct: 0, is_active: true, variable_fee_slope_mid_pct: 0, variable_fee_kink_pct: 0 },
+    dynamics: { virtual_balance: bn(2_000_000_000), actual_balance: bn(1_000_000_000), protocol_fees_owed: bn(0), previous_selloff: bn(0), current_selloff: bn(0), window_start_timestamp: bn(0), selloff_vb_snapshot: bn(0) },
+  });
+  const empty = () => ({ config: { ...slot(0).config, mint: PublicKey.default, token_program: PublicKey.default, normalized_weight: bn(0) }, dynamics: { ...slot(0).dynamics, virtual_balance: bn(0), actual_balance: bn(0) } });
+  return {
+    config: key(2), bump: 254, token_count: n, pool_id: bn(1), swap_fee_rate: 3000, protocol_fee_rate: 2000, created_at: bn(1),
+    pool_enabled: true, swaps_enabled: true, pool_admin: key(3), pending_pool_admin: PublicKey.default, range_manager: PublicKey.default,
+    range_manager_enabled: false, range_manager_max_vb_change_pct: 0, range_manager_max_weight_change_pct: 0, range_manager_min_update_interval_secs: 0,
+    range_manager_last_updated: bn(0), tokens: Array.from({ length: 10 }, (_, i) => (i < n ? slot(i) : empty())),
+    lookup_table: PublicKey.default, _deprecated_banned_extensions: bn(0), range_manager_max_concentration_factor_bps: 0, range_manager_min_concentration_factor_bps: 0,
+    reserved: [0x56, 0x35, 0x4d, 0x31, ...Array(12).fill(0)],
+  } as unknown as State;
+}
+
+function mockClient(n: number, feeIndices: number[] = [], extra: { route?: "auto" | "planned" | "routed"; simulateTransaction?: (tx: any, opts: any) => Promise<any> } = {}) {
+  const cfg = getConfig("mainnet");
+  const address = key(1);
+  const programs = Array.from({ length: n }, (_, i) => (feeIndices.includes(i) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID));
+  const state = syntheticPool(cfg, address, n, programs);
+  const [lpMint] = deriveLpMint(cfg.programs.cofferPool, address);
+  const infos = new Map<string, { data: Buffer; owner: PublicKey; executable: boolean; lamports: number }>();
+  infos.set(address.toBase58(), { data: poolBytes(state), owner: cfg.programs.cofferPool, executable: false, lamports: 1 });
+  infos.set(lpMint.toBase58(), { data: plainMint(9, 1_000_000_000n, address), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
+  for (let i = 0; i < n; i++) infos.set(key(100 + i).toBase58(), { data: feeIndices.includes(i) ? feeMint(6, 100, 10_000n) : plainMint(6, 0n), owner: programs[i], executable: false, lamports: 1 });
+  const clock = Buffer.alloc(40); clock.writeBigUInt64LE(445_105_299n, 0); clock.writeBigUInt64LE(1030n, 16); clock.writeBigInt64LE(1_788_799_999n, 32);
+  infos.set(SYSVAR_CLOCK_PUBKEY.toBase58(), { data: clock, owner: new PublicKey("Sysvar1111111111111111111111111111111111111"), executable: false, lamports: 1 });
+  const calls: string[] = [];
+  const rpc = new RpcClient({ endpoint: "http://127.0.0.1:8899", connectionFactory: () => ({
+    getAccountInfo: async (k: PublicKey) => { calls.push("getAccountInfo"); return infos.get(k.toBase58()) ?? null; },
+    getMultipleAccountsInfo: async (keys: PublicKey[]) => keys.map((k) => infos.get(k.toBase58()) ?? null),
+    getMultipleAccountsInfoAndContext: async (keys: PublicKey[]) => { calls.push("getMultipleAccountsInfoAndContext"); return { context: { slot: 445_105_299 }, value: keys.map((k) => infos.get(k.toBase58()) ?? null) }; },
+    getSlot: async () => 445_105_299,
+    simulateTransaction: async (tx: any, opts: any) => { calls.push("simulateTransaction"); if (!extra.simulateTransaction) throw new Error("no simulate mock"); return extra.simulateTransaction(tx, opts); },
+  }) as any });
+  const client = new PlannedZapClient({ config: cfg, poolAddress: address, rpc, route: extra.route });
+  return { cfg, client, address, lpMint, infos, calls, state, programs };
+}
+
+describe("PlannedZapClient.quote", () => {
+  test("refuses excessive final-join rounding at tiny supply and a positive custom floor cannot bypass it", async () => {
+    const m = mockClient(2);
+    m.infos.set(m.lpMint.toBase58(), { data: plainMint(9, 2n, m.address), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
+    // Like Rust, search discards every infeasible basket, including 6110.
+    for (const slippageHundredthsBps of [50_000, 500_000, 1_000_000]) {
+      expect(await m.client.quote(0, 3_000_000_000n, { slippageHundredthsBps })).toMatchObject({ ok: false, error: { code: "deposit_rounding_search_incomplete" } });
+    }
+    const ordinary = mockClient(2);
+    const accepted = await ordinary.client.quote(0, 3_000_000_000n, { slippageHundredthsBps: 500_000 });
+    if (!accepted.ok) throw new Error(accepted.error.humanMessage);
+    const quote = accepted.data;
+    expect(ordinary.client.buildTx(quote, key(9)).ok).toBe(true);
+    // Re-price allocations rather than trusting mutable displayed economics.
+    quote.slippageHundredthsBps = 0;
+    quote.quotePool.lpSupply = 2n;
+    quote.minimumLp = bn(1);
+    quote.economics.creditedNet = quote.economics.creditedNet.map(() => 0n);
+    expect(() => m.client.buildIx(quote, key(9))).toThrow(/DepositRoundingLoss/);
+    expect(m.client.buildTx(quote, key(9))).toMatchObject({ ok: false, error: { code: "deposit_rounding_loss" } });
+    expect(m.client.replayAt(quote, Number(quote.quotePool.now))).toMatchObject({ ok: false, error: { code: "deposit_rounding_loss" } });
+  });
+
+  test("zero tolerance refuses fractional rounding; invalid slippage is rejected before RPC", async () => {
+    const m = mockClient(2);
+    expect(await m.client.quote(0, 50_000_000n, { slippageHundredthsBps: 0 })).toMatchObject({ ok: false, error: { code: "deposit_rounding_loss" } });
+    m.calls.length = 0;
+    for (const slip of [-1, 0.5, 1_000_001]) {
+      expect(await m.client.quote(0, 50_000_000n, { slippageHundredthsBps: slip })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    }
+    expect(m.calls).toEqual([]);
+  });
+
+  test("one bank snapshot → plan, hash, timestamps and economics", async () => {
+    const m = mockClient(3);
+    const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000, validForSlots: 100 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const q = res.data;
+    expect(m.calls).toEqual(["getAccountInfo", "getMultipleAccountsInfoAndContext"]);
+    expect(q.plan.allocations.reduce((a, b) => a + b, 0n)).toBe(50_000_000n);
+    expect(q.plan.quotedAt).toBe(1_788_799_999n);
+    expect(q.plan.validUntilSlot).toBe(445_105_399n);
+    expect(q.chainEpoch).toBe(1030n);
+    expect(q.contextSlot).toBe(445_105_299);
+    expect(Buffer.from(q.plan.expectedState)).toEqual(Buffer.from(stateCommitment(q.snapshots.pool, q.snapshots.lpMint, q.snapshots.mints, 1030n)));
+    expect(q.estimatedLp.toString()).toBe(q.economics.lp.toString());
+    expect(q.minimumLp.toString()).toBe(((q.economics.lp * 9900n) / 10_000n).toString());
+    expect(q.expectedOuts[0].isZero()).toBe(true);
+    expect(q.expectedOuts.slice(1).every((o) => o.gt(bn(0)))).toBe(true);
+    // The quote is an exact replay of its own plan.
+    const again = replay(q.quotePool, 0, 50_000_000n, q.plan.allocations);
+    expect(again.lp).toBe(q.economics.lp);
+    expect(q.layout.vaults[1].equals(deriveAta(m.address, key(101), TOKEN_PROGRAM_ID))).toBe(true);
+    expect(q.layout.lpMint.equals(m.lpMint)).toBe(true);
+  });
+
+  test("nowSeconds re-prices the window but never the signed quotedAt", async () => {
+    const m = mockClient(2);
+    const res = await m.client.quote(0, 1_000_000n, { nowSeconds: 1_788_800_050 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    expect(res.data.plan.quotedAt).toBe(1_788_799_999n);
+    expect(res.data.quotePool.now).toBe(1_788_800_050n);
+  });
+
+  test("Token-2022 fee mints are netted and the tail resolves to [] without hooks", async () => {
+    const m = mockClient(3, [1]);
+    const res = await m.client.quote(1, 10_000_000n, { slippageHundredthsBps: 100 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const q = res.data;
+    expect(q.quotePool.tokens[1].transferFee).toMatchObject({ transferFeeBasisPoints: 100, maximumFee: 10_000n });
+    expect(q.economics.swaps.every((s) => s.grossInput - s.netInput === 10_000n)).toBe(true);
+    // The memo check reads the Token-2022 destinations (user ATA + vault); they exist once ATAs are ensured.
+    const tokenAccount = (mint: PublicKey, owner: PublicKey) => { const d = Buffer.alloc(165); mint.toBuffer().copy(d); owner.toBuffer().copy(d, 32); d[108] = 1; return { data: d, owner: TOKEN_2022_PROGRAM_ID, executable: false, lamports: 1 }; };
+    m.infos.set(deriveAta(key(9), key(101), TOKEN_2022_PROGRAM_ID).toBase58(), tokenAccount(key(101), key(9)));
+    m.infos.set(deriveAta(m.address, key(101), TOKEN_2022_PROGRAM_ID).toBase58(), tokenAccount(key(101), m.address));
+    const tail = await m.client.resolveExtraAccounts(q, key(9));
+    if (!tail.ok) throw new Error(tail.error.humanMessage);
+    expect(tail.data).toEqual({ hookAccounts: [], token2022Accounts: [] });
+    // The user's output ATA may not exist yet (first zap into this mint): ensureUserTokenAccountIxs creates it in the same tx, so the tail still resolves.
+    m.infos.delete(deriveAta(key(9), key(101), TOKEN_2022_PROGRAM_ID).toBase58());
+    const firstTime = await m.client.resolveExtraAccounts(q, key(9));
+    if (!firstTime.ok) throw new Error(firstTime.error.humanMessage);
+    expect(firstTime.data).toEqual({ hookAccounts: [], token2022Accounts: [] });
+    m.infos.set(deriveAta(key(9), key(101), TOKEN_2022_PROGRAM_ID).toBase58(), tokenAccount(key(101), key(9)));
+    // Without a Token-2022 destination (here the fee mint's vault) the resolver reports a build failure rather than guessing.
+    m.infos.delete(deriveAta(m.address, key(101), TOKEN_2022_PROGRAM_ID).toBase58());
+    const missing = await m.client.resolveExtraAccounts(q, key(9));
+    expect(!missing.ok && missing.error.code).toBe("tx_build_failed");
+    const ix = m.client.buildIx(q, key(9));
+    expect(ix.keys).toHaveLength(6 + 9 + 1);
+    expect(ix.keys[15].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    const atas = m.client.ensureUserTokenAccountIxs(q, key(9));
+    expect(atas).toHaveLength(4);
+  });
+
+  test("a sidelined slot (NAV 0) with a closed mint does not block the quote; its user token account is passed but never created", async () => {
+    const m = mockClient(3);
+    m.state.tokens[2].dynamics.actual_balance = bn(0);
+    m.infos.set(m.address.toBase58(), { data: poolBytes(m.state), owner: m.cfg.programs.cofferPool, executable: false, lamports: 1 });
+    // The closed mint of the sidelined slot: system-owned, no data.
+    m.infos.set(key(102).toBase58(), { data: Buffer.alloc(0), owner: PublicKey.default, executable: false, lamports: 0 });
+    const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const q = res.data;
+    expect(q.sidelinedTokenIndices).toEqual([2]);
+    expect(q.plan.allocations[2]).toBe(0n);
+    expect(q.snapshots.mints[2].owner.equals(PublicKey.default)).toBe(true);
+    expect(Buffer.from(q.plan.expectedState)).toEqual(Buffer.from(stateCommitment(q.snapshots.pool, q.snapshots.lpMint, q.snapshots.mints, 1030n)));
+    const accounts = m.client.accountsFor(q, key(9));
+    expect(accounts.userTokenAccounts).toHaveLength(3);
+    const atas = m.client.ensureUserTokenAccountIxs(q, key(9));
+    expect(atas).toHaveLength(3);
+    expect(atas.some((ix) => ix.keys.some((k) => k.pubkey.equals(accounts.userTokenAccounts[2])))).toBe(false);
+    expect(atas.some((ix) => ix.keys.some((k) => k.pubkey.equals(accounts.userLpAccount)))).toBe(true);
+    const ix = m.client.buildIx(q, key(9));
+    expect(ix.keys[6 + 3 * 2 + 1].pubkey.equals(accounts.userTokenAccounts[2])).toBe(true);
+    // A live slot's mint still has to decode.
+    const live = mockClient(3);
+    live.infos.set(key(102).toBase58(), { data: Buffer.alloc(0), owner: PublicKey.default, executable: false, lamports: 0 });
+    const r = await live.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    expect(!r.ok && r.error.code).toBe("parse_failure");
+  });
+
+  test("validation: index, amount, validity, sidelined input, disabled pool, unseeded supply, LP with extensions", async () => {
+    const m = mockClient(2);
+    expect((await m.client.quote(2, 1n)).ok).toBe(false);
+    expect((await m.client.quote(0, 0n)).ok).toBe(false);
+    expect((await m.client.quote(0, 1n, { validForSlots: 151 })).ok).toBe(false);
+    const sidelined = mockClient(2); sidelined.state.tokens[0].dynamics.actual_balance = bn(0);
+    sidelined.infos.set(sidelined.address.toBase58(), { data: poolBytes(sidelined.state), owner: sidelined.cfg.programs.cofferPool, executable: false, lamports: 1 });
+    const r = await sidelined.client.quote(0, 1_000n);
+    expect(r.ok).toBe(false);
+    const disabled = mockClient(2); disabled.state.pool_enabled = false;
+    disabled.infos.set(disabled.address.toBase58(), { data: poolBytes(disabled.state), owner: disabled.cfg.programs.cofferPool, executable: false, lamports: 1 });
+    const d = await disabled.client.quote(0, 1_000n);
+    expect(!d.ok && d.error.code).toBe("pool_disabled");
+    const unseeded = mockClient(2); unseeded.infos.set(unseeded.lpMint.toBase58(), { data: plainMint(9, 0n, unseeded.address), owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 });
+    expect((await unseeded.client.quote(0, 1_000n)).ok).toBe(false);
+    const extLp = mockClient(2); extLp.infos.set(extLp.lpMint.toBase58(), { data: feeMint(9, 0, 0n), owner: TOKEN_2022_PROGRAM_ID, executable: false, lamports: 1 });
+    const e = await extLp.client.quote(0, 1_000n);
+    expect(!e.ok && e.error.code).toBe("unsupported_token_extension");
+  });
+
+  test("a dust-sized input is amount_too_small", async () => {
+    const m = mockClient(2);
+    const r = await m.client.quote(0, 1n);
+    expect(!r.ok && r.error.code).toBe("amount_too_small");
+  });
+});
+
+describe("transaction budget", () => {
+  test("N=10 zap fits the packet with the pool ALT plus a wallet ALT and leaves the wallet reserve", async () => {
+    const m = mockClient(10);
+    const res = await m.client.quote(0, 50_000_000n);
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const user = pk();
+    const ix = m.client.buildIx(res.data, user);
+    const accounts = m.client.accountsFor(res.data, user);
+    const table = (key: PublicKey, addresses: PublicKey[]) => new AddressLookupTableAccount({ key, state: { deactivationSlot: (1n << 64n) - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: user, addresses } });
+    const poolAlt = table(pk(), [accounts.pool, accounts.lpMint, accounts.cofferPoolProgram, accounts.lpTokenProgram, ...accounts.mints, ...accounts.vaults, ...accounts.tokenPrograms]);
+    const walletAlt = table(pk(), m.client.walletLookupAddresses(res.data, user));
+    const compiled = compilePlannedZapTransaction({ payer: user, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [poolAlt, walletAlt] });
+    expect(compiled.wireBytes + compiled.walletReserve).toBeLessThanOrEqual(1232);
+    expect(() => compilePlannedZapTransaction({ payer: user, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [] })).toThrow(/wallet reserve/);
+    // Wallet ALT setup for the 11 user accounts fits one packet.
+    const prep = await m.client.prepareWalletLookupTable(user, m.client.walletLookupAddresses(res.data, user));
+    expect(prep.instructionBatches).toHaveLength(1);
+    expect(prep.instructionBatches[0].every((i) => i.programId.equals(AddressLookupTableProgram.programId))).toBe(true);
+  });
+});
+
+describe("current source native + Token-2022 planned tails", () => {
+  test("native slice is required, ordered before transfer extras, rejects ambiguity/duplicates/privileges; disabled slice is absent", async () => {
+    const m = mockClient(2);
+    const res = await m.client.quote(0, 50_000_000n);
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const q = res.data;
+    const { POOL_LAYOUT } = await import("../src/parsers/layout");
+    const { hookCallerPda } = await import("../src/utils/hooks");
+    const full = Buffer.alloc(2304); Buffer.from(q.snapshots.pool.data).copy(full); full[1683] = 1;
+    const native = key(200), caller = hookCallerPda(native, m.cfg.programs.cofferPool)[0], dataAccount = key(201);
+    native.toBuffer().copy(full, POOL_LAYOUT.HOOK_PROGRAM.offset); full[POOL_LAYOUT.HOOK_ACCOUNTS_LEN.offset] = 3;
+    q.snapshots.pool.data = full;
+    const hookAccounts = [{ pubkey: native, isSigner: false, isWritable: false }, { pubkey: caller, isSigner: false, isWritable: false }, { pubkey: dataAccount, isSigner: false, isWritable: true }];
+    const transferAccounts = [{ pubkey: key(202), isSigner: false, isWritable: false }];
+    expect(() => m.client.buildIx(q, key(9))).toThrow(/active hook/);
+    expect(() => m.client.buildIx(q, key(9), [] as any)).toThrow(/Ambiguous/);
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts: hookAccounts.slice(0,2) })).toThrow(/length/);
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts: [{...hookAccounts[0], isWritable: true}, ...hookAccounts.slice(1)] })).toThrow(/read-only/);
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts, token2022Accounts: [hookAccounts[2]] })).toThrow(/duplicate/);
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts, token2022Accounts: [{ ...transferAccounts[0], isSigner: true }] })).toThrow(/signers/);
+    const ix = m.client.buildIx(q, key(9), { hookAccounts, token2022Accounts: transferAccounts });
+    expect(ix.keys.slice(-4)).toEqual([...hookAccounts, ...transferAccounts]);
+    m.infos.set(native.toBase58(), { owner: key(210), data: Buffer.alloc(0), executable: true, lamports: 1 });
+    m.infos.set(dataAccount.toBase58(), { owner: native, data: Buffer.from([7,8]), executable: false, lamports: 1 });
+    const resolved = await m.client.resolveExtraAccounts(q, key(9), { hookAccounts });
+    expect(resolved.ok && resolved.data.hookAccounts).toEqual(hookAccounts);
+    m.infos.set(dataAccount.toBase58(), { owner: key(211), data: Buffer.alloc(0), executable: false, lamports: 1 });
+    const foreign = await m.client.resolveExtraAccounts(q, key(9), { hookAccounts });
+    expect(!foreign.ok && foreign.error.code).toBe("tx_build_failed");
+    full[POOL_LAYOUT.HOOK_DISABLED.offset] = 1;
+    expect(() => m.client.buildIx(q, key(9), { hookAccounts })).toThrow(/no active hook/);
+    expect(m.client.buildIx(q, key(9), { token2022Accounts: transferAccounts }).keys.slice(-1)).toEqual(transferAccounts);
+  });
+});
+
+test("quote accepts immutable metadata LPs and rejects a foreign pointer with the same snapshot layout", async () => {
+  const m = mockClient(2);
+  const { pack } = await import("@solana/spl-token-metadata");
+  const pointer = Buffer.alloc(64); m.lpMint.toBuffer().copy(pointer,32);
+  const metadata = Buffer.from(pack({ mint: m.lpMint, name: "Pool LP", symbol: "LP", uri: "https://x", additionalMetadata: [] }));
+  const h = (type: number, body: Buffer) => { const b = Buffer.alloc(4); b.writeUInt16LE(type); b.writeUInt16LE(body.length,2); return Buffer.concat([b,body]); };
+  const data = Buffer.concat([plainMint(9, 1_000_000_000n, m.address), Buffer.alloc(83), Buffer.from([1]), h(18,pointer), h(19,metadata)]);
+  m.infos.set(m.lpMint.toBase58(), { data, owner: TOKEN_2022_PROGRAM_ID, executable: false, lamports: 1 });
+  const positive = await m.client.quote(0, 50_000_000n); expect(positive.ok).toBe(true);
+  if (positive.ok) expect(positive.data.layout.lpTokenProgram).toEqual(TOKEN_2022_PROGRAM_ID);
+  key(222).toBuffer().copy(data,170+32);
+  const negative = await m.client.quote(0, 50_000_000n); expect(!negative.ok && negative.error.code).toBe("unsupported_token_extension");
+});
+
+test("combined native + real Token-2022 amount-seeded route resolves every gross swap/join amount after the exact native boundary", async () => {
+  const m = mockClient(2, [1]);
+  const { POOL_LAYOUT } = await import("../src/parsers/layout");
+  const { hookCallerPda } = await import("../src/utils/hooks");
+  const { getExtraAccountMetaAddress } = await import("@solana/spl-token");
+  const native = key(210), transferHook = key(211), dynamicData = key(212), user = key(9);
+  const originalPool = m.infos.get(m.address.toBase58())!;
+  const full = Buffer.alloc(2304); originalPool.data.copy(full); full[1683] = 1;
+  native.toBuffer().copy(full, POOL_LAYOUT.HOOK_PROGRAM.offset); full.writeUInt16LE(5, POOL_LAYOUT.HOOK_FLAGS.offset); full[POOL_LAYOUT.HOOK_ACCOUNTS_LEN.offset] = 3;
+  m.infos.set(m.address.toBase58(), { ...originalPool, data: full });
+  const originalMint = feeMint(6,100,10_000n).subarray(0,-8);
+  const hookBody = Buffer.alloc(68); hookBody.writeUInt16LE(14); hookBody.writeUInt16LE(64,2); transferHook.toBuffer().copy(hookBody,36);
+  m.infos.set(key(101).toBase58(), { owner: TOKEN_2022_PROGRAM_ID, data: Buffer.concat([originalMint,hookBody]), executable: false, lamports: 1 });
+  for (const program of [native,transferHook]) m.infos.set(program.toBase58(), { owner: key(240), data: Buffer.alloc(0), executable: true, lamports: 1 });
+  m.infos.set(dynamicData.toBase58(), { owner: native, data: Buffer.from([1,2,3]), executable: false, lamports: 1 });
+  const registry = Buffer.alloc(51); Buffer.from([105,37,101,197,75,251,102,26]).copy(registry); registry.writeUInt32LE(39,8); registry.writeUInt32LE(1,12); registry[16] = 1; registry[17] = 2; registry[18] = 8; registry[19] = 8;
+  m.infos.set(getExtraAccountMetaAddress(key(101),transferHook).toBase58(), { owner: transferHook, data: registry, executable: false, lamports: 1 });
+  const vault = deriveAta(m.address,key(101),TOKEN_2022_PROGRAM_ID), token = Buffer.alloc(165); key(101).toBuffer().copy(token); m.address.toBuffer().copy(token,32); token[108] = 1;
+  m.infos.set(vault.toBase58(), { owner: TOKEN_2022_PROGRAM_ID, data: token, executable: false, lamports: 1 });
+  const res = await m.client.quote(0, 50_000_000n); if (!res.ok) throw new Error(res.error.humanMessage);
+  const q = res.data;
+  const hookAccounts = [{ pubkey: native, isSigner: false, isWritable: false }, { pubkey: hookCallerPda(native, m.cfg.programs.cofferPool)[0], isSigner: false, isWritable: false }, { pubkey: dynamicData, isSigner: false, isWritable: true }];
+  const resolved = await m.client.resolveExtraAccounts(q,user,{hookAccounts}); if (!resolved.ok) throw new Error(resolved.error.humanMessage);
+  const amounts = q.economics.swaps.flatMap(s => s.output === 1 ? [s.grossOutput] : s.input === 1 ? [s.grossInput] : []);
+  if (q.economics.depositedGross[1] > 0n) amounts.push(q.economics.depositedGross[1]);
+  expect(amounts.length).toBeGreaterThan(1);
+  for (const amount of amounts) {
+    const bytes = Buffer.alloc(8); bytes.writeBigUInt64LE(amount);
+    const expected = PublicKey.findProgramAddressSync([bytes],transferHook)[0];
+    expect(resolved.data.token2022Accounts!.some(m => m.pubkey.equals(expected))).toBe(true);
+  }
+  const ix = m.client.buildIx(q,user,resolved.data);
+  expect(ix.keys.slice(6 + 3*2 + 1)).toEqual([...hookAccounts,...resolved.data.token2022Accounts!]);
+});
+
+// ---- rc5: deposit_single_token_routed ------------------------------------
+
+/**
+ * Faithful port of the contracts' raw builder (`tests/v6_zap_planned.ts`
+ * `routed()`, contracts v6.1-n10 b9fc7e9): copy the planned instruction and
+ * overwrite the 8-byte discriminator with sha256("global:deposit_single_token_routed").
+ */
+function contractsRouted(ix: TransactionInstruction): TransactionInstruction {
+  const ROUTED_DISCRIMINATOR = Buffer.from(sha256(Buffer.from("global:deposit_single_token_routed"))).subarray(0, 8);
+  const data = Buffer.from(ix.data);
+  ROUTED_DISCRIMINATOR.copy(data, 0);
+  return new TransactionInstruction({ programId: ix.programId, keys: ix.keys.map((k) => ({ ...k })), data });
+}
+const shape = (ix: TransactionInstruction) => ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]);
+const heapFrames = (ixs: TransactionInstruction[]) => ixs.filter((ix) => ix.programId.equals(ComputeBudgetProgram.programId) && ComputeBudgetInstruction.decodeInstructionType(ix) === "RequestHeapFrame").map((ix) => ComputeBudgetInstruction.decodeRequestHeapFrame(ix).bytes);
+const cuLimits = (ixs: TransactionInstruction[]) => ixs.filter((ix) => ix.programId.equals(ComputeBudgetProgram.programId) && ComputeBudgetInstruction.decodeInstructionType(ix) === "SetComputeUnitLimit").map((ix) => ComputeBudgetInstruction.decodeSetComputeUnitLimit(ix).units);
+const simErr = (custom: number) => ({ context: { slot: 1 }, value: { err: { InstructionError: [0, { Custom: custom }] }, logs: [] } });
+
+describe("rc5 buildRoutedZapIx", () => {
+  const cfg = getConfig("devnet");
+  // Fixture: N=3, mixed token programs (one non-LP suffix), a native-hook-like tail.
+  const fixture = () => {
+    const accounts = accountsFor(3, { programs: [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID] });
+    accounts.extraAccounts = [{ pubkey: key(200), isSigner: false, isWritable: false }, { pubkey: key(201), isSigner: false, isWritable: true }];
+    return { accounts, args: { amountIn: 1_000n, tokenInIndex: 1, minimumLp: 77n, plan: plan([400n, 300n, 300n]) } };
+  };
+
+  test("bytes and keys equal the contracts' raw routed builder, the IDL encoder and Anchor's coder", () => {
+    const { accounts, args } = fixture();
+    const planned = buildPlannedZapIx(cfg, accounts, args);
+    const routed = buildRoutedZapIx(cfg, accounts, args);
+    const reference = contractsRouted(planned);
+    expect(routed.programId.equals(reference.programId)).toBe(true);
+    expect(routed.data.equals(reference.data)).toBe(true);
+    expect(shape(routed)).toEqual(shape(reference));
+    expect(routed.data.subarray(0, 8).toString("hex")).toBe(ROUTED_ZAP_DISCRIMINATOR_HEX);
+    expect(ROUTED_ZAP_DISCRIMINATOR_HEX).toBe("f782dde3cee774af");
+    expect(routed.data.subarray(0, 8)).toEqual(Buffer.from((IDLS.singleTokenLiquidity.instructions as any[]).find((i) => i.name === "deposit_single_token_routed").discriminator));
+    expect(routed.data.subarray(8)).toEqual(planned.data.subarray(8));
+    expect(buildRoutedZapInstruction).toBe(buildRoutedZapIx);
+    expect(buildDirectZapIx(cfg, accounts, args, "routed").data).toEqual(routed.data);
+    // Independent IDL-driven encoder (generic raw instruction API).
+    const generic = buildContractInstruction(cfg, "singleTokenLiquidity", "deposit_single_token_routed", {
+      amount_in: bn(1_000), token_in_index: 1, minimum_lp_amount: bn(77),
+      plan: { allocations: [bn(400), bn(300), bn(300)], expected_state: Array(32).fill(7), quoted_at: bn(100), valid_until_slot: bn(300) },
+    } as any, {
+      pool: accounts.pool, lp_mint: accounts.lpMint, user_lp_account: accounts.userLpAccount, user: accounts.user,
+      coffer_pool_program: accounts.cofferPoolProgram, lp_token_program: accounts.lpTokenProgram,
+    }, routed.keys.slice(6));
+    expect(generic.data.equals(routed.data)).toBe(true);
+    expect(shape(generic)).toEqual(shape(routed));
+    const anchorData = new BorshInstructionCoder(IDLS.singleTokenLiquidity as any).encode("deposit_single_token_routed", {
+      amount_in: bn(1_000), token_in_index: 1, minimum_lp_amount: bn(77),
+      plan: { allocations: [bn(400), bn(300), bn(300)], expected_state: Array(32).fill(7), quoted_at: bn(100), valid_until_slot: bn(300) },
+    });
+    expect(Buffer.from(anchorData).equals(routed.data)).toBe(true);
+    // Layout: 6 fixed + 3×3 + one non-LP program + 2 extras.
+    expect(routed.keys).toHaveLength(6 + 9 + 1 + 2);
+    expect(routed.keys[15].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+  });
+
+  test("same refusals as the planned builder, labelled with the routed entry point", () => {
+    const { accounts, args } = fixture();
+    expect(() => buildRoutedZapIx(cfg, accounts, { ...args, minimumLp: 0n })).toThrow(/^deposit_single_token_routed: minimumLp/);
+    expect(() => buildRoutedZapIx(cfg, accounts, { ...args, plan: plan([1n, 1n, 1n]) })).toThrow(/deposit_single_token_routed: allocations must sum/);
+    expect(() => buildDirectZapIx(cfg, accounts, args, "batch" as any)).toThrow(/unknown route/);
+  });
+
+  test("heap frame: 64 KiB requested with the CU limit; compile carries it on request only", () => {
+    expect(ROUTED_ZAP_HEAP_FRAME_BYTES).toBe(65_536);
+    const budget = routedZapComputeBudgetIxs();
+    expect(heapFrames(budget)).toEqual([65_536]);
+    expect(cuLimits(budget)).toEqual([PLANNED_ZAP_CU_LIMIT]);
+    const { accounts, args } = fixture();
+    const ix = buildRoutedZapIx(cfg, accounts, args);
+    const payer = accounts.user;
+    const decode = (tx: VersionedTransaction) => {
+      const keys = tx.message.staticAccountKeys;
+      return tx.message.compiledInstructions.map((ci) => new TransactionInstruction({ programId: keys[ci.programIdIndex], keys: [], data: Buffer.from(ci.data) }));
+    };
+    const withHeap = compilePlannedZapTransaction({ payer, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [], heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES, walletReserve: 0 });
+    expect(heapFrames(decode(withHeap.transaction))).toEqual([65_536]);
+    expect(cuLimits(decode(withHeap.transaction))).toEqual([1_400_000]);
+    const without = compilePlannedZapTransaction({ payer, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [], walletReserve: 0 });
+    expect(heapFrames(decode(without.transaction))).toEqual([]);
+    expect(withHeap.wireBytes - without.wireBytes).toBe(8); // program index + 0 accounts + data length + 5-byte payload; ComputeBudget already a key
+    for (const bad of [1000, 16 * 1024, 300 * 1024, 64 * 1024 + 1]) {
+      expect(() => compilePlannedZapTransaction({ payer, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [], heapFrameBytes: bad })).toThrow(/heapFrameBytes/);
+    }
+  });
+});
+
+describe("rc5 PlannedZapClient routed deposit and capability fallback", () => {
+  const user = key(9);
+
+  test("depositRouted / buildRoutedTx: unchanged quote → [CU, 64 KiB heap, routed ix]; ix equals buildIx with the routed discriminator", async () => {
+    const m = mockClient(3);
+    const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const planned = m.client.buildTx(res.data, user);
+    const routed = m.client.depositRouted(res.data, user);
+    if (!planned.ok || !routed.ok) throw new Error("build failed");
+    expect(heapFrames(planned.data.instructions)).toEqual([]);
+    expect(heapFrames(routed.data.instructions)).toEqual([65_536]);
+    expect(cuLimits(routed.data.instructions)).toEqual([PLANNED_ZAP_CU_LIMIT]);
+    const plannedIx = planned.data.instructions.at(-1)!, routedIx = routed.data.instructions.at(-1)!;
+    expect(routedIx.data.equals(contractsRouted(plannedIx).data)).toBe(true);
+    expect(shape(routedIx)).toEqual(shape(plannedIx));
+    expect(m.client.buildRoutedIx(res.data, user).data).toEqual(routedIx.data);
+    // Same plan / same min_lp: the argument bytes are those of the planned instruction.
+    expect(routedIx.data.readBigUInt64LE(17)).toBe(BigInt(res.data.minimumLp.toString()));
+    expect(m.client.buildRoutedTx(res.data, user)).toEqual(routed);
+  });
+
+  test("compileTransaction over buildTx / depositRouted output never duplicates a compute-budget instruction", async () => {
+    const m = mockClient(3);
+    const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const planned = m.client.buildTx(res.data, user);
+    const routed = m.client.depositRouted(res.data, user);
+    if (!planned.ok || !routed.ok) throw new Error("build failed");
+    const decode = (tx: VersionedTransaction) => {
+      const keys = tx.message.staticAccountKeys;
+      return tx.message.compiledInstructions.map((ci) => new TransactionInstruction({ programId: keys[ci.programIdIndex], keys: [], data: Buffer.from(ci.data) }));
+    };
+    const base = { payer: user, blockhash: PublicKey.default.toBase58(), lookupTables: [], walletReserve: 0 };
+    const budgetCount = (ixs: TransactionInstruction[], tag: number) => ixs.filter((ix) => ix.programId.equals(ComputeBudgetProgram.programId) && ix.data[0] === tag).length;
+    const expectUnique = (ixs: TransactionInstruction[]) => { for (const tag of [1, 2, 3]) expect(budgetCount(ixs, tag)).toBeLessThanOrEqual(1); };
+
+    // docs/PLANNED_ZAP.md step 6: buildTx().instructions already carries [setComputeUnitLimit, zap].
+    const p = m.client.compileTransaction({ ...base, instructions: planned.data.instructions });
+    if (!p.ok) throw new Error(p.error.humanMessage);
+    const pIxs = decode(p.data.transaction);
+    expectUnique(pIxs);
+    expect(cuLimits(pIxs)).toEqual([PLANNED_ZAP_CU_LIMIT]); // the caller's value, not the 1.4M default
+    expect(pIxs.length).toBe(planned.data.instructions.length);
+
+    // depositRouted().instructions = [CU, 64 KiB heap, routed]; the documented heapFrameBytes is redundant, not duplicated.
+    for (const heapFrameBytes of [undefined, ROUTED_ZAP_HEAP_FRAME_BYTES]) {
+      const r = m.client.compileTransaction({ ...base, instructions: routed.data.instructions, heapFrameBytes });
+      if (!r.ok) throw new Error(r.error.humanMessage);
+      const rIxs = decode(r.data.transaction);
+      expectUnique(rIxs);
+      expect(heapFrames(rIxs)).toEqual([65_536]);
+      expect(cuLimits(rIxs)).toEqual(cuLimits(routed.data.instructions));
+      expect(rIxs.map((ix) => ix.data.toString("hex"))).toEqual(routed.data.instructions.map((ix) => ix.data.toString("hex")));
+    }
+
+    // A caller-supplied compute price is kept once; a byte-identical repeat is dropped.
+    const price = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5_000 });
+    const withPrice = m.client.compileTransaction({ ...base, instructions: [price, ...routed.data.instructions, price, routed.data.instructions[1]] });
+    if (!withPrice.ok) throw new Error(withPrice.error.humanMessage);
+    const wIxs = decode(withPrice.data.transaction);
+    expectUnique(wIxs);
+    expect(budgetCount(wIxs, 3)).toBe(1);
+    expect(heapFrames(wIxs)).toEqual([65_536]);
+
+    // Missing kinds are still added (limit + requested heap frame) on a bare instruction.
+    const zapIx = routed.data.instructions.at(-1)!;
+    const bare = m.client.compileTransaction({ ...base, instructions: [zapIx], heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES, computeUnits: 900_000 });
+    if (!bare.ok) throw new Error(bare.error.humanMessage);
+    expect(cuLimits(decode(bare.data.transaction))).toEqual([900_000]);
+    expect(heapFrames(decode(bare.data.transaction))).toEqual([65_536]);
+    // A heap frame already present but no limit: only the limit is added.
+    const heapOnly = m.client.compileTransaction({ ...base, instructions: [routed.data.instructions[1], zapIx], heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES });
+    if (!heapOnly.ok) throw new Error(heapOnly.error.humanMessage);
+    expect(cuLimits(decode(heapOnly.data.transaction))).toEqual([1_400_000]);
+    expect(heapFrames(decode(heapOnly.data.transaction))).toEqual([65_536]);
+
+    // Contradictions are refused instead of silently picking one value.
+    const conflictCu = m.client.compileTransaction({ ...base, instructions: routed.data.instructions, computeUnits: 123_456 });
+    expect(conflictCu).toMatchObject({ ok: false, error: { code: "tx_build_failed", humanMessage: expect.stringMatching(/computeUnits 123456 conflicts/) } });
+    const conflictHeap = m.client.compileTransaction({ ...base, instructions: routed.data.instructions, heapFrameBytes: 128 * 1024 });
+    expect(conflictHeap).toMatchObject({ ok: false, error: { humanMessage: expect.stringMatching(/heapFrameBytes 131072 conflicts/) } });
+    const twoLimits = m.client.compileTransaction({ ...base, instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1 }), ...routed.data.instructions] });
+    expect(twoLimits).toMatchObject({ ok: false, error: { humanMessage: expect.stringMatching(/two different ComputeBudget setComputeUnitLimit/) } });
+  });
+
+  test("a plan without a swap leg: forced routed builds the routed instruction (the program joins without a route), auto stays planned", async () => {
+    const m = mockClient(3, [], { route: "routed" });
+    const res = await m.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const q = { ...res.data, tokenInIndex: 0, plan: { ...res.data.plan, allocations: [50_000_000n, 0n, 0n] } };
+    expect(planHasSwapLeg(res.data)).toBe(true);
+    expect(planHasSwapLeg(q)).toBe(false);
+    expect(await m.client.resolveRoute(q, user)).toEqual({ route: "routed" });
+    // The raw builder accepts a join-only plan on the routed entry point (the program falls back to the planned path).
+    const joinOnly = buildDirectZapIx(m.cfg, m.client.accountsFor(res.data, user), { amountIn: 50_000_000n, tokenInIndex: 0, minimumLp: 1n, plan: q.plan }, "routed");
+    expect(joinOnly.data.subarray(0, 8).toString("hex")).toBe(ROUTED_ZAP_DISCRIMINATOR_HEX);
+    const auto = mockClient(3, [], { route: "auto" });
+    expect(await auto.client.resolveRoute(q, user)).toMatchObject({ route: "planned", fallbackReason: expect.stringMatching(/no swap leg/) });
+    expect(auto.calls.filter((c) => c === "simulateTransaction")).toHaveLength(0);
+  });
+
+  test("route option: default planned (no probe), forced routed (no probe), invalid value refused", async () => {
+    const plannedClient = mockClient(3);
+    expect(plannedClient.client.route).toBe("planned");
+    const res = await plannedClient.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const built = await plannedClient.client.buildDepositTx(res.data, user);
+    expect(built).toMatchObject({ ok: true, data: { route: "planned" } });
+    if (built.ok) { expect(heapFrames(built.data.instructions)).toEqual([]); expect(built.data.instructions.at(-1)!.data.subarray(0, 8).toString("hex")).toBe(PLANNED_ZAP_DISCRIMINATOR_HEX); }
+    const forced = mockClient(3, [], { route: "routed" });
+    const routed = await forced.client.buildDepositTx(res.data, user);
+    expect(routed).toMatchObject({ ok: true, data: { route: "routed" } });
+    if (routed.ok) expect(heapFrames(routed.data.instructions)).toEqual([65_536]);
+    expect(plannedClient.calls).not.toContain("simulateTransaction");
+    expect(forced.calls).not.toContain("simulateTransaction");
+    expect(() => new PlannedZapClient({ config: getConfig("mainnet"), poolAddress: key(1), route: "batch" as any })).toThrow(/route must be/);
+  });
+
+  test("auto: routed only when both programs answer InstructionDidNotDeserialize (102); 101 / errors fall back to planned", async () => {
+    const cfg = getConfig("mainnet");
+    const seen: Array<{ program: string; data: string; sigVerify: boolean; replace: boolean; accounts: number }> = [];
+    const answer = (stld: number | Error, pool: number | Error) => async (tx: VersionedTransaction, opts: any) => {
+      const ci = tx.message.compiledInstructions[0];
+      const program = tx.message.staticAccountKeys[ci.programIdIndex];
+      seen.push({ program: program.toBase58(), data: Buffer.from(ci.data).toString("hex"), sigVerify: opts.sigVerify, replace: opts.replaceRecentBlockhash, accounts: ci.accountKeyIndexes.length });
+      const v = program.equals(cfg.programs.singleTokenLiquidity) ? stld : pool;
+      if (v instanceof Error) throw v;
+      return simErr(v);
+    };
+    const both = mockClient(3, [], { route: "auto", simulateTransaction: answer(102, 102) });
+    const res = await both.client.quote(0, bn(50_000_000), { slippageHundredthsBps: 10_000 });
+    if (!res.ok) throw new Error(res.error.humanMessage);
+    const auto = await both.client.buildDepositTx(res.data, user);
+    expect(auto).toMatchObject({ ok: true, data: { route: "routed" } });
+    if (auto.ok) { expect(heapFrames(auto.data.instructions)).toEqual([65_536]); expect(auto.data.fallbackReason).toBeUndefined(); }
+    // Discriminator-only probes, no accounts, no signature check.
+    expect(seen).toEqual(expect.arrayContaining([
+      { program: cfg.programs.singleTokenLiquidity.toBase58(), data: ROUTED_ZAP_DISCRIMINATOR_HEX, sigVerify: false, replace: true, accounts: 0 },
+      { program: cfg.programs.cofferPool.toBase58(), data: "c81d70ad5bfad0c2", sigVerify: false, replace: true, accounts: 0 },
+    ]));
+    // Cached: a second build does not probe again.
+    const probes = both.calls.filter((c) => c === "simulateTransaction").length;
+    await both.client.buildDepositTx(res.data, user);
+    expect(both.calls.filter((c) => c === "simulateTransaction").length).toBe(probes);
+
+    for (const [stld, pool, status] of [[101, 102, { stld: "absent", cofferPool: "present" }], [102, 101, { stld: "present", cofferPool: "absent" }], [new Error("429"), 102, { stld: "unknown", cofferPool: "present" }], [3012, 102, { stld: "unknown", cofferPool: "present" }]] as const) {
+      const m = mockClient(3, [], { route: "auto", simulateTransaction: answer(stld as any, pool as any) });
+      const built = await m.client.buildDepositTx(res.data, user);
+      expect(built).toMatchObject({ ok: true, data: { route: "planned", fallbackReason: expect.stringMatching(/routed zap unavailable/) } });
+      if (built.ok) expect(heapFrames(built.data.instructions)).toEqual([]);
+      expect(await m.client.probeRoutedSupport(user)).toMatchObject({ supported: false, ...status });
+    }
+    // An inconclusive probe is not cached; a conclusive one is.
+    let flaky = true;
+    const recovering = mockClient(3, [], { route: "auto", simulateTransaction: async (tx: VersionedTransaction, opts: any) => { if (flaky) throw new Error("fetch failed"); return answer(102, 102)(tx, opts); } });
+    expect((await recovering.client.probeRoutedSupport(user)).supported).toBe(false);
+    flaky = false;
+    expect((await recovering.client.probeRoutedSupport(user)).supported).toBe(true);
+  });
+
+  test("classifyInstructionProbe / probeInstructionPresence edge cases", async () => {
+    expect(classifyInstructionProbe({ InstructionError: [0, { Custom: 102 }] })).toBe("present");
+    expect(classifyInstructionProbe({ InstructionError: [0, { Custom: 101 }] })).toBe("absent");
+    expect(classifyInstructionProbe({ InstructionError: [0, "InvalidProgramForExecution"] })).toBe("unknown");
+    expect(classifyInstructionProbe("AccountNotFound")).toBe("unknown");
+    expect(classifyInstructionProbe(null)).toBe("unknown");
+    const ok = await probeInstructionPresence({ simulateTransaction: async () => ({ context: { slot: 1 }, value: { err: null, logs: [] } }) } as any, key(9), key(5), "00");
+    expect(ok.status).toBe("unknown");
+  });
+});
+
+describe("rc5 swap_route_join_v1 (pool-native route)", () => {
+  const cfg = getConfig("devnet");
+  const pool = (n: number) => ({
+    address: key(1), lpMint: key(2), tokenCount: n, lpTokenProgram: TOKEN_PROGRAM_ID, hook: undefined,
+    tokens: Array.from({ length: n }, (_, i) => ({ index: i, mint: key(10 + i), vault: key(70 + i), tokenProgram: TOKEN_PROGRAM_ID })),
+  }) as any;
+
+  test("bytes equal the IDL encoder; accounts are add_liquidity's layout", () => {
+    const allocations = [bn(400), bn(300), bn(0)];
+    const ix = buildSwapRouteJoinV1Ix(cfg, pool(3), { user: key(4), tokenInIndex: 1, allocations, minimumLpAmount: bn(77) });
+    const schema = (IDLS.cofferPool.instructions as any[]).find((i) => i.name === "swap_route_join_v1");
+    expect(ix.data.subarray(0, 8)).toEqual(Buffer.from(schema.discriminator));
+    expect(ix.data.subarray(0, 8).toString("hex")).toBe("c81d70ad5bfad0c2");
+    const generic = buildContractInstruction(cfg, "cofferPool", "swap_route_join_v1", { token_in_index: 1, allocations, minimum_lp_amount: bn(77) },
+      { pool: key(1), lp_mint: key(2), user_lp_account: deriveAta(key(4), key(2), TOKEN_PROGRAM_ID), user: key(4), token_program: TOKEN_PROGRAM_ID }, ix.keys.slice(5));
+    expect(ix.data.equals(generic.data)).toBe(true);
+    expect(shape(ix)).toEqual(shape(generic));
+    expect(ix.keys).toHaveLength(5 + 3 * 4);
+    expect(ix.keys.slice(5, 11).every((k) => k.isWritable)).toBe(true);
+    expect(ix.keys.slice(11).every((k) => !k.isWritable && !k.isSigner)).toBe(true);
+    const tx = buildSwapRouteJoinV1Tx(cfg, pool(3), { user: key(4), tokenInIndex: 1, allocations, minimumLpAmount: bn(77), autoMigrate: false } as any);
+    expect(heapFrames(tx.instructions)).toEqual([SWAP_ROUTE_JOIN_HEAP_FRAME_BYTES]);
+    expect(cuLimits(tx.instructions)).toEqual([1_400_000]);
+  });
+
+  test("RouteAllocationsLength / RouteNoLegs / InvalidTokenIndex / minimum LP refused before RPC", () => {
+    const base = { user: key(4), tokenInIndex: 0, allocations: [bn(1), bn(2)], minimumLpAmount: bn(1) };
+    expect(() => buildSwapRouteJoinV1Ix(cfg, pool(2), { ...base, allocations: [bn(1)] })).toThrow(/RouteAllocationsLength/);
+    expect(() => buildSwapRouteJoinV1Ix(cfg, pool(2), { ...base, allocations: [bn(5), bn(0)] })).toThrow(/RouteNoLegs/);
+    expect(() => buildSwapRouteJoinV1Ix(cfg, pool(2), { ...base, tokenInIndex: 2 })).toThrow(/InvalidTokenIndex/);
+    expect(() => buildSwapRouteJoinV1Ix(cfg, pool(2), { ...base, minimumLpAmount: bn(0) })).toThrow(/minimumLpAmount/);
+  });
+});
+
+describe("rc5 error tables", () => {
+  test("6116–6119 (coffer_pool) and 6040 (STLD) map to SDK codes and actionable messages", () => {
+    expect(describeProgramError(6116)).toMatchObject({ name: "ExitPaysNothing", sdkCode: "amount_too_small" });
+    expect(describeProgramError(6117)).toMatchObject({ name: "RouteAllocationsLength", sdkCode: "invalid_input" });
+    expect(describeProgramError(6118)).toMatchObject({ name: "RouteNoLegs", sdkCode: "invalid_input" });
+    expect(describeProgramError(6119)).toMatchObject({ name: "RouteComputeBudgetInsufficient", sdkCode: "simulation_failed" });
+    expect(describeProgramError(6040, "singleTokenLiquidity")).toMatchObject({ name: "RoutedReturnDataInvalid", sdkCode: "simulation_failed" });
+    expect(describeProgramError(6041, "singleTokenLiquidity")).toMatchObject({ name: "InvalidRecoveryDestination", sdkCode: "invalid_input" });
+    expect(describeProgramError(6042, "singleTokenLiquidity")).toBeUndefined();
+    expect(describeProgramError(6116)!.message).toMatch(/too small to withdraw/);
+    expect(describeProgramError(6119)!.message).toMatch(/compute unit limit/);
+    expect(toSdkError(new Error("custom program error: 0x1798"), "singleTokenLiquidity").humanMessage).toMatch(/nothing was deposited/); // 6040
+    expect(toSdkError(new Error("Error Number: 6118")).humanMessage).toMatch(/no swap leg/);
+  });
+
+  test("ProgramFailedToComplete on a routed deposit → routed_heap_frame_required; elsewhere stays unknown", () => {
+    // Preflight text seen on the validator (N10 hooked input, no heap frame; the heap access-violation line is truncated away).
+    const preflight = new Error("Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 2: Program failed to complete. \nLogs: \n[\n  \"Log truncated\"\n].");
+    const landed = { InstructionError: [2, "ProgramFailedToComplete"] };
+    for (const cause of [preflight, landed]) {
+      const r = toSdkError(cause, "singleTokenLiquidity", { routedDeposit: true });
+      expect(r.code).toBe("routed_heap_frame_required");
+      expect(r.humanMessage).toMatch(/64 KiB heap frame/);
+      expect(r.humanMessage).toMatch(/compute units/);
+      expect(r.cause).toBe(cause);
+      // Without routed context (or for another instruction) the failure is NOT relabelled.
+      expect(toSdkError(cause, "singleTokenLiquidity").code).toBe("unknown");
+      expect(toSdkError(cause, "cofferPool", { routedDeposit: false }).code).toBe("unknown");
+    }
+    // Detection from the transaction's instructions (both routed entry points; compiled instructions too).
+    const routedIx = new TransactionInstruction({ programId: key(1), keys: [], data: Buffer.concat([Buffer.from(ROUTED_ZAP_DISCRIMINATOR_HEX, "hex"), Buffer.alloc(4)]) });
+    const joinIx = new TransactionInstruction({ programId: key(2), keys: [], data: Buffer.from("c81d70ad5bfad0c2", "hex") });
+    const plannedIx = new TransactionInstruction({ programId: key(1), keys: [], data: Buffer.from(PLANNED_ZAP_DISCRIMINATOR_HEX, "hex") });
+    const budget = routedZapComputeBudgetIxs();
+    expect(containsRoutedDepositInstruction([...budget, routedIx])).toBe(true);
+    expect(containsRoutedDepositInstruction([joinIx])).toBe(true);
+    expect(containsRoutedDepositInstruction([...budget, plannedIx])).toBe(false);
+    expect(toSdkError(landed, "singleTokenLiquidity", { instructions: [...budget, routedIx] }).code).toBe("routed_heap_frame_required");
+    expect(toSdkError(landed, "cofferPool", { instructions: [joinIx] }).code).toBe("routed_heap_frame_required");
+    expect(toSdkError(landed, "singleTokenLiquidity", { instructions: [...budget, plannedIx] }).code).toBe("unknown");
+    // Other routed failures keep their own mapping (program errors and network errors win).
+    expect(toSdkError(new Error("custom program error: 0x1798"), "singleTokenLiquidity", { routedDeposit: true }).code).toBe("simulation_failed");
+    expect(toSdkError(new Error("Error Number: 6119"), "cofferPool", { routedDeposit: true }).code).toBe("simulation_failed");
+    expect(toSdkError(new Error("insufficient funds"), "singleTokenLiquidity", { routedDeposit: true }).code).toBe("insufficient_funds");
+  });
+
+  test("routed-deposit discriminators in the error mapper match the builders", () => {
+    expect(ROUTED_ZAP_DISCRIMINATOR_HEX).toBe("f782dde3cee774af");
+    expect(Buffer.from(sha256(new TextEncoder().encode("global:swap_route_join_v1"))).subarray(0, 8).toString("hex")).toBe("c81d70ad5bfad0c2");
+  });
+
+  test("calculateExitPayout mirrors ExitPaysNothing; an empty pool still accepts the empty basket", () => {
+    // 1 LP of a 1e12 supply against 100 raw units pays floor(100/1e12) = 0 everywhere.
+    expect(() => calculateExitPayout([100n, 100n], [0n, 0n], 1n, 1_000_000_000_000n, 0)).toThrow(/ExitPaysNothing/);
+    expect(() => calculateExitPayout([0n, 0n], [0n, 0n], 1n, 1_000_000_000_000n, 0)).not.toThrow();
+    expect(calculateExitPayout([100n, 100n], [0n, 0n], 10_000_000_000n, 1_000_000_000_000n, 0).legs.map((l) => l.transferAmount)).toEqual([1n, 1n]);
+  });
+});

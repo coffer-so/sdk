@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const root = path.resolve(__dirname, '..');
-const programs = { cubicPool: 'cubic_pool', protocolAdmin: 'protocol_admin', singleTokenLiquidity: 'single_token_liquidity', cofferRewards: 'coffer_rewards' };
+const programs = { cofferPool: 'coffer_pool', protocolAdmin: 'protocol_admin', singleTokenLiquidity: 'single_token_liquidity', cofferRewards: 'coffer_rewards' };
 const idls = Object.fromEntries(Object.entries(programs).map(([key, name]) => [key, JSON.parse(fs.readFileSync(path.join(root, 'src/idl', name + '.json'), 'utf8'))]));
 const prop = (name) => JSON.stringify(name);
 function ts(type, program) {
@@ -21,10 +22,19 @@ function ts(type, program) {
   throw new Error('Unsupported IDL type ' + JSON.stringify(type));
 }
 const fields = (fields, program) => fields.length ? '{ ' + fields.map(f => `${prop(f.name)}: ${ts(f.type, program)}`).join('; ') + ' }' : 'Record<string, never>';
-const lines = ['// Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.', 'import BN from "bn.js";', 'import { PublicKey } from "@solana/web3.js";', '', 'export interface ContractTypes {'];
+// Borsh enums (v6.1 T3 `PoolAction` / `ProtocolAction`): the raw Anchor coder
+// keys the variant by its EXACT IDL name (`{ SetSwapFeeRate: { rate } }`);
+// unit variants take an empty object. Tuple variants are not used on chain.
+const enumType = (variants, program) => variants.map(v => {
+  if (v.fields && v.fields.length && typeof v.fields[0] !== 'object') throw new Error('Tuple enum variants are not supported');
+  return `{ ${prop(v.name)}: ${fields(v.fields || [], program)} }`;
+}).join(' | ');
+const pins = Object.entries(programs).map(([key,name]) => `${key}=${crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'src/idl',name+'.json'))).digest('hex')}`).join('; ');
+const lines = ['// Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.', '// Epoch abi-sync-20261123; ' + pins, 'import BN from "bn.js";', 'import { PublicKey } from "@solana/web3.js";', '', 'export interface ContractTypes {'];
 for (const [program, idl] of Object.entries(idls)) {
   lines.push(`  ${prop(program)}: {`);
   for (const type of idl.types || []) {
+    if (type.type.kind === 'enum') { lines.push(`    ${prop(type.name)}: ${enumType(type.type.variants, program)};`); continue; }
     if (type.type.kind !== 'struct') throw new Error('Unsupported IDL kind ' + type.type.kind);
     lines.push(`    ${prop(type.name)}: ${fields(type.type.fields, program)};`);
   }

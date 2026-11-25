@@ -14,7 +14,7 @@ export type ContractInstructionAccounts<P extends ContractProgram, I extends Ins
 const coders = new Map<ContractProgram, BorshInstructionCoder>();
 
 /**
- * Build any instruction exposed by the deployed contracts (cubic_pool,
+ * Build any instruction exposed by the deployed contracts (coffer_pool,
  * protocol_admin, single_token_liquidity, coffer_rewards). Argument and
  * account names use the exact snake_case names from the shipped IDLs; all fixed
  * accounts are explicit. Integer widths, argument fields, account order and
@@ -23,7 +23,7 @@ const coders = new Map<ContractProgram, BorshInstructionCoder>();
  * This only builds an instruction. Required signatures, authority constraints,
  * remaining-account layouts and transaction size still apply. A Treasury PDA
  * can sign only during CPI: use the corresponding protocolAdmin wrapper for
- * governance, rather than sending a cubicPool instruction with a PDA signer.
+ * governance, rather than sending a cofferPool instruction with a PDA signer.
  */
 export function buildContractInstruction<P extends ContractProgram, I extends InstructionName<P>>(
   config: CofferConfig,
@@ -125,6 +125,17 @@ function validateType(value: any, type: any, idl: any, path: string): void {
   }
   if (type.defined) {
     const definition = idl.types.find((t: any) => t.name === type.defined.name);
+    if (definition && definition.type.kind === "enum") {
+      // Borsh enum: `{ <ExactVariantName>: { ...fields } }` (unit variants take `{}`).
+      if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1) {
+        throw new Error(`${path} must be an object with exactly one variant key of ${type.defined.name}`);
+      }
+      const [variantName] = Object.keys(value);
+      const variant = definition.type.variants.find((v: any) => v.name === variantName);
+      if (!variant) throw new Error(`${path}.${variantName} is not a variant of ${type.defined.name}`);
+      validateFields((value as any)[variantName], variant.fields ?? [], idl, `${path}.${variantName}`);
+      return;
+    }
     if (!definition || definition.type.kind !== "struct") throw new Error(`Unsupported ABI type ${type.defined.name}`);
     validateFields(value, definition.type.fields, idl, path);
     return;

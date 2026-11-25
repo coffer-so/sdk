@@ -1,14 +1,15 @@
 import BN from "bn.js";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { execFileSync } from "child_process";
 import { IDLS } from "../src/idl";
 import { getConfig, programId } from "../src/config";
 import { ContractProgram } from "../src/types/contracts";
 import { buildContractInstruction } from "../src/clients/contract-instructions";
 import { decodeContractAccount, parseContractEvents } from "../src/parsers/contracts";
-import { parseCubicPoolEvents } from "../src/parsers/events";
-import { buildAddLiquidityIx, buildRemoveLiquidityIx, buildSingleTokenDepositIx, buildSingleTokenDepositAtaIxs, buildSetMaxSelloffIx, buildSetRangeManagerConfigIx } from "../src/clients/tx-builders";
+import { parseCofferPoolEvents } from "../src/parsers/events";
+import { buildAddLiquidityIx, buildRemoveLiquidityIx, buildSetMaxSelloffIx, buildSetRangeManagerConfigIx } from "../src/clients/tx-builders";
+import { buildPlannedZapIx, plannedZapAccounts } from "../src/clients/plannedZap/instruction";
 import { deriveAta } from "../src/utils/pda";
 import { PoolInfo } from "../src/types/pool";
 
@@ -20,7 +21,7 @@ function sample(type: any, idl: any): any {
   if (type === "pubkey") return pk();
   if (type === "bool") return true;
   if (type === "bytes") return Buffer.from([1, 3]);
-  if (type === "string") return "coffer ✓";
+  if (type === "string") return `s${++sequence}`;
   if (typeof type === "string") {
     if (/^[ui](64|128|256)$/.test(type)) return type[0] === "i" ? new BN(-1234567) : new BN(1).shln(54).addn(++sequence);
     return type === "u8" ? 7 : ++sequence % 10000;
@@ -28,7 +29,12 @@ function sample(type: any, idl: any): any {
   if (type.vec) return [sample(type.vec, idl), sample(type.vec, idl)];
   if (type.array) return Array.from({ length: type.array[1] }, () => sample(type.array[0], idl));
   if (type.option) return sample(type.option, idl);
-  if (type.defined) return fieldsSample(idl.types.find((x: any) => x.name === type.defined.name).type.fields, idl);
+  if (type.defined) {
+    const def = idl.types.find((x: any) => x.name === type.defined.name).type;
+    // Borsh enum (v6.1 T3): pick the LAST variant so the tag is non-zero.
+    if (def.kind === "enum") { const v = def.variants[def.variants.length - 1]; return { [v.name]: fieldsSample(v.fields ?? [], idl) }; }
+    return fieldsSample(def.fields, idl);
+  }
   throw new Error(JSON.stringify(type));
 }
 function fieldsSample(fields: any[], idl: any): any {
@@ -41,7 +47,7 @@ function encode(value: any, type: any, idl: any): Buffer {
   if (type === "pubkey") return value.toBuffer();
   if (type === "bool") return Buffer.from([value ? 1 : 0]);
   if (type === "bytes") return Buffer.concat([u32(value.length), value]);
-  if (type === "string") { const bytes = Buffer.from(value, "utf8"); return Buffer.concat([u32(bytes.length), bytes]); }
+  if (type === "string") { const b = Buffer.from(value, "utf8"); return Buffer.concat([u32(b.length), b]); }
   if (typeof type === "string") {
     const bits = Number(type.slice(1));
     const bn = BN.isBN(value) ? value : new BN(value);
@@ -50,7 +56,16 @@ function encode(value: any, type: any, idl: any): Buffer {
   if (type.vec) return Buffer.concat([u32(value.length), ...value.map((v: any) => encode(v, type.vec, idl))]);
   if (type.array) return Buffer.concat(value.map((v: any) => encode(v, type.array[0], idl)));
   if (type.option) return value === null ? Buffer.from([0]) : Buffer.concat([Buffer.from([1]), encode(value, type.option, idl)]);
-  if (type.defined) return encodeFields(value, idl.types.find((x: any) => x.name === type.defined.name).type.fields, idl);
+  if (type.defined) {
+    const def = idl.types.find((x: any) => x.name === type.defined.name).type;
+    if (def.kind === "enum") {
+      const [name] = Object.keys(value);
+      const tag = def.variants.findIndex((v: any) => v.name === name);
+      if (tag < 0) throw new Error(`unknown variant ${name}`);
+      return Buffer.concat([Buffer.from([tag]), encodeFields(value[name], def.variants[tag].fields ?? [], idl)]);
+    }
+    return encodeFields(value, def.fields, idl);
+  }
   throw new Error(JSON.stringify(type));
 }
 function encodeFields(value: any, fields: any[], idl: any): Buffer { return Buffer.concat(fields.map(f => encode(value[f.name], f.type, idl))); }
@@ -69,8 +84,18 @@ const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
 test("generated public types match all shipped IDLs", () => {
-  expect(instructions).toHaveLength(70);
-  expect(events).toHaveLength(61);
+  // LP transfer fee (2026-11-19): coffer_pool 56 ix / 45 events (I-1 appended execute_set_lp_transfer_fee), protocol_admin 58 / 40, STLD 4 / 2
+  // (T19 removed 2 + 2; L0/T2/T10/T14/T6/T7/T3/T9/T22 appended the rest; T11
+  // retired PoolStateLog / MaxSelloffWindowAdvanced / SingleTokenDeposit and
+  // re-cut 45 payloads under new names; rc2 added close_upgrade_buffer /
+  // UpgradeBufferClosed and dropped the never-deployed batch route; rc5 added
+  // swap_route_join_v1 (pool, 57) and deposit_single_token_routed (STLD, 5);
+  // the dead-code removal dropped migrate_to_v5 (pool, 56), pool_migrate_to_v5 and
+  // added stld_close_helper_token_account (protocol_admin, 58), dropped
+  // deposit_single_token / deposit_single_token_direct and added
+  // close_helper_token_account (STLD, 4)); coffer_rewards adds 11 / 1.
+  expect(instructions).toHaveLength(129);
+  expect(events).toHaveLength(88);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
 
@@ -97,10 +122,12 @@ test.each(events)("$program.$event.name: every event field is decoded", ({ progr
   expect(decoded).toHaveLength(1);
   expect(decoded[0].kind).toBe(event.name);
   expect(normalize(decoded[0].data)).toEqual(normalize(expected));
-  const compatible = parseCubicPoolEvents([log]);
+  const compatible = parseCofferPoolEvents([log]);
   expect(compatible).toHaveLength(1);
   expect(compatible[0].kind).toBe(event.name);
   expect(compatible[0].kind).not.toBe("Unknown");
+  // v6.1 (T3): the cooldown events' `kind: u8` data field never shadows the discriminator.
+  if (fields.some((f: any) => f.name === "kind")) expect((compatible[0] as any).actionKind).toBe(expected.kind);
 });
 
 test.each(programs.flatMap(([program, idl]) => idl.accounts.map((account: any) => ({ program, idl, account }))))(
@@ -120,12 +147,12 @@ test.each(programs.flatMap(([program, idl]) => idl.accounts.map((account: any) =
 
 test("strict ABI rejects missing/extra fields, wrong widths and unsafe JS integers", () => {
   const accounts = { pool: pk(), authority: pk() };
-  const build = (args: any, supplied = accounts) => (buildContractInstruction as any)(cfg, "cubicPool", "set_swap_fee_rate", args, supplied);
+  const build = (args: any, supplied = accounts) => (buildContractInstruction as any)(cfg, "cofferPool", "set_swap_fee_rate", args, supplied);
   expect(() => build({})).toThrow(/required/);
   expect(() => build({ swap_fee_rate: 10, extra: 0 })).toThrow(/not in/);
   for (const invalid of [-1, 0x100000000, 1.5, NaN]) expect(() => build({ swap_fee_rate: invalid })).toThrow();
   expect(() => build({ swap_fee_rate: 10 }, { ...accounts, wrong: pk() } as any)).toThrow(/not in/);
-  expect(() => buildSetRangeManagerConfigIx(cfg, pk(), { authority: pk(), maxVbChangePct: 65536, maxWeightChangePct: 1, minUpdateIntervalSecs: 1, maxLeverageBps: 1, minLeverageBps: 1 })).toThrow(/unsigned 16/);
+  expect(() => buildSetRangeManagerConfigIx(cfg, pk(), { authority: pk(), maxVbChangePct: 65536, maxWeightChangePct: 1, minUpdateIntervalSecs: 1, maxConcentrationFactorBps: 1, minConcentrationFactorBps: 1 })).toThrow(/unsigned 16/);
   const amountAccounts = { treasury: pk(), admin: pk(), recipient: pk() };
   expect(() => (buildContractInstruction as any)(cfg, "protocolAdmin", "withdraw_sol", { amount: new BN(-1) }, amountAccounts)).toThrow(/outside u64/);
   expect(() => (buildContractInstruction as any)(cfg, "protocolAdmin", "withdraw_sol", { amount: 100 }, amountAccounts)).toThrow(/BN/);
@@ -133,33 +160,35 @@ test("strict ABI rejects missing/extra fields, wrong widths and unsafe JS intege
 
 function poolFixture(): PoolInfo {
   return {
-    address: pk(), config: pk(), bump: 1, tokenCount: 2, poolId: new BN(1), bptMint: pk(), bptTokenProgram: TOKEN_2022_PROGRAM_ID,
-    bptTotalSupply: new BN(100000), swapFeeRate: 0, protocolFeeRate: 0, poolEnabled: true, swapsEnabled: true, createdAt: 0,
-    lookupTable: PublicKey.default, bannedExtensions: new BN(0), syncedAt: 0, unsupportedTokenIndices: [],
+    address: pk(), config: pk(), bump: 1, tokenCount: 2, poolId: new BN(1), lpMint: pk(), lpTokenProgram: TOKEN_2022_PROGRAM_ID,
+    lpTotalSupply: new BN(100000), swapFeeRate: 0, protocolFeeRate: 0, poolEnabled: true, swapsEnabled: true, createdAt: 0,
+    lookupTable: PublicKey.default, syncedAt: 0, unsupportedTokenIndices: [],
     tokens: [0, 1].map(index => ({ index, mint: pk(), tokenProgram: TOKEN_2022_PROGRAM_ID, decimals: 9, weightBps: 5000,
-      virtualBalance: new BN(100000), actualBalance: new BN(100000), protocolFeesOwed: new BN(0), vault: pk(), concentration: 1,
+      virtualBalance: new BN(100000), actualBalance: new BN(100000), protocolFeesOwed: new BN(0), vault: pk(), concentrationFactor: 1,
       isActive: true, maxSelloffPct: 0, extensions: [], unsupportedExtensions: [] })),
   };
 }
 
-test("Token-2022 BPT is used for joins, exits, STLD and ATA setup", () => {
+test("Token-2022 LP is used for joins, exits and the planned zap", () => {
   const pool = poolFixture(); const user = pk();
-  const add = buildAddLiquidityIx(cfg, pool, { user, tokenAmounts: [new BN(100), new BN(100)], minimumBptAmount: new BN(1) });
-  const remove = buildRemoveLiquidityIx(cfg, pool, { user, bptAmount: new BN(100), minimumTokenAmounts: [new BN(0), new BN(0)] });
+  const add = buildAddLiquidityIx(cfg, pool, { user, tokenAmounts: [new BN(100), new BN(100)], minimumLpAmount: new BN(1) });
+  const remove = buildRemoveLiquidityIx(cfg, pool, { user, lpAmount: new BN(100), minimumTokenAmounts: [new BN(0), new BN(0)] });
   for (const ix of [add, remove]) {
-    expect(ix.keys[2].pubkey.equals(deriveAta(user, pool.bptMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
+    expect(ix.keys[2].pubkey.equals(deriveAta(user, pool.lpMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
     expect(ix.keys[4].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
   }
-  const stld = buildSingleTokenDepositIx(cfg, pool, { user, amountIn: new BN(100), tokenInIndex: 0, minimumBptAmount: new BN(1) });
-  expect(stld.keys[7].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
-  const atas = buildSingleTokenDepositAtaIxs(cfg, pool, user).slice(-2);
-  for (const ix of atas) expect(ix.keys[5].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+  const zap = buildPlannedZapIx(cfg, plannedZapAccounts(cfg, pool, user), { amountIn: 100n, tokenInIndex: 0, minimumLp: 1n, plan: { allocations: [60n, 40n], expectedState: new Uint8Array(32), quotedAt: 0n, validUntilSlot: 1n } });
+  expect(zap.keys[2].pubkey.equals(deriveAta(user, pool.lpMint, TOKEN_2022_PROGRAM_ID))).toBe(true);
+  expect(zap.keys[5].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+  // Every pool token shares the LP program (Token-2022) → no token-program suffix.
+  expect(zap.keys).toHaveLength(6 + 3 * 2);
+  expect(zap.keys.some((k) => k.pubkey.equals(TOKEN_PROGRAM_ID))).toBe(false);
 });
 
 test("sell-off convenience builder sends all seven per-token parameters in ABI order", () => {
   const pool = pk(); const authority = pk();
   const result = buildSetMaxSelloffIx(cfg, pool, authority, [{ maxSelloffPct: 300, periodLength: 60, feeThresholdPct: 100, feeSlopeLowPct: 10, feeSlopeHighPct: 900, feeSlopeMidPct: 700, feeKinkPct: 80 }]);
-  const expected = buildContractInstruction(cfg, "cubicPool", "set_max_selloff", { params: [{ max_selloff_pct: 300, period_length: 60, fee_threshold_pct: 100, fee_slope_low_pct: 10, fee_slope_high_pct: 900, fee_slope_mid_pct: 700, fee_kink_pct: 80 }] }, { pool, authority });
+  const expected = buildContractInstruction(cfg, "cofferPool", "set_max_selloff", { params: [{ max_selloff_pct: 300, period_length: 60, fee_threshold_pct: 100, fee_slope_low_pct: 10, fee_slope_high_pct: 900, fee_slope_mid_pct: 700, fee_kink_pct: 80 }] }, { pool, authority });
   expect(result).toEqual(expected);
 });
 
@@ -167,9 +196,9 @@ test("sell-off convenience builder sends all seven per-token parameters in ABI o
 // or omit newly required fields, even though the API covers every instruction.
 if (false) {
   // @ts-expect-error unknown instruction
-  buildContractInstruction(cfg, "cubicPool", "unknown_instruction", {}, {});
-  // @ts-expect-error required hard floor must not disappear at compile time
-  buildContractInstruction(cfg, "cubicPool", "set_banned_extensions", { banned_extensions: new BN(1) }, { config: pk(), authority: pk() });
+  buildContractInstruction(cfg, "cofferPool", "unknown_instruction", {}, {});
+  // @ts-expect-error `set_banned_extensions` was deleted in v6.1 (T19)
+  buildContractInstruction(cfg, "cofferPool", "set_banned_extensions", { banned_extensions: new BN(1), hard_banned_extensions: new BN(0) }, { config: pk(), authority: pk() });
 }
 
 test("every AdminClient operation matches the current protocol-admin ABI", async () => {
@@ -187,29 +216,60 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
     cancel_admin_transfer: () => client.cancelAdminTransferIx(a),
     register_token: () => client.registerTokenIx(a, mint),
     withdraw: () => client.withdrawIx(a, mint, recipient, amount),
-    transfer_upgrade_authority: () => client.transferUpgradeAuthorityIx(a, cfg.programs.cubicPool, other),
-    freeze_pool_program: () => client.freezePoolProgramIx(a, cfg.programs.cubicPool),
-    close_pool_program: () => client.closePoolProgramIx(a, cfg.programs.cubicPool, recipient),
-    upgrade_pool_program: () => client.upgradePoolProgramIx(a, cfg.programs.cubicPool, other, recipient),
+    transfer_upgrade_authority: () => client.transferUpgradeAuthorityIx(a, cfg.programs.cofferPool, other),
+    freeze_pool_program: () => client.freezePoolProgramIx(a, cfg.programs.cofferPool),
+    close_pool_program: () => client.closePoolProgramIx(a, cfg.programs.cofferPool, recipient),
+    close_upgrade_buffer: () => client.closeUpgradeBufferIx(a, other, recipient),
+    upgrade_pool_program: () => client.upgradePoolProgramIx(a, cfg.programs.cofferPool, other, recipient),
     pool_initialize_config: () => client.poolInitializeConfigIx(a, config, 300),
     pool_set_protocol_fee_rate: () => client.setProtocolFeeRateIx(a, config, pool, 300),
     pool_set_pool_enabled: () => client.setPoolEnabledIx(a, config, pool, true),
     pool_set_swaps_enabled: () => client.setSwapsEnabledIx(a, config, pool, false),
-    pool_set_banned_extensions: () => client.setBannedExtensionsIx(a, config, amount, new BN(512)),
-    pool_migrate_to_v5: () => client.migratePoolToV5Ix(a, config, pool, false),
     stld_withdraw_sol: () => client.stldWithdrawSolIx(a, config, pool, other, recipient, amount),
+    stld_close_helper_token_account: () => client.stldCloseHelperTokenAccountIx(a, config, pool, other, mint),
     freeze_pools: () => client.freezePoolsIx(a, [{ config, pool }]),
     unfreeze_pools: () => client.unfreezePoolsIx(a, [{ config, pool }]),
     pool_set_token_active: () => client.setTokenActiveIx(a, config, pool, 1, true),
     set_supervisor: () => client.setSupervisorIx(a, other),
-    pool_collect_protocol_fees: () => client.collectProtocolFeesIx(a, config, pool, [mint], [recipient]),
-    pool_debug_withdraw_liquidity: () => client.debugWithdrawLiquidityIx(a, config, pool, [amount], [mint], [recipient]),
+    pool_collect_protocol_fees: () => client.collectProtocolFeesIx(a, config, pool, { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] }),
+    pool_debug_withdraw_liquidity: () => client.debugWithdrawLiquidityIx(a, config, pool, [amount], { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] }),
     withdraw_sol: () => client.withdrawSolIx(a, recipient, amount),
     pool_withdraw_sol: () => client.poolWithdrawSolIx(a, config, other, recipient, amount),
     pool_initialize_alt: () => client.poolInitializeAltIx(a, config, pool, new BN(1000)),
     pool_initiate_protocol_admin_transfer: () => client.poolInitiateProtocolAdminTransferIx(a, config, other),
     pool_accept_protocol_admin_transfer: () => client.poolAcceptProtocolAdminTransferIx(a, config),
     pool_cancel_protocol_admin_transfer: () => client.poolCancelProtocolAdminTransferIx(a, config),
+    // v6.1
+    pool_enable_range_manager: () => client.poolEnableRangeManagerIx(a, config, pool),
+    execute_pool_enable_range_manager: () => client.executePoolEnableRangeManagerIx(a, config, pool),
+    pool_disable_range_manager: () => client.poolDisableRangeManagerIx(a, config, pool),
+    pool_set_hook_disabled: () => client.setHookDisabledIx(a, config, pool, true),
+    pool_rescale_virtual_balances: () => client.poolRescaleVirtualBalancesIx(a, config, pool, new BN(1_000_000_000)),
+    execute_pool_rescale_virtual_balances: () => client.executePoolRescaleVirtualBalancesIx(a, config, pool),
+    migrate_treasury_layout_v61: () => client.migrateTreasuryLayoutV61Ix(a),
+    set_delay: () => client.setDelayIx(a, 3600),
+    propose_action: () => client.proposeActionIx(a, { SetDelay: { secs: 1 } }),
+    cancel_action: () => client.cancelActionIx(a, 1),
+    execute_set_delay: () => client.executeSetDelayIx(a),
+    execute_set_supervisor: () => client.executeSetSupervisorIx(a),
+    execute_withdraw: () => client.executeWithdrawIx(a, mint, recipient),
+    execute_withdraw_sol: () => client.executeWithdrawSolIx(a, recipient),
+    execute_pool_withdraw_sol: () => client.executePoolWithdrawSolIx(a, config, other, recipient),
+    execute_stld_withdraw_sol: () => client.executeStldWithdrawSolIx(a, config, pool, other, recipient),
+    execute_pool_debug_withdraw: () => client.executePoolDebugWithdrawIx(a, config, pool, [amount], { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] }),
+    execute_pool_set_protocol_fee_rate: () => client.executePoolSetProtocolFeeRateIx(a, config, pool),
+    execute_pool_set_pool_enabled: () => client.executePoolSetPoolEnabledIx(a, config, pool),
+    execute_pool_set_token_active: () => client.executePoolSetTokenActiveIx(a, config, pool),
+    execute_unfreeze_pools: () => client.executeUnfreezePoolsIx(a, [{ config, pool }]),
+    execute_pool_protocol_admin_transfer: () => client.executePoolProtocolAdminTransferIx(a, config),
+    execute_upgrade_program: () => client.executeUpgradeProgramIx(a, cfg.programs.cofferPool, other, recipient),
+    execute_transfer_upgrade_authority: () => client.executeTransferUpgradeAuthorityIx(a, cfg.programs.cofferPool, other),
+    execute_freeze_pool_program: () => client.executeFreezePoolProgramIx(a, cfg.programs.cofferPool),
+    execute_close_pool_program: () => client.executeClosePoolProgramIx(a, cfg.programs.cofferPool, recipient),
+    // LP transfer fee (2026-11-19)
+    pool_set_lp_transfer_fee_protocol_share: () => client.poolSetLpTransferFeeProtocolShareIx(a, config, pool, 2_500),
+    execute_pool_set_lp_transfer_fee_protocol_share: () => client.executePoolSetLpTransferFeeProtocolShareIx(a, config, pool),
+    pool_redeem_lp_transfer_fees: () => client.poolRedeemLpTransferFeesIx(a, { ...poolFixture(), lpTransferFeesOwedProtocol: new BN(5) }),
   };
   expect(Object.keys(calls).sort()).toEqual(IDLS.protocolAdmin.instructions.map(ix => ix.name).sort());
   for (const schema of IDLS.protocolAdmin.instructions) {
@@ -222,16 +282,27 @@ test("every AdminClient operation matches the current protocol-admin ABI", async
       expect(ix.keys[i].isWritable).toBe(!!declared.writable);
     }
   }
-  expect(() => client.withdrawIx(a, mint, recipient, amount, TOKEN_2022_PROGRAM_ID)).toThrow(/classic SPL/);
-  expect(() => client.registerTokenIx(a, mint, TOKEN_2022_PROGRAM_ID)).toThrow(/classic SPL/);
+  // v6: Token-2022 treasury vaults are supported; the withdraw carries the mint and an optional hook/memo tail.
+  const t22 = await client.withdrawIx(a, mint, recipient, amount, TOKEN_2022_PROGRAM_ID, [{ pubkey: other, isSigner: false, isWritable: false }]);
+  expect(t22.keys.map((k: any) => k.pubkey.toBase58())).toEqual([client.treasuryPda, mint, PublicKey.findProgramAddressSync([Buffer.from("vault"), mint.toBuffer()], cfg.programs.protocolAdmin)[0], recipient, a, TOKEN_2022_PROGRAM_ID, other].map((k) => k.toBase58()));
+  expect(() => client.withdrawIx(a, mint, recipient, amount, TOKEN_2022_PROGRAM_ID, [{ pubkey: other, isSigner: true, isWritable: false }])).toThrow(/cannot be signers/);
+  await expect(client.registerTokenIx(a, mint, TOKEN_2022_PROGRAM_ID)).resolves.toBeDefined();
+  expect(() => client.withdrawIx(a, mint, recipient, amount, other)).toThrow(/SPL Token and Token-2022/);
+  // v6 pool payouts: [vault, recipient, mint, token_program] per token, then the tail.
+  const quad = await client.collectProtocolFeesIx(a, config, pool, { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_2022_PROGRAM_ID], extraAccounts: [{ pubkey: a, isSigner: false, isWritable: true }] });
+  expect(quad.keys.slice(-5).map((k: any) => [k.pubkey.toBase58(), k.isWritable])).toEqual([[other.toBase58(), true], [recipient.toBase58(), true], [mint.toBase58(), false], [TOKEN_2022_PROGRAM_ID.toBase58(), false], [a.toBase58(), true]]);
+  expect(() => client.debugWithdrawLiquidityIx(a, config, pool, [amount, amount], { vaults: [other], recipients: [recipient], mints: [mint], tokenPrograms: [TOKEN_PROGRAM_ID] })).toThrow(/one entry per pool token/);
 });
 
-test("join builder refuses positive BPT backed by a zero rounded live deposit", () => {
+test("join builder accepts a thin basket (v6 credits live legs UP) but refuses a zero-LP one", () => {
   const pool = poolFixture();
   pool.tokens[0].actualBalance = new BN(3);
   pool.tokens[1].actualBalance = new BN(3);
-  pool.bptTotalSupply = new BN(1000000);
-  expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumBptAmount: new BN(1) })).toThrow(/too small/);
+  pool.lpTotalSupply = new BN(1000000);
+  // ratio 1/3 → LP 333_333, each leg credited ceil(3 · 1/3) = 1: a valid v6 join.
+  expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumLpAmount: new BN(1) })).not.toThrow();
+  pool.lpTotalSupply = new BN(2);
+  expect(() => buildAddLiquidityIx(cfg, pool, { user: pk(), tokenAmounts: [new BN(1), new BN(1)], minimumLpAmount: new BN(1) })).toThrow(/too small/);
 });
 
 test("legacy event parser preserves malformed/new unrepresentable events as Unknown", () => {
@@ -242,5 +313,5 @@ test("legacy event parser preserves malformed/new unrepresentable events as Unkn
   value.timestamp = new BN(1).shln(62);
   const data = Buffer.concat([Buffer.from(event.discriminator), encodeFields(value, schema.fields, idl)]);
   expect(parseContractEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("SupervisorSet");
-  expect(parseCubicPoolEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("Unknown");
+  expect(parseCofferPoolEvents([`Program data: ${data.toString("base64")}`])[0].kind).toBe("Unknown");
 });

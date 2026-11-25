@@ -155,7 +155,7 @@ describe("coffer_rewards IDL and config", () => {
   test("every network has the program; a config without it falls back", () => {
     for (const net of ["mainnet", "devnet", "localnet"] as const) expect(NETWORK_PROGRAMS[net].cofferRewards!.equals(COFFER_REWARDS_PROGRAM_ID)).toBe(true);
     const cfg = getConfig("mainnet");
-    const legacy = { ...cfg, programs: { cubicPool: cfg.programs.cubicPool, singleTokenLiquidity: cfg.programs.singleTokenLiquidity, protocolAdmin: cfg.programs.protocolAdmin } };
+    const legacy = { ...cfg, programs: { cofferPool: cfg.programs.cofferPool, singleTokenLiquidity: cfg.programs.singleTokenLiquidity, protocolAdmin: cfg.programs.protocolAdmin } };
     expect(programId(legacy, "cofferRewards").equals(COFFER_REWARDS_PROGRAM_ID)).toBe(true);
     const ix = buildContractInstruction(legacy, "cofferRewards", "rotate_signer", { backend_signer: Keypair.generate().publicKey }, { admin: PublicKey.default, campaign: PublicKey.default });
     expect(ix.programId.equals(COFFER_REWARDS_PROGRAM_ID)).toBe(true);

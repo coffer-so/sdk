@@ -33,11 +33,35 @@ export type SdkErrorCode =
   | "token_swaps_disabled"
   | "unsupported_pool_state"
   | "unsupported_token_extension"
+  /** The amount is too small to survive fees/rounding (`AmountFullyConsumedByTransferFee`, `DepositTooSmall`). */
+  | "amount_too_small"
+  /** Proposed contract error 6110 or stricter SDK token-credit / LP rounding policy. */
+  | "deposit_rounding_loss"
+  /** Non-monotone LP rounding interrupted search; this does not prove no aligned plan exists. */
+  | "deposit_rounding_search_incomplete"
   | "slippage_exceeded"
   | "simulation_failed"
   | "tx_build_failed"
   | "alt_fetch_failed"
   | "auth_failed"
+  /** v6 planned zap: the plan's budget/shape was rejected by the program. */
+  | "plan_invalid"
+  /** v6 planned zap: the plan is older than 90 s or its slot passed. */
+  | "plan_expired"
+  /** v6 planned zap: pool, LP supply, a mint or the epoch changed since the quote. */
+  | "plan_stale"
+  /** v6.1: the pool account is still 1683 bytes — run / prepend `migrate_pool_layout_v61` first (`LayoutVersionMismatch`). */
+  | "pool_layout_outdated"
+  /** v6.1 (T10): the swap output slot has no reserves (`InsufficientLiquidity` on a sidelined token). */
+  | "no_liquidity"
+  /** v6.1 (T3): the admin action must go through the propose → wait → execute queue (`CooldownRequired`, `CooldownNotElapsed`, …). */
+  | "cooldown"
+  /** v6.1 (T9): the pool's hook refused or broke the operation (`HookDenied`, `HookPaused`, …). */
+  | "hook_rejected"
+  /** v6.1 (T22): a virtual balance would not stay strictly above its actual balance / its per-slot floor (`VirtualBalanceNotAboveActual`, `VirtualBalanceBelowFloor`); a legacy pool needs `rescale_virtual_balances`. */
+  | "concentration_factor_invariant"
+  /** rc5: a routed deposit (`deposit_single_token_routed` / `swap_route_join_v1`) died with `ProgramFailedToComplete` — the transaction needs `requestHeapFrame(64 KiB)` and enough compute units. */
+  | "routed_heap_frame_required"
   | "unknown";
 
 export const ok = <T>(data: T): SdkResult<T> => ({ ok: true, data });
