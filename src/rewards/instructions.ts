@@ -1,4 +1,4 @@
-import { AccountMeta, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, SYSVAR_SLOT_HASHES_PUBKEY, TransactionInstruction } from "@solana/web3.js";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import { U64_MAX } from "../math/fixedPoint";
@@ -22,6 +22,13 @@ const isNative = (asset: RewardCampaignAsset): asset is { native: true } => asse
 
 function u64(value: bigint, what: string): BN {
   if (typeof value !== "bigint" || value < 0n || value > U64_MAX) throw new Error(`${what} must be a u64 bigint`);
+  return new BN(value.toString());
+}
+
+const I64_MAX = 9_223_372_036_854_775_807n;
+
+function i64(value: bigint, what: string): BN {
+  if (typeof value !== "bigint" || value < -I64_MAX - 1n || value > I64_MAX) throw new Error(`${what} must be an i64 bigint`);
   return new BN(value.toString());
 }
 
@@ -56,6 +63,8 @@ export interface RewardClaimIxParams {
   user: PublicKey;
   /** Voucher total (cumulative, net). */
   total: bigint;
+  /** Voucher expires_at (Unix seconds, i64). */
+  expiresAt: bigint;
   asset: RewardCampaignAsset;
   /** Token claims: the receiving token account (mint + owner = user); default ATA(user). */
   walletToken?: PublicKey;
@@ -67,9 +76,10 @@ export interface RewardClaimIxParams {
 export function buildRewardClaimIx(params: RewardClaimIxParams, programId: PublicKey = COFFER_REWARDS_PROGRAM_ID): TransactionInstruction {
   const [receipt] = deriveRewardReceiptPda(params.campaign, params.user, programId);
   const total = u64(params.total, "total");
+  const expires_at = i64(params.expiresAt, "expiresAt");
   if (isNative(params.asset)) {
     const [vault] = deriveRewardSolVaultPda(params.campaign, programId);
-    return buildContractInstructionWithProgramId(programId, "cofferRewards", "claim_native", { total, callback: null }, {
+    return buildContractInstructionWithProgramId(programId, "cofferRewards", "claim_native", { total, expires_at, callback: null }, {
       user: params.user,
       campaign: params.campaign,
       vault,
@@ -84,7 +94,7 @@ export function buildRewardClaimIx(params: RewardClaimIxParams, programId: Publi
     programId,
     "cofferRewards",
     "claim_token",
-    { total, hook_accounts: hooks.length, callback: null },
+    { total, expires_at, hook_accounts: hooks.length, callback: null },
     {
       user: params.user,
       campaign: params.campaign,
@@ -128,6 +138,7 @@ export function buildRewardInitializeIx(params: RewardInitializeIxParams, progra
       admin: params.admin,
       campaign: params.campaign,
       vault,
+      slot_hashes: SYSVAR_SLOT_HASHES_PUBKEY,
       system_program: SystemProgram.programId,
     });
   }
@@ -138,18 +149,23 @@ export function buildRewardInitializeIx(params: RewardInitializeIxParams, progra
     mint: params.asset.mint,
     token_program: tokenProgram,
     vault: deriveRewardTokenVault(params.campaign, params.asset.mint, tokenProgram),
+    slot_hashes: SYSVAR_SLOT_HASHES_PUBKEY,
     associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID,
     system_program: SystemProgram.programId,
   });
 }
 
 export interface RewardLiquidityIxParams {
+  /**
+   * Deposit: the funder (anyone; signs and pays). Withdraw: the campaign admin
+   * (the only key that can withdraw; the tokens go to its account).
+   */
   admin: PublicKey;
   campaign: PublicKey;
   /** Gross units moved (a deposit credits liquidity with what arrives after a Token-2022 fee). */
   amount: bigint;
   asset: RewardCampaignAsset;
-  /** Token campaigns: the admin's token account; default ATA(admin). */
+  /** Token campaigns: the funder's / admin's token account; default its ATA. */
   walletToken?: PublicKey;
   /** Token withdrawals: the admin's account requires incoming memos. */
   memo?: boolean;
@@ -157,35 +173,28 @@ export interface RewardLiquidityIxParams {
 
 function liquidityIx(name: "deposit" | "withdraw", params: RewardLiquidityIxParams, programId: PublicKey): TransactionInstruction {
   const amount = positive(params.amount, "amount", "6003 ZeroPayment");
+  // rc8+: a deposit's first account is `funder` (anyone), a withdrawal's `admin`.
   if (isNative(params.asset)) {
     const [vault] = deriveRewardSolVaultPda(params.campaign, programId);
-    return buildContractInstructionWithProgramId(programId, "cofferRewards", `${name}_native`, { amount }, {
-      admin: params.admin,
-      campaign: params.campaign,
-      vault,
-      system_program: SystemProgram.programId,
-    });
+    const rest = { campaign: params.campaign, vault, system_program: SystemProgram.programId };
+    return name === "deposit"
+      ? buildContractInstructionWithProgramId(programId, "cofferRewards", "deposit_native", { amount }, { funder: params.admin, ...rest })
+      : buildContractInstructionWithProgramId(programId, "cofferRewards", "withdraw_native", { amount }, { admin: params.admin, ...rest });
   }
   const tokenProgram = tokenProgramOf(params.asset);
-  return buildContractInstructionWithProgramId(
-    programId,
-    "cofferRewards",
-    `${name}_token`,
-    { amount },
-    {
-      admin: params.admin,
-      campaign: params.campaign,
-      mint: params.asset.mint,
-      token_program: tokenProgram,
-      vault: deriveRewardTokenVault(params.campaign, params.asset.mint, tokenProgram),
-      wallet_token: params.walletToken ?? deriveAta(params.admin, params.asset.mint, tokenProgram),
-      system_program: SystemProgram.programId,
-    },
-    name === "withdraw" ? memoAccounts(params.memo) : [],
-  );
+  const rest = {
+    campaign: params.campaign,
+    mint: params.asset.mint,
+    token_program: tokenProgram,
+    vault: deriveRewardTokenVault(params.campaign, params.asset.mint, tokenProgram),
+    wallet_token: params.walletToken ?? deriveAta(params.admin, params.asset.mint, tokenProgram),
+  };
+  return name === "deposit"
+    ? buildContractInstructionWithProgramId(programId, "cofferRewards", "deposit_token", { amount }, { funder: params.admin, ...rest })
+    : buildContractInstructionWithProgramId(programId, "cofferRewards", "withdraw_token", { amount }, { admin: params.admin, ...rest }, memoAccounts(params.memo));
 }
 
-/** `deposit_native` / `deposit_token`: admin only; raises liquidity by the net received. */
+/** `deposit_native` / `deposit_token`: anyone funds the campaign (`admin` = the funder); raises liquidity by the net received. */
 export function buildRewardDepositIx(params: RewardLiquidityIxParams, programId: PublicKey = COFFER_REWARDS_PROGRAM_ID): TransactionInstruction {
   return liquidityIx("deposit", params, programId);
 }
@@ -193,6 +202,65 @@ export function buildRewardDepositIx(params: RewardLiquidityIxParams, programId:
 /** `withdraw_native` / `withdraw_token`: admin only, up to liquidity (gross vault debit). */
 export function buildRewardWithdrawIx(params: RewardLiquidityIxParams, programId: PublicKey = COFFER_REWARDS_PROGRAM_ID): TransactionInstruction {
   return liquidityIx("withdraw", params, programId);
+}
+
+/**
+ * `set_payout_limit`: admin only. Caps what all claims together may debit per
+ * `windowSeconds` to `limit` gross units; both 0 removes the cap (6011 when only
+ * one is 0). It bounds the loss from a leaked backend key.
+ */
+export function buildRewardSetPayoutLimitIx(
+  params: { admin: PublicKey; campaign: PublicKey; limit: bigint; windowSeconds: bigint },
+  programId: PublicKey = COFFER_REWARDS_PROGRAM_ID,
+): TransactionInstruction {
+  const limit = u64(params.limit, "limit");
+  const window_seconds = u64(params.windowSeconds, "windowSeconds");
+  if ((params.limit === 0n) !== (params.windowSeconds === 0n)) throw new Error("limit and windowSeconds are both 0 or both above 0 (6011 InvalidPayoutLimit)");
+  return buildContractInstructionWithProgramId(programId, "cofferRewards", "set_payout_limit", { limit, window_seconds }, {
+    admin: params.admin,
+    campaign: params.campaign,
+  });
+}
+
+/**
+ * `close_native` / `close_token`: admin only, for good. SOL: the whole vault
+ * (liquidity included) and the rent go to the admin. Token: the vault must be
+ * empty — withdraw the liquidity and return surplus first. A `ClosedCampaign`
+ * marker stays at the address, so it can never be initialized again.
+ */
+export function buildRewardCloseIx(
+  params: { admin: PublicKey; campaign: PublicKey; asset: RewardCampaignAsset },
+  programId: PublicKey = COFFER_REWARDS_PROGRAM_ID,
+): TransactionInstruction {
+  if (isNative(params.asset)) {
+    const [vault] = deriveRewardSolVaultPda(params.campaign, programId);
+    return buildContractInstructionWithProgramId(programId, "cofferRewards", "close_native", {}, {
+      admin: params.admin,
+      campaign: params.campaign,
+      vault,
+      system_program: SystemProgram.programId,
+    });
+  }
+  const tokenProgram = tokenProgramOf(params.asset);
+  return buildContractInstructionWithProgramId(programId, "cofferRewards", "close_token", {}, {
+    admin: params.admin,
+    campaign: params.campaign,
+    vault: deriveRewardTokenVault(params.campaign, params.asset.mint, tokenProgram),
+    token_program: tokenProgram,
+  });
+}
+
+/** `close_receipt`: refunds a receipt's rent to its beneficiary once the campaign is closed (anyone may send it). */
+export function buildRewardCloseReceiptIx(
+  params: { user: PublicKey; campaign: PublicKey },
+  programId: PublicKey = COFFER_REWARDS_PROGRAM_ID,
+): TransactionInstruction {
+  const [receipt] = deriveRewardReceiptPda(params.campaign, params.user, programId);
+  return buildContractInstructionWithProgramId(programId, "cofferRewards", "close_receipt", {}, {
+    user: params.user,
+    campaign: params.campaign,
+    receipt,
+  });
 }
 
 /** `rotate_signer`: admin only; signer epoch +1, every older voucher fails with 6000. */

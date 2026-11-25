@@ -12,13 +12,18 @@ import { sha256 } from "./sha256";
 export type RewardsCluster = "mainnet" | "devnet";
 
 /**
- * Id of the backend's one campaign per reward asset:
- * `sha256("coffer-boosts:v1:<cluster>:<mint|native>")`, the mint in base58.
- * Same string as new-backend `boostsCampaignId` (src/rewards/campaign-account.util.ts).
+ * Id of a boosts campaign of one admin for one reward asset:
+ * `sha256("coffer-boosts:v2:<cluster>:<mint|native>:<generation>")`, the mint in
+ * base58. The PDA also carries the admin, so the same id gives every admin its
+ * own campaign. A closed campaign leaves a marker at its address for good, so
+ * a new campaign for the same asset takes the next `generation` (the backend's
+ * `campaign-params` answer names it). Same string as new-backend
+ * `boostsCampaignId` (src/rewards/campaign-account.util.ts).
  */
-export function boostsCampaignId(cluster: RewardsCluster, mint: PublicKey | string | "native"): Buffer {
+export function boostsCampaignId(cluster: RewardsCluster, mint: PublicKey | string | "native", generation = 0): Buffer {
+  if (!Number.isSafeInteger(generation) || generation < 0) throw new Error("generation must be a non-negative integer");
   const asset = typeof mint === "string" ? (mint === "native" ? mint : new PublicKey(mint).toBase58()) : mint.toBase58();
-  return sha256(Buffer.from(`coffer-boosts:v1:${cluster}:${asset}`, "utf8"));
+  return sha256(Buffer.from(`coffer-boosts:v2:${cluster}:${asset}:${generation}`, "utf8"));
 }
 
 /** Campaign PDA `["campaign", admin, id32]`. */

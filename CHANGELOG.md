@@ -3,6 +3,31 @@
 Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 `cubic_pool`); they were not rewritten.
 
+## 2.0.0 — the v6.1 contracts SDK, rewards on the rc8+ ABI, pool admins' boosts
+
+`@coffer_so/sdk` 2.0.0 merges the v6.1 contracts SDK (`@coffer_so/sdk-v6` 0.4.0, branch
+`feature/sdk-v6.1` at `d08f967`, contracts v6.1-rc9) into the 1.x line (backend client 1.4.9,
+rewards 1.5.0). Breaking for 1.x consumers; 1.x stays on `release/1.x` for v5.1 pools.
+
+- Migration from 1.x: `CubicPoolClient` → `CofferPoolClient`, BPT → LP in every name
+  (`deriveLpMint`, `calcTokensOutGivenLpIn`, …), `parseCubicPoolEvents` → `parseCofferPoolEvents`
+  (V2 events), `IDLS.cubicPool` / program key `cubicPool` → `cofferPool`, two-step pool creation
+  (`initialize_pool` + `seed_liquidity`, `buildAtomicDeploy`), planned / routed single-token deposits
+  (`PlannedZapClient`), `getConfig("mainnet")` = the v6 standalone factory (v5.1 as
+  `MAINNET_V51_FACTORY_PROGRAMS`), `POOL_LEN` 2304, fee ceilings 100 %. `CofferBackendClient` is unchanged.
+- Rewards (coffer_rewards rc9, IDL `1ec8bfa8…`): voucher V2 (`domain`, `expiresAt`; 169-byte message,
+  281-byte Ed25519 instruction), claims pass `expires_at`; Campaign 518 bytes (payout window, domain,
+  version), Receipt 32 bytes, `ClosedCampaign` marker; `set_payout_limit`, `close_native` /
+  `close_token`, `close_receipt` builders; deposits from any funder; `slot_hashes` in initialize;
+  errors 6009–6011; `CampaignClosed` event; payout-window preview in `rewardClaimPayout` /
+  `loadRewardClaimState`; `boostsCampaignId(cluster, mint, generation)` (id v2).
+  `DEVNET_V61_PROGRAMS.cofferRewards` = the rc9 devnet program.
+- Pool admins' boosts: `getPoolAdminBoosts`, `getPoolAdminCampaignParams`, `registerPoolAdminCampaign`,
+  `getPoolAdminCampaigns`, `refreshPoolAdminCampaign`, `previewPoolAdminBoost`, `createPoolAdminBoost`,
+  `updatePoolAdminBoost`, `stopPoolAdminBoost`, `cancelPoolAdminBoost`; `buildPoolAdminCampaignSetup`,
+  `suggestedPayoutLimit`. `PoolBoostItem.uncapped` / `paused` / `sponsor`, `PublicCampaign.ownerKind` /
+  payout limit / `closedAt`, voucher answer `domain` / `expiresAt` / `windowResetsAt`.
+
 ## Unreleased
 
 ### 2026-11-23: dead-code removal, helper-account recovery, priced LP supply, plan commitment v2 (contracts `v6.1` working tree on `e545874`)

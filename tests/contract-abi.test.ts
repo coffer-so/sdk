@@ -79,7 +79,7 @@ function normalize(value: any): any {
 }
 
 const programs = Object.entries(IDLS) as Array<[ContractProgram, any]>;
-const ALLOCATED: Record<string, number> = { "cofferRewards.Campaign": 389 };
+const ALLOCATED: Record<string, number> = { "cofferRewards.Campaign": 518, "cofferRewards.Receipt": 32 };
 const instructions = programs.flatMap(([program, idl]) => idl.instructions.map((ix: any) => ({ program, idl, ix })));
 const events = programs.flatMap(([program, idl]) => idl.events.map((event: any) => ({ program, idl, event })));
 
@@ -93,9 +93,9 @@ test("generated public types match all shipped IDLs", () => {
   // the dead-code removal dropped migrate_to_v5 (pool, 56), pool_migrate_to_v5 and
   // added stld_close_helper_token_account (protocol_admin, 58), dropped
   // deposit_single_token / deposit_single_token_direct and added
-  // close_helper_token_account (STLD, 4)); coffer_rewards adds 11 / 1.
-  expect(instructions).toHaveLength(129);
-  expect(events).toHaveLength(88);
+  // close_helper_token_account (STLD, 4)); coffer_rewards (rc9) adds 15 / 2.
+  expect(instructions).toHaveLength(133);
+  expect(events).toHaveLength(89);
   execFileSync(process.execPath, ["scripts/generate-contract-types.cjs", "--check"], { cwd: process.cwd() });
 });
 
@@ -135,7 +135,7 @@ test.each(programs.flatMap(([program, idl]) => idl.accounts.map((account: any) =
     const fields = idl.types.find((t: any) => t.name === account.name).type.fields;
     const expected = fieldsSample(fields, idl);
     const encoded = Buffer.concat([Buffer.from(account.discriminator), encodeFields(expected, fields, idl)]);
-    // Accounts with a String are allocated at InitSpace (coffer_rewards Campaign: 389 bytes).
+    // Accounts with a String are allocated at InitSpace (coffer_rewards Campaign: 518 bytes).
     const allocated = ALLOCATED[`${program}.${account.name}`];
     const data = allocated ? Buffer.concat([encoded, Buffer.alloc(allocated - encoded.length)]) : encoded;
     expect(normalize((decodeContractAccount as any)(program, account.name, data))).toEqual(normalize(expected));

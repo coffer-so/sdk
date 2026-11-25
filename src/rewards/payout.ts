@@ -91,10 +91,17 @@ function preFeeAmount(net: bigint, fee: RewardTransferFee): bigint | null {
 
 /**
  * Why a claim would fail on chain: 6001 AlreadyClaimed, 6002
- * InsufficientLiquidity, 6003 ZeroPayment; Overflow — the fee math does not
- * fit (Rust None, or a gross above the available balance).
+ * InsufficientLiquidity, 6003 ZeroPayment, 6009 VoucherExpired, 6010
+ * PayoutLimitReached; Overflow — the fee math does not fit (Rust None, or a
+ * gross above the available balance).
  */
-export type RewardClaimFailure = "AlreadyClaimed" | "InsufficientLiquidity" | "ZeroPayment" | "Overflow";
+export type RewardClaimFailure =
+  | "AlreadyClaimed"
+  | "InsufficientLiquidity"
+  | "ZeroPayment"
+  | "VoucherExpired"
+  | "PayoutLimitReached"
+  | "Overflow";
 
 export interface RewardClaimPayout {
   /** What leaves the vault and is debited from liquidity. */
@@ -112,6 +119,15 @@ export interface RewardClaimPayoutInput {
   claimedRaw: bigint;
   /** Campaign.liquidity. */
   liquidityRaw: bigint;
+  /**
+   * Gross the payout window still allows (`payout_limit − window_paid`, the
+   * whole limit once the window has elapsed); null or absent = no limit. 0
+   * fails with 6010 PayoutLimitReached. See `rewardCampaignClaimable`.
+   */
+  windowAllowanceRaw?: bigint | null;
+  /** Voucher expires_at and the time of the claim (Unix seconds); both or neither. */
+  expiresAt?: bigint;
+  now?: bigint;
   /** Spendable vault: the token amount, or for SOL the lamports above the 0-byte rent (see `rewardVaultSpendable`). */
   vaultRaw: bigint;
   native: boolean;
@@ -127,9 +143,13 @@ export interface RewardClaimPayoutInput {
  */
 export function rewardClaimPayout(input: RewardClaimPayoutInput): RewardClaimPayout {
   const fail = (failure: RewardClaimFailure): RewardClaimPayout => ({ grossRaw: 0n, netRaw: 0n, failure });
+  if (input.expiresAt !== undefined && input.now !== undefined && input.now > input.expiresAt) return fail("VoucherExpired");
   if (input.totalRaw <= input.claimedRaw) return fail("AlreadyClaimed");
   const due = input.totalRaw - input.claimedRaw;
-  const available = input.vaultRaw < input.liquidityRaw ? input.vaultRaw : input.liquidityRaw;
+  const allowance = input.windowAllowanceRaw ?? null;
+  if (allowance !== null && allowance <= 0n) return fail("PayoutLimitReached");
+  let available = input.vaultRaw < input.liquidityRaw ? input.vaultRaw : input.liquidityRaw;
+  if (allowance !== null && allowance < available) available = allowance;
   if (available <= 0n) return fail("InsufficientLiquidity");
   const fee = input.native ? null : input.fee ?? null;
   if (!fee) {

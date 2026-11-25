@@ -9,6 +9,12 @@
   "instructions": [
     {
       "name": "claim_native",
+      "docs": [
+        "Pay the signer's SOL entitlement up to the cumulative `total` of a voucher",
+        "that the preceding Ed25519 instruction verified and that is valid until",
+        "`expires_at` (Unix seconds). Pays what liquidity and the payout limit allow;",
+        "the same voucher collects the rest later. `callback` runs afterwards."
+      ],
       "discriminator": [
         169,
         122,
@@ -22,6 +28,9 @@
       "accounts": [
         {
           "name": "user",
+          "docs": [
+            "Beneficiary named in the voucher. Receives the SOL and pays the receipt rent once."
+          ],
           "writable": true,
           "signer": true
         },
@@ -35,6 +44,9 @@
         },
         {
           "name": "receipt",
+          "docs": [
+            "Lifetime payout counter at `[\"receipt\", campaign, user]`."
+          ],
           "writable": true
         },
         {
@@ -48,6 +60,10 @@
         {
           "name": "total",
           "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
         },
         {
           "name": "callback",
@@ -63,6 +79,11 @@
     },
     {
       "name": "claim_token",
+      "docs": [
+        "Token counterpart of `claim_native`. `total` counts units credited to the",
+        "beneficiary after mint transfer fees. The first `hook_accounts` remaining",
+        "accounts serve the mint's transfer hook and memo requirement."
+      ],
       "discriminator": [
         116,
         206,
@@ -76,6 +97,9 @@
       "accounts": [
         {
           "name": "user",
+          "docs": [
+            "Beneficiary named in the voucher. Owns `wallet_token` and pays the receipt rent once."
+          ],
           "writable": true,
           "signer": true
         },
@@ -85,6 +109,9 @@
         },
         {
           "name": "receipt",
+          "docs": [
+            "Lifetime payout counter at `[\"receipt\", campaign, user]`."
+          ],
           "writable": true
         },
         {
@@ -95,10 +122,16 @@
         },
         {
           "name": "vault",
+          "docs": [
+            "The campaign's associated token account for `mint`."
+          ],
           "writable": true
         },
         {
           "name": "wallet_token",
+          "docs": [
+            "Destination token account owned by `user`."
+          ],
           "writable": true
         },
         {
@@ -112,6 +145,10 @@
         {
           "name": "total",
           "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
         },
         {
           "name": "hook_accounts",
@@ -130,7 +167,133 @@
       ]
     },
     {
+      "name": "close_native",
+      "docs": [
+        "Close a native campaign for good: the whole vault balance and the campaign",
+        "rent go to the admin, and a permanent marker keeps the address unusable."
+      ],
+      "discriminator": [
+        78,
+        250,
+        94,
+        146,
+        225,
+        246,
+        210,
+        129
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Campaign admin. Receives the vault balance and the released rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "docs": [
+            "to the closed marker, which the typed account wrapper cannot do."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_receipt",
+      "docs": [
+        "Refund the rent of a receipt to its beneficiary once the campaign is closed.",
+        "A receipt of an open campaign stays, because it is what stops a voucher",
+        "from paying twice."
+      ],
+      "discriminator": [
+        126,
+        254,
+        244,
+        203,
+        124,
+        164,
+        134,
+        89
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true
+        },
+        {
+          "name": "campaign",
+          "docs": [
+            "Marker proving the campaign can never pay again."
+          ]
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_token",
+      "docs": [
+        "Close a token campaign for good: its empty vault and the campaign rent go",
+        "to the admin, and a permanent marker keeps the address unusable.",
+        "Withdraw liquidity and return surplus first."
+      ],
+      "discriminator": [
+        26,
+        74,
+        236,
+        151,
+        104,
+        64,
+        183,
+        249
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Campaign admin. Receives the rent of the vault and of the campaign."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "docs": [
+            "to the closed marker, which the typed account wrapper cannot do."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "mint; the token program closes it only when empty."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "deposit_native",
+      "docs": [
+        "Add `amount` lamports of liquidity from any funder."
+      ],
       "discriminator": [
         13,
         158,
@@ -143,7 +306,10 @@
       ],
       "accounts": [
         {
-          "name": "admin",
+          "name": "funder",
+          "docs": [
+            "Source of the deposit. No relation to the campaign is required."
+          ],
           "writable": true,
           "signer": true
         },
@@ -168,6 +334,10 @@
     },
     {
       "name": "deposit_token",
+      "docs": [
+        "Transfer `amount` tokens from any funder. Liquidity grows by the units the",
+        "vault actually receives after mint transfer fees."
+      ],
       "discriminator": [
         11,
         156,
@@ -180,8 +350,10 @@
       ],
       "accounts": [
         {
-          "name": "admin",
-          "writable": true,
+          "name": "funder",
+          "docs": [
+            "Owner of `wallet_token`. No relation to the campaign is required."
+          ],
           "signer": true
         },
         {
@@ -196,14 +368,17 @@
         },
         {
           "name": "vault",
+          "docs": [
+            "The campaign's associated token account for `mint`."
+          ],
           "writable": true
         },
         {
           "name": "wallet_token",
+          "docs": [
+            "Source token account owned by `funder`."
+          ],
           "writable": true
-        },
-        {
-          "name": "system_program"
         }
       ],
       "args": [
@@ -215,6 +390,11 @@
     },
     {
       "name": "initialize_native",
+      "docs": [
+        "Create a native SOL campaign owned by the signing admin.",
+        "`id` separates campaigns of one admin, `backend_signer` is the Ed25519 key",
+        "whose vouchers the campaign honours, `metadata` is free UTF-8 up to 200 bytes."
+      ],
       "discriminator": [
         58,
         79,
@@ -228,16 +408,28 @@
       "accounts": [
         {
           "name": "admin",
+          "docs": [
+            "Creator, payer and permanent admin of the campaign."
+          ],
           "writable": true,
           "signer": true
         },
         {
           "name": "campaign",
+          "docs": [
+            "Campaign state at `[\"campaign\", admin, id]`."
+          ],
           "writable": true
         },
         {
           "name": "vault",
+          "docs": [
+            "Zero-data System Program vault at `[\"sol\", campaign]`."
+          ],
           "writable": true
+        },
+        {
+          "name": "slot_hashes"
         },
         {
           "name": "system_program"
@@ -265,6 +457,10 @@
     },
     {
       "name": "initialize_token",
+      "docs": [
+        "Create a campaign paying one SPL Token or Token-2022 mint.",
+        "Arguments as in `initialize_native`."
+      ],
       "discriminator": [
         38,
         209,
@@ -278,22 +474,40 @@
       "accounts": [
         {
           "name": "admin",
+          "docs": [
+            "Creator, payer and permanent admin of the campaign."
+          ],
           "writable": true,
           "signer": true
         },
         {
           "name": "campaign",
+          "docs": [
+            "Campaign state at `[\"campaign\", admin, id]`."
+          ],
           "writable": true
         },
         {
-          "name": "mint"
+          "name": "mint",
+          "docs": [
+            "Reward mint, owned by `token_program`."
+          ]
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "SPL Token or Token-2022."
+          ]
         },
         {
           "name": "vault",
+          "docs": [
+            "The campaign's associated token account for `mint`."
+          ],
           "writable": true
+        },
+        {
+          "name": "slot_hashes"
         },
         {
           "name": "associated_token_program"
@@ -325,7 +539,9 @@
     {
       "name": "return_surplus_native",
       "docs": [
-        "Return a raw transfer from its original destination, preserving account rent."
+        "Return `amount` lamports that reached `source` by a raw transfer. `source`",
+        "is the campaign account or its `[\"sol\", campaign]` address. Booked liquidity",
+        "and rent stay in place."
       ],
       "discriminator": [
         165,
@@ -368,7 +584,9 @@
     {
       "name": "return_surplus_token",
       "docs": [
-        "The admin can also return a different mint mistakenly sent to this campaign's ATA."
+        "Return `amount` tokens held above booked liquidity in the campaign's",
+        "associated token account for `mint`. Any other mint sent to the campaign",
+        "is returned in full the same way."
       ],
       "discriminator": [
         87,
@@ -389,13 +607,19 @@
           "name": "campaign"
         },
         {
-          "name": "mint"
+          "name": "mint",
+          "docs": [
+            "The campaign mint, or any other mint sent to the campaign's associated token account."
+          ]
         },
         {
           "name": "token_program"
         },
         {
           "name": "vault",
+          "docs": [
+            "The campaign's associated token account for `mint`."
+          ],
           "writable": true
         },
         {
@@ -415,6 +639,10 @@
     },
     {
       "name": "rotate_signer",
+      "docs": [
+        "Replace the backend key and advance the signer epoch.",
+        "Every voucher signed for an earlier epoch stops verifying, also when an old key returns."
+      ],
       "discriminator": [
         198,
         135,
@@ -443,7 +671,47 @@
       ]
     },
     {
+      "name": "set_payout_limit",
+      "docs": [
+        "Cap what all claims together may debit per `window_seconds` to `limit` gross",
+        "base units. Both zero removes the cap. Bounds the loss from a leaked backend key."
+      ],
+      "discriminator": [
+        189,
+        145,
+        190,
+        0,
+        61,
+        23,
+        5,
+        26
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "limit",
+          "type": "u64"
+        },
+        {
+          "name": "window_seconds",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "withdraw_native",
+      "docs": [
+        "Withdraw `amount` lamports of liquidity to the admin."
+      ],
       "discriminator": [
         113,
         227,
@@ -457,6 +725,9 @@
       "accounts": [
         {
           "name": "admin",
+          "docs": [
+            "Campaign admin and recipient of the withdrawal."
+          ],
           "writable": true,
           "signer": true
         },
@@ -481,6 +752,10 @@
     },
     {
       "name": "withdraw_token",
+      "docs": [
+        "Withdraw `amount` tokens of liquidity to the admin. `amount` is the gross",
+        "vault debit; mint transfer fees reduce what arrives."
+      ],
       "discriminator": [
         136,
         235,
@@ -494,7 +769,6 @@
       "accounts": [
         {
           "name": "admin",
-          "writable": true,
           "signer": true
         },
         {
@@ -509,14 +783,17 @@
         },
         {
           "name": "vault",
+          "docs": [
+            "The campaign's associated token account for `mint`."
+          ],
           "writable": true
         },
         {
           "name": "wallet_token",
+          "docs": [
+            "Destination token account owned by `admin`."
+          ],
           "writable": true
-        },
-        {
-          "name": "system_program"
         }
       ],
       "args": [
@@ -542,6 +819,19 @@
       ]
     },
     {
+      "name": "ClosedCampaign",
+      "discriminator": [
+        229,
+        135,
+        55,
+        232,
+        196,
+        159,
+        167,
+        153
+      ]
+    },
+    {
       "name": "Receipt",
       "discriminator": [
         39,
@@ -556,6 +846,19 @@
     }
   ],
   "events": [
+    {
+      "name": "CampaignClosed",
+      "discriminator": [
+        158,
+        143,
+        128,
+        251,
+        84,
+        131,
+        2,
+        90
+      ]
+    },
     {
       "name": "RewardPaid",
       "discriminator": [
@@ -615,6 +918,21 @@
       "code": 6008,
       "name": "Arithmetic",
       "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6009,
+      "name": "VoucherExpired",
+      "msg": "The voucher has expired"
+    },
+    {
+      "code": 6010,
+      "name": "PayoutLimitReached",
+      "msg": "The campaign payout limit for the current window is used up"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidPayoutLimit",
+      "msg": "Payout limit and window must both be zero or both be positive"
     }
   ],
   "types": [
@@ -623,6 +941,14 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
           {
             "name": "admin",
             "type": "pubkey"
@@ -637,8 +963,17 @@
             }
           },
           {
-            "name": "bump",
-            "type": "u8"
+            "name": "domain",
+            "docs": [
+              "Hash of the newest slot at creation. It is signed into every voucher, so a",
+              "voucher is valid only for this campaign instance on this cluster."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "mint",
@@ -662,13 +997,73 @@
           {
             "name": "liquidity",
             "docs": [
-              "Spendable base units approved through the deposit instruction."
+              "Spendable base units credited through the deposit instructions."
             ],
             "type": "u64"
           },
           {
+            "name": "payout_limit",
+            "docs": [
+              "Most gross units all claims together may debit per window. Zero disables the limit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "window_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "window_start",
+            "type": "i64"
+          },
+          {
+            "name": "window_paid",
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
             "name": "metadata",
             "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CampaignClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClosedCampaign",
+      "docs": [
+        "Permanent marker left at the address of a closed campaign. It keeps the",
+        "address from being initialized again and unlocks `close_receipt`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
           }
         ]
       }
@@ -679,11 +1074,24 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "version",
+            "type": "u8"
+          },
+          {
             "name": "claimed",
             "docs": [
               "Lifetime total of spendable units delivered to this beneficiary for this campaign."
             ],
             "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                15
+              ]
+            }
           }
         ]
       }

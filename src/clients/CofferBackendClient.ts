@@ -1166,9 +1166,15 @@ export interface PoolBoostItem {
   finalizedThrough: string | null;
   /** Vouchers are signed for this campaign now. */
   claimsOpen: boolean;
-  /** The campaign's liquidity covers what it owes. */
+  /** The campaign's liquidity covers what it owes (a pool admin's: plus the rest of its budgets). */
   funded: boolean;
   unreliable: boolean;
+  /** No APR cap (a pool admin's boost in a token without a price): show the reward per day, not a cap; aprCapPct is 0. Absent on older backends. */
+  uncapped?: boolean;
+  /** Paused because its campaign stopped covering it: it pays nothing until funded again. */
+  paused?: "underfunded" | null;
+  /** Who pays: the protocol, or the pool admin from its own campaign (which it can withdraw from — say so next to the APR). */
+  sponsor?: { kind: "protocol" | "pool_admin"; wallet: string | null };
 }
 
 /** Plan name of a pool boost item. */
@@ -1215,7 +1221,14 @@ export interface PublicCampaign {
   address: string;
   programId: string;
   admin: string;
-  /** 32 bytes, hex: sha256("coffer-boosts:v1:<cluster>:<mint|native>"). */
+  /** Who funds it; absent on older backends (= the protocol). */
+  ownerKind?: "protocol" | "pool_admin";
+  /** Most gross units all claims together may take per window ("0" = no limit), and the window. */
+  payoutLimitRaw?: string;
+  payoutWindowSec?: string;
+  /** Closed on chain: it pays nothing more. */
+  closedAt?: string | null;
+  /** 32 bytes, hex: sha256("coffer-boosts:v2:<cluster>:<mint|native>:<generation>"). */
   campaignId: string;
   bump: number;
   native: boolean;
@@ -1313,17 +1326,24 @@ export interface RewardVoucherResponse {
   programId: string;
   campaign: string;
   beneficiary: string;
+  /** Campaign.domain, 32 bytes base64 (signed into the voucher). */
+  domain: string;
   signerEpoch: string;
   /** Cumulative net total the voucher allows, all time. */
   totalRaw: string;
+  /** Unix seconds (decimal string): claim before it, or ask for a new voucher (6009 VoucherExpired). */
+  expiresAt: string;
   signer: string;
   /** Ed25519, base64. */
   signature: string;
-  /** The 129 signed bytes, base64. */
+  /** The 169 signed bytes (voucher V2), base64. */
   message: string;
   /** Receipt.claimed at confirmed; "0" without a receipt. */
   claimedRaw: string;
+  /** What a claim would pay now: due, clipped to liquidity, vault and the payout window's allowance. */
   claimableNowRaw: string;
+  /** Unix seconds when the payout window's allowance resets; null without a limit or when it is not exhausted. */
+  windowResetsAt?: string | null;
   liquidityRaw: string;
   /** 1111…1111 for SOL. */
   mint: string;
@@ -1331,9 +1351,132 @@ export interface RewardVoucherResponse {
   decimals: number;
 }
 
+// ── Boosts run by a pool admin ──
+
+/** A boost's terms from a pool admin; times ISO or unix seconds, whole UTC hours. */
+export interface PoolAdminBoostTerms {
+  campaignId: number;
+  startAt: string;
+  endAt: string;
+  /** Total budget, raw net units of the reward token. */
+  budgetRaw: string;
+  /** APR cap, bps: required for a reward token with a price, left out without one (the budget alone). */
+  capBps?: number;
+}
+
+/** A registered campaign as the backend stores it (numbers as strings, times ISO). */
+export interface PoolAdminCampaign {
+  id: number;
+  address: string;
+  admin: string;
+  ownerKind: "protocol" | "pool_admin";
+  idGeneration: number;
+  native: boolean;
+  mint: string;
+  tokenProgram: string;
+  decimals: number;
+  vaultAddress: string;
+  backendSigner: string;
+  signerEpoch: string;
+  liquidityRaw: string;
+  payoutLimitRaw: string;
+  payoutWindowSec: string;
+  issuancePaused: boolean;
+  closedAt: string | null;
+  label: string | null;
+  [key: string]: unknown;
+}
+
+/** The funding of a campaign now (backend funding.util): what it owes and what a pool admin's campaign must hold. */
+export interface PoolAdminCampaignFunding {
+  liquidityRaw: string;
+  outstandingGrossRaw: string;
+  committedRaw: string;
+  requiredFullRaw: string;
+  fullyFunded: boolean;
+  depositToFullRaw: string;
+  withdrawableFullRaw: string;
+  payoutLimitRaw: string;
+  payoutWindowSec: string;
+  payoutLimitPerDayRaw: string | null;
+  payoutLimitOk: boolean;
+  payoutLimitMinPerDayRaw: string;
+  projectedDailyRaw: string;
+  [key: string]: unknown;
+}
+
+export interface PoolAdminCampaignWithFunding {
+  campaign: PoolAdminCampaign;
+  /** null when the chain could not be read now, or the campaign is closed. */
+  funding: PoolAdminCampaignFunding | null;
+}
+
+export interface PoolAdminCampaignParams {
+  programId: string;
+  cluster: "mainnet" | "devnet";
+  admin: string;
+  mint: string;
+  /** Generation of the campaign id (a closed address is never reused). */
+  generation: number;
+  /** The 32-byte id, hex: `boostsCampaignId(cluster, mint, generation)`. */
+  campaignIdHex: string;
+  address: string;
+  bump: number;
+  /** free: create it; unregistered: it exists, register it; registered: `campaign` is it. */
+  state: "free" | "unregistered" | "registered";
+  campaign: PoolAdminCampaign | null;
+  backendSigner: string;
+  /** The longest payout window the backend accepts (the limit is required). */
+  payoutWindowSec: number;
+  note: string;
+}
+
+/** A boost as the backend answers it: the row, its phase and every terms version. */
+export interface PoolAdminBoostView {
+  boost: { id: number; poolAddress: string; campaignId: number; state: string; startAt: string; endAt: string; fundingPausedAt: string | null; hiddenAt: string | null; [key: string]: unknown };
+  phase: "scheduled" | "active" | "ended" | "cancelled";
+  terms: Array<{ id: number; kind: string; effectiveFrom: string; endAt: string; budgetRaw: string; capBps: number; delayed: boolean; increases: string[]; [key: string]: unknown }>;
+  keptTermsIds: number[];
+  currentTermsId: number | null;
+}
+
+export interface PoolAdminBoostsOverview {
+  poolAddress: string;
+  enabled: boolean;
+  boosts: Array<PoolAdminBoostView & { ownerKind: "protocol" | "pool_admin"; yours: boolean }>;
+  campaigns: PoolAdminCampaignWithFunding[];
+}
+
+export interface PoolAdminBoostPreview {
+  durationDays: number;
+  budgetPerDayRaw: string;
+  budgetPerDayUsd: number | null;
+  capPct: number;
+  uncapped: boolean;
+  rewardPriceUsd: number | null;
+  rewardHasPrice: boolean;
+  capBps: number;
+  breakEvenTvlUsd: number | null;
+  atCurrent: { tvlUsd: number; aprPct: number; capBinding: boolean; spendPerDayRaw: string; spendPerDayUsd: number | null; refundPerDayRaw: string } | null;
+  curve: Array<{ tvlUsd: number; aprPct: number; capBinding: boolean; spendPerDayRaw: string; spendPerDayUsd: number | null; refundPerDayRaw: string }>;
+  valid: boolean;
+  error: string | null;
+  prefund: { liquidityRaw: string; requiredRaw: string; depositRaw: string; fullyFunded: boolean; payoutLimitOk: boolean; payoutLimitMinPerDayRaw: string } | null;
+}
+
 /** `code` of a `/api/rewards/*` error answer (`{ statusCode, code, message }`). */
 export type RewardVoucherErrorCode =
   | "unknown_campaign" // 404
+  | "campaign_closed" // 410
+  | "not_funded" // 409 (pool admin boosts)
+  | "payout_limit_low" // 409
+  | "cap_required" // 400
+  | "cap_without_price" // 400
+  | "budget_too_small" // 400
+  | "not_your_campaign" // 403
+  | "not_your_pool" // 400
+  | "campaign_checks" // 400
+  | "boosts_off" // 503
   | "nothing_accrued" // 404
   | "already_claimed" // 409
   | "change_pending" // 409
@@ -2818,6 +2961,73 @@ export class CofferBackendClient {
     return this.requestWithRefresh<T>("PUT", path, body);
   }
 
+  // ── Boosts run by a pool admin (backend docs/BOOSTS.md §9) ──
+  //
+  // JWT of the pool's on-chain admin. The campaign is the admin's own: it is
+  // created, funded, limited, withdrawn from and closed with the admin's
+  // wallet (`buildPoolAdminCampaignSetup`, `buildRewardDepositIx`,
+  // `buildRewardWithdrawIx`, `buildRewardSetPayoutLimitIx`,
+  // `buildRewardCloseIx`); these routes register it and run boosts from it.
+  // Errors carry `code` (getRewardsApiError): `not_funded` (409, with
+  // `depositRaw`), `payout_limit_low` (409), `cap_required` /
+  // `cap_without_price` / `budget_too_small` (400), `not_your_campaign` /
+  // `not_your_pool` (403 / 400), `campaign_checks` (400, with `checks`),
+  // `boosts_off` / `signing_off` (503).
+
+  private poolBoostsPath(poolAddress: string, rest = ""): string {
+    return `/api/pools/admin/${encodeURIComponent(poolAddress)}/boosts${rest}`;
+  }
+
+  /** Boosts of the pool (yours and the protocol's) and your campaigns with their funding now. */
+  getPoolAdminBoosts(poolAddress: string): Promise<SdkResult<PoolAdminBoostsOverview>> {
+    return this.requestWithRefresh<PoolAdminBoostsOverview>("GET", this.poolBoostsPath(poolAddress), undefined, {}, true);
+  }
+
+  /** What to create your campaign with for `mint` (or "native"): id, address, our backend signer, the payout window; or your existing campaign. */
+  getPoolAdminCampaignParams(poolAddress: string, mint: string | "native"): Promise<SdkResult<PoolAdminCampaignParams>> {
+    return this.requestWithRefresh<PoolAdminCampaignParams>("GET", this.poolBoostsPath(poolAddress, `/campaign-params?mint=${encodeURIComponent(mint)}`), undefined, {}, true);
+  }
+
+  /** Register your campaign once it is on chain (finalized). */
+  registerPoolAdminCampaign(poolAddress: string, body: { address: string; label?: string; note?: string }): Promise<SdkResult<PoolAdminCampaign>> {
+    return this.requestWithRefresh<PoolAdminCampaign>("POST", this.poolBoostsPath(poolAddress, "/campaigns"), body, {}, true);
+  }
+
+  /** Your campaigns with their funding now (owed, committed, required, what to deposit, what you may withdraw, the payout limit). */
+  getPoolAdminCampaigns(poolAddress: string): Promise<SdkResult<PoolAdminCampaignWithFunding[]>> {
+    return this.requestWithRefresh<PoolAdminCampaignWithFunding[]>("GET", this.poolBoostsPath(poolAddress, "/campaigns"), undefined, {}, true);
+  }
+
+  /** Re-read your campaign from the chain after a deposit, a withdrawal or a limit change. */
+  refreshPoolAdminCampaign(poolAddress: string, campaignId: number): Promise<SdkResult<PoolAdminCampaign>> {
+    return this.requestWithRefresh<PoolAdminCampaign>("POST", this.poolBoostsPath(poolAddress, `/campaigns/${campaignId}/refresh`), {}, {}, true);
+  }
+
+  /** APR and spend for these terms, and what your campaign must hold to start them. `capBps` only for a reward token with a price. */
+  previewPoolAdminBoost(poolAddress: string, body: PoolAdminBoostTerms): Promise<SdkResult<PoolAdminBoostPreview>> {
+    return this.requestWithRefresh<PoolAdminBoostPreview>("POST", this.poolBoostsPath(poolAddress, "/preview"), body, {}, true);
+  }
+
+  /** Create a boost on the pool from your campaign: it must already hold what it owes plus every budget (this one included). */
+  createPoolAdminBoost(poolAddress: string, body: PoolAdminBoostTerms & { label?: string; note?: string }): Promise<SdkResult<PoolAdminBoostView>> {
+    return this.requestWithRefresh<PoolAdminBoostView>("POST", this.poolBoostsPath(poolAddress), body, {}, true);
+  }
+
+  /** New terms: a raise (budget, cap, end) waits 1 h and must be on the campaign; a cut starts at the next hour. */
+  updatePoolAdminBoost(poolAddress: string, boostId: number, body: { budgetRaw?: string; capBps?: number; endAt?: string; note?: string }): Promise<SdkResult<PoolAdminBoostView>> {
+    return this.requestWithRefresh<PoolAdminBoostView>("PUT", this.poolBoostsPath(poolAddress, `/${boostId}`), body, {}, true);
+  }
+
+  /** Stop your boost at the next hour; what it has not handed out stays in your campaign. */
+  stopPoolAdminBoost(poolAddress: string, boostId: number, note?: string): Promise<SdkResult<PoolAdminBoostView>> {
+    return this.requestWithRefresh<PoolAdminBoostView>("POST", this.poolBoostsPath(poolAddress, `/${boostId}/stop`), note ? { note } : {}, {}, true);
+  }
+
+  /** Cancel your boost before its first hour. */
+  cancelPoolAdminBoost(poolAddress: string, boostId: number): Promise<SdkResult<PoolAdminBoostView>> {
+    return this.requestWithRefresh<PoolAdminBoostView>("DELETE", this.poolBoostsPath(poolAddress, `/${boostId}`), undefined, {}, true);
+  }
+
   // ── Private: HTTP layer with auto-refresh ──
 
   /**
@@ -2828,7 +3038,7 @@ export class CofferBackendClient {
    *   3. On failure: notify via onAuthExpired callback, return original error
    */
   private async requestWithRefresh<T>(
-    method: "GET" | "POST" | "PUT",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
     retry: RetryOptions = {},
@@ -2854,7 +3064,7 @@ export class CofferBackendClient {
    * not JSON is ignored.
    */
   private async rawRequest<T>(
-    method: "GET" | "POST" | "PUT",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
     retry: RetryOptions = {},

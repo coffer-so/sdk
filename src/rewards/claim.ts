@@ -12,7 +12,13 @@ import {
   REWARD_RECEIPT_RENT_LAMPORTS,
 } from "./constants";
 import { ParsedRewardVoucher, parseRewardVoucher, rewardVerificationInstruction } from "./voucher";
-import { RewardCampaignAccount, decodeRewardCampaignAccount, decodeRewardReceiptAccount } from "./accounts";
+import {
+  RewardCampaignAccount,
+  decodeRewardCampaignAccount,
+  decodeRewardReceiptAccount,
+  isRewardClosedCampaign,
+  rewardWindowPaidAt,
+} from "./accounts";
 import { deriveRewardReceiptPda, deriveRewardSolVaultPda, deriveRewardTokenVault } from "./pda";
 import { buildRewardClaimIx } from "./instructions";
 import {
@@ -42,6 +48,10 @@ export interface RewardClaimState {
   vaultRaw?: bigint;
   /** Current epoch, for the transfer-fee schedule in force; absent: the higher of the two. */
   epoch?: bigint | number;
+  /** Gross the campaign's payout window still allows; null = no limit. Absent = not checked (`rewardCampaignClaimable`). */
+  windowAllowanceRaw?: bigint | null;
+  /** Unix seconds of the check (voucher expiry, payout window); default the local clock. */
+  nowUnix?: number;
 }
 
 export interface BuildRewardClaimTxOptions extends RewardClaimState {
@@ -90,6 +100,8 @@ export interface RewardClaimTx extends BuiltTx {
 
 const FAILURE_MESSAGES: Record<RewardClaimFailure, string> = {
   AlreadyClaimed: "All claimed: the receipt has reached this voucher's total (6001 AlreadyClaimed)",
+  VoucherExpired: "The voucher has expired: request a new one (6009 VoucherExpired)",
+  PayoutLimitReached: "The campaign's payout limit for this window is used up: try again after it resets (6010 PayoutLimitReached)",
   InsufficientLiquidity: "The reward pool is being refilled, try later (6002 InsufficientLiquidity)",
   ZeroPayment: "Too small to claim (6003 ZeroPayment)",
   Overflow: "The transfer fee of this mint does not allow a claim now",
@@ -144,6 +156,8 @@ export function buildRewardClaimTx(
     }
   }
   if (v.totalRaw <= claimed) return err("invalid_input", FAILURE_MESSAGES.AlreadyClaimed);
+  const now = BigInt(Math.floor(options.nowUnix ?? Date.now() / 1000));
+  if (now > v.expiresAt) return err("invalid_input", FAILURE_MESSAGES.VoucherExpired);
 
   const [receipt] = deriveRewardReceiptPda(v.campaign, v.beneficiary, programId);
   const user = v.beneficiary;
@@ -216,6 +230,7 @@ export function buildRewardClaimTx(
       claimedRaw: claimed,
       liquidityRaw: options.liquidityRaw ?? v.liquidityRaw,
       vaultRaw: options.vaultRaw,
+      windowAllowanceRaw: options.windowAllowanceRaw,
       native: v.native,
       fee,
     });
@@ -238,12 +253,17 @@ export function buildRewardClaimTx(
   let verify: TransactionInstruction;
   let claim: TransactionInstruction;
   try {
-    verify = rewardVerificationInstruction(v.programId, v.campaign, user, v.signerEpoch, v.totalRaw, v.signer, v.signature);
+    verify = rewardVerificationInstruction(
+      { program: v.programId, campaign: v.campaign, domain: v.domain, user, epoch: v.signerEpoch, total: v.totalRaw, expiresAt: v.expiresAt },
+      v.signer,
+      v.signature,
+    );
     claim = buildRewardClaimIx(
       {
         campaign: v.campaign,
         user,
         total: v.totalRaw,
+        expiresAt: v.expiresAt,
         asset: v.native ? { native: true } : { mint: v.mint, tokenProgram: v.tokenProgram },
         walletToken: v.native ? undefined : destination,
         memo,
@@ -320,11 +340,15 @@ export async function loadRewardClaimState(
   const [campaignInfo, receiptInfo, vaultInfo, mintInfo, destinationInfo] = read.data;
   if (!campaignInfo) return err("account_not_found", `Campaign ${v.campaign.toBase58()} does not exist`);
   if (!campaignInfo.owner.equals(programId)) return err("invalid_input", `Campaign ${v.campaign.toBase58()} is not owned by ${programId.toBase58()}`);
+  if (isRewardClosedCampaign(campaignInfo.data)) return err("invalid_input", `Campaign ${v.campaign.toBase58()} is closed: it pays nothing more`);
   let campaignAccount: RewardCampaignAccount;
   try {
     campaignAccount = decodeRewardCampaignAccount(campaignInfo.data);
   } catch (e) {
     return err("parse_failure", (e as Error).message, e);
+  }
+  if (!campaignAccount.domain.equals(v.domain)) {
+    return err("invalid_input", "The voucher is for another instance of this campaign address (domain mismatch, 6000 InvalidVoucher)");
   }
   if (!campaignAccount.backendSigner.equals(v.signer) || campaignAccount.signerEpoch !== v.signerEpoch) {
     return err("invalid_input", "The campaign's signing key was rotated: request a new voucher (6000 InvalidVoucher)");
@@ -348,6 +372,10 @@ export async function loadRewardClaimState(
     receiptData: receiptInfo ? receiptInfo.data : null,
     liquidityRaw: campaignAccount.liquidity,
     vaultRaw,
+    windowAllowanceRaw:
+      campaignAccount.payoutLimit === 0n
+        ? null
+        : campaignAccount.payoutLimit - rewardWindowPaidAt(campaignAccount, Math.floor(Date.now() / 1000)),
   };
   if (!v.native) {
     state.mintData = mintInfo ? mintInfo.data : null;

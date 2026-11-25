@@ -16,7 +16,8 @@ const accountCoders = new Map<ContractProgram, BorshAccountsCoder>();
  * `metadata` with `max_len(200)`, 389 bytes on chain.
  */
 const ALLOCATED_ACCOUNT_SIZES: Partial<Record<ContractProgram, Record<string, number>>> = {
-  cofferRewards: { Campaign: 389 },
+  // Campaign holds a String allocated at its `max_len(200)`; Receipt carries 15 reserved bytes.
+  cofferRewards: { Campaign: 518, Receipt: 32 },
 };
 const eventCoders = new Map<ContractProgram, BorshEventCoder>();
 const eventLayouts = new Map<string, ReturnType<typeof IdlCoder.typeDefLayout>>();

@@ -1,5 +1,5 @@
 // Generated from src/idl/*.json by scripts/generate-contract-types.cjs. Do not edit.
-// Epoch abi-sync-20261123; cofferPool=230618ce6efdc9d2b5865efa2a33b3ae48bd46fbb989cdf24a0542f6e17b3c4e; protocolAdmin=fbb98b891c874eb30c1564b1149021aef10f69ae3adec628be02aca35829cb3f; singleTokenLiquidity=efa1491b969897b632339062a26f7634b35bfbf917d75ed3044b964d82cdd6c8; cofferRewards=9c6182c185777c7e8708858bc7abc428f3dc04e7b2f698384720b4cfd6d42b06
+// Epoch abi-sync-20261123; cofferPool=230618ce6efdc9d2b5865efa2a33b3ae48bd46fbb989cdf24a0542f6e17b3c4e; protocolAdmin=fbb98b891c874eb30c1564b1149021aef10f69ae3adec628be02aca35829cb3f; singleTokenLiquidity=efa1491b969897b632339062a26f7634b35bfbf917d75ed3044b964d82cdd6c8; cofferRewards=1ec8bfa8878293e766a013351a1e24a6eb27c289bf250ab3a4ddfa89ac477bbe
 import BN from "bn.js";
 import { PublicKey } from "@solana/web3.js";
 
@@ -152,8 +152,10 @@ export interface ContractTypes {
     "TokenSlot": { "config": ContractTypes["singleTokenLiquidity"]["AssetConfig"]; "dynamics": ContractTypes["singleTokenLiquidity"]["AssetDynamics"] };
   };
   "cofferRewards": {
-    "Campaign": { "admin": PublicKey; "id": Array<number>; "bump": number; "mint": PublicKey; "token_program": PublicKey; "backend_signer": PublicKey; "signer_epoch": BN; "liquidity": BN; "metadata": string };
-    "Receipt": { "claimed": BN };
+    "Campaign": { "version": number; "bump": number; "admin": PublicKey; "id": Array<number>; "domain": Array<number>; "mint": PublicKey; "token_program": PublicKey; "backend_signer": PublicKey; "signer_epoch": BN; "liquidity": BN; "payout_limit": BN; "window_seconds": BN; "window_start": BN; "window_paid": BN; "reserved": Array<number>; "metadata": string };
+    "CampaignClosed": { "campaign": PublicKey; "admin": PublicKey };
+    "ClosedCampaign": { "version": number };
+    "Receipt": { "version": number; "claimed": BN; "reserved": Array<number> };
     "RewardCallback": { "program": PublicKey; "data": Buffer; "privileges": Buffer };
     "RewardPaid": { "campaign": PublicKey; "user": PublicKey; "authorized_total": BN; "gross_debit": BN; "net_credit": BN; "claimed": BN };
   };
@@ -285,17 +287,21 @@ export interface ContractInstructionMap {
     "withdraw_sol": { args: { "amount": BN }; accounts: { "config": PublicKey; "pool": PublicKey; "source": PublicKey; "recipient": PublicKey; "authority": PublicKey; "system_program": PublicKey } };
   };
   "cofferRewards": {
-    "claim_native": { args: { "total": BN; "callback": ContractTypes["cofferRewards"]["RewardCallback"] | null }; accounts: { "user": PublicKey; "campaign": PublicKey; "vault": PublicKey; "receipt": PublicKey; "instructions": PublicKey; "system_program": PublicKey } };
-    "claim_token": { args: { "total": BN; "hook_accounts": number; "callback": ContractTypes["cofferRewards"]["RewardCallback"] | null }; accounts: { "user": PublicKey; "campaign": PublicKey; "receipt": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey; "instructions": PublicKey; "system_program": PublicKey } };
-    "deposit_native": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "system_program": PublicKey } };
-    "deposit_token": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey; "system_program": PublicKey } };
-    "initialize_native": { args: { "id": Array<number>; "backend_signer": PublicKey; "metadata": string }; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "system_program": PublicKey } };
-    "initialize_token": { args: { "id": Array<number>; "backend_signer": PublicKey; "metadata": string }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "associated_token_program": PublicKey; "system_program": PublicKey } };
+    "claim_native": { args: { "total": BN; "expires_at": BN; "callback": ContractTypes["cofferRewards"]["RewardCallback"] | null }; accounts: { "user": PublicKey; "campaign": PublicKey; "vault": PublicKey; "receipt": PublicKey; "instructions": PublicKey; "system_program": PublicKey } };
+    "claim_token": { args: { "total": BN; "expires_at": BN; "hook_accounts": number; "callback": ContractTypes["cofferRewards"]["RewardCallback"] | null }; accounts: { "user": PublicKey; "campaign": PublicKey; "receipt": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey; "instructions": PublicKey; "system_program": PublicKey } };
+    "close_native": { args: Record<string, never>; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "system_program": PublicKey } };
+    "close_receipt": { args: Record<string, never>; accounts: { "user": PublicKey; "campaign": PublicKey; "receipt": PublicKey } };
+    "close_token": { args: Record<string, never>; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "token_program": PublicKey } };
+    "deposit_native": { args: { "amount": BN }; accounts: { "funder": PublicKey; "campaign": PublicKey; "vault": PublicKey; "system_program": PublicKey } };
+    "deposit_token": { args: { "amount": BN }; accounts: { "funder": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey } };
+    "initialize_native": { args: { "id": Array<number>; "backend_signer": PublicKey; "metadata": string }; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "slot_hashes": PublicKey; "system_program": PublicKey } };
+    "initialize_token": { args: { "id": Array<number>; "backend_signer": PublicKey; "metadata": string }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "slot_hashes": PublicKey; "associated_token_program": PublicKey; "system_program": PublicKey } };
     "return_surplus_native": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "recipient": PublicKey; "source": PublicKey; "system_program": PublicKey } };
     "return_surplus_token": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "recipient": PublicKey; "wallet_token": PublicKey } };
     "rotate_signer": { args: { "backend_signer": PublicKey }; accounts: { "admin": PublicKey; "campaign": PublicKey } };
+    "set_payout_limit": { args: { "limit": BN; "window_seconds": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey } };
     "withdraw_native": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "vault": PublicKey; "system_program": PublicKey } };
-    "withdraw_token": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey; "system_program": PublicKey } };
+    "withdraw_token": { args: { "amount": BN }; accounts: { "admin": PublicKey; "campaign": PublicKey; "mint": PublicKey; "token_program": PublicKey; "vault": PublicKey; "wallet_token": PublicKey } };
   };
 }
 
@@ -313,6 +319,7 @@ export interface ContractAccountMap {
   };
   "cofferRewards": {
     "Campaign": ContractTypes["cofferRewards"]["Campaign"];
+    "ClosedCampaign": ContractTypes["cofferRewards"]["ClosedCampaign"];
     "Receipt": ContractTypes["cofferRewards"]["Receipt"];
   };
 }
@@ -412,6 +419,7 @@ export interface ContractEventMap {
     "StldSolWithdrawnV2": ContractTypes["singleTokenLiquidity"]["StldSolWithdrawnV2"];
   };
   "cofferRewards": {
+    "CampaignClosed": ContractTypes["cofferRewards"]["CampaignClosed"];
     "RewardPaid": ContractTypes["cofferRewards"]["RewardPaid"];
   };
 }

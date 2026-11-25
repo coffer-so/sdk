@@ -94,14 +94,15 @@ export const DEVNET_V61_CANDIDATE_PROGRAMS: NetworkPrograms = {
  * the earlier upgraded-in-place factory was closed). Select explicitly:
  * getConfig("devnet", { programs: DEVNET_V61_PROGRAMS }).
  */
+/** coffer_rewards on the same devnet stand. */
+export const DEVNET_V61_REWARDS_PROGRAM_ID = new PublicKey("AWX5kWCVJ6UxBtQceNM6G39sq1n8DjJPSpHbtS345pP7");
+
 export const DEVNET_V61_PROGRAMS: NetworkPrograms = {
   cofferPool: new PublicKey("6dBwFi4fJX2uuQQPvsnjSMF1WRZz2hL1iBGJ2AKfUSem"),
   singleTokenLiquidity: new PublicKey("3z28EafwCzVHGFRXDXDbfhQ3wHA6hMJguHXxaDsmct59"),
   protocolAdmin: new PublicKey("HXNSDFfFhY9mJp8NATAuWSLfp2eFDtRddnPgGoesm8i7"),
+  cofferRewards: DEVNET_V61_REWARDS_PROGRAM_ID,
 };
-
-/** coffer_rewards on the same devnet stand. */
-export const DEVNET_V61_REWARDS_PROGRAM_ID = new PublicKey("AWX5kWCVJ6UxBtQceNM6G39sq1n8DjJPSpHbtS345pP7");
 
 /** @deprecated the old name; same value as `DEVNET_V61_PROGRAMS`. */
 export const DEVNET_V61_UPGRADED_PROGRAMS: NetworkPrograms = DEVNET_V61_PROGRAMS;
