@@ -3,7 +3,8 @@
 ## Overview
 
 One endpoint behind the chart card on the pool page: a historical series
-for a single pool — APY, TVL, traded volume or fees collected.
+for a single pool — APY, TVL, traded volume, fees collected or the price of
+the pool's LP token.
 
 No authentication required.
 
@@ -13,7 +14,7 @@ No authentication required.
 
 ```ts
 const res = await client.getPoolChart("6NjpZAqu5BHnNf9xMKgesVS6WBGE4ZLT8DvrdsGCjLg5", {
-  metric: "apy",   // "apy" (default) | "tvl" | "volume" | "fees"
+  metric: "apy",   // "apy" (default) | "tvl" | "volume" | "fees" | "lpPrice"
   range: "1m",     // "1m" (default) | "6m" | "1y" | "all"  ("24h" | "1w" still accepted)
   basis: "7d",     // "7d" (default) | "24h" — APY only
 });
@@ -26,7 +27,7 @@ const { current, change, points, granularitySec } = res.data;
 ```ts
 {
   poolAddress: string;
-  metric: "apy" | "tvl" | "volume" | "fees";
+  metric: "apy" | "tvl" | "volume" | "fees" | "lpPrice";
   range: "24h" | "1w" | "1m" | "6m" | "1y" | "all";
   granularitySec: number;       // spacing between points
   basis?: "24h" | "7d";         // present for apy only
@@ -44,8 +45,9 @@ const { current, change, points, granularitySec } = res.data;
 | `tvl` | USD | pool value at that moment |
 | `volume` | USD | traded volume within the point's interval |
 | `fees` | USD | total fees (LP + protocol share) within the interval |
+| `lpPrice` | USD per one LP token | price of the pool's LP token (BPT) at that moment |
 
-`tvl` is a level (a snapshot at each point); `volume` and `fees` are flows
+`tvl` and `lpPrice` are levels (a snapshot at each point); `volume` and `fees` are flows
 (the amount accumulated inside each interval), so their values scale with
 `granularitySec` — do not compare points across ranges.
 
@@ -90,6 +92,26 @@ pass `basis: "24h"` if the two must match.
 Pools below a small TVL floor report `0` rather than a six-digit APY: on a
 pool holding a few dollars the ratio is real but meaningless, and one such
 series flattens every other pool on a shared axis.
+
+## LP price specifics
+
+`lpPrice` is the value of everything in the pool divided by the LP tokens in
+circulation — what one LP token can be redeemed for. Swap fees stay in the
+pool, so on a quiet market the line drifts up with collected fees; it also
+moves with the prices of the pool's tokens.
+
+- Computed from the backend's own 10-minute pool snapshots (balances and
+  the prices its metrics job used) ÷ LP supply — no external price feed on
+  the request path, and the trailing point matches the pool's current
+  LP price.
+- Snapshots exist since **2026-07-26**: for a pool older than that the
+  `1y`/`all` line starts there (an empty left part), like a young pool.
+- A moment whose snapshot lacked a price for one of the pool's tokens (a
+  feed outage) is skipped rather than drawn as a dip, so neighbouring points
+  can be one grid step further apart than `granularitySec`.
+- Values span many orders of magnitude between pools (`0.0012` … `105000`):
+  format with significant digits, not a fixed number of decimals, and do not
+  start the axis at 0.
 
 ## Ranges
 
