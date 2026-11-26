@@ -94,10 +94,9 @@ function poolFixture(): PoolInfo {
 describe("T18 package surface", () => {
   const pkgJson = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
 
-  test("package is @coffer_so/sdk-v6 at >= 0.2.0 (breaking rename, no aliases)", () => {
-    // 2.0.0: the v6.1 SDK merged into the @coffer_so/sdk line (with coffer_rewards and the backend client).
+  test("package identifies the production mainnet v6.1 release", () => {
     expect(pkgJson.name).toBe("@coffer_so/sdk");
-    expect(pkgJson.version).toBe("2.0.0");
+    expect(pkgJson.version).toBe("2.1.1");
   });
 
   test("renamed clients and helpers are exported from the package root", () => {
@@ -113,7 +112,12 @@ describe("T18 package surface", () => {
 
   test("program-id table and config use the `cofferPool` key", () => {
     expect(Object.keys(NETWORK_PROGRAMS.mainnet).sort()).toEqual(["cofferPool", "cofferRewards", "protocolAdmin", "singleTokenLiquidity"]);
-    expect(cfg.programs.cofferPool.toBase58()).toBe("6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9");
+    for (const name of Object.keys(IDLS) as (keyof typeof IDLS)[]) {
+      expect(sdk.programId(cfg, name).toBase58()).toBe(IDLS[name].address);
+    }
+    const standalone = sdk.getConfig("mainnet", { programs: sdk.MAINNET_V6_STANDALONE_PROGRAMS });
+    expect(standalone.programs.cofferPool.toBase58()).toBe("6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9");
+    expect(sdk.MAINNET_V51_FACTORY_PROGRAMS).toEqual(sdk.MAINNET_V61_PROGRAMS);
     expect(sdk.programId(cfg, "cofferPool").equals(cfg.programs.cofferPool)).toBe(true);
     expect(Object.keys(IDLS).sort()).toEqual(["cofferPool", "cofferRewards", "protocolAdmin", "singleTokenLiquidity"]);
   });

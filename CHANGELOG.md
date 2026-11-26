@@ -3,6 +3,19 @@
 Entries below 0.2.0 keep the names in use at the time (`BPT`, `Cubic*`,
 `cubic_pool`); they were not rewritten.
 
+## 2.1.1 — backend pool summaries
+
+- `listPools()` follows pool-list pagination. Both `listPools()` and `getPool()`
+  return typed SDK summaries for the current backend API and older flat responses.
+
+## 2.1.0 — mainnet v6.1 factory upgrade
+
+- `getConfig("mainnet")` now uses the v6.1 program IDs of the production factory
+  upgraded in place from v5.1. Existing factory, pool and LP mint PDAs are stable.
+- Select `MAINNET_V6_STANDALONE_PROGRAMS` for pools from the separate v6 factory.
+  The Devnet rc9 stand still uses `DEVNET_V61_PROGRAMS`.
+- The mainnet RPC defaults start with the official Solana endpoint.
+
 ## 2.0.0 — the v6.1 contracts SDK, rewards on the rc8+ ABI, pool admins' boosts
 
 `@coffer_so/sdk` 2.0.0 merges the v6.1 contracts SDK (`@coffer_so/sdk-v6` 0.4.0, branch

@@ -15,24 +15,27 @@ export interface NetworkPrograms {
   cofferRewards?: PublicKey;
 }
 
+/** Production factory, upgraded in place from v5.1. Existing pool and treasury PDAs are stable. */
+export const MAINNET_V61_PROGRAMS: NetworkPrograms = {
+  cofferPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
+  singleTokenLiquidity: new PublicKey("7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2"),
+  protocolAdmin: new PublicKey("3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81"),
+  cofferRewards: COFFER_REWARDS_PROGRAM_ID,
+};
+
+/** Previous name for the in-place upgrade target. */
+export const MAINNET_V51_FACTORY_PROGRAMS = MAINNET_V61_PROGRAMS;
+
+/** Independent v6 deployment. Select explicitly for pools owned by 6DhW…. */
+export const MAINNET_V6_STANDALONE_PROGRAMS: NetworkPrograms = {
+  cofferPool: new PublicKey("6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9"),
+  singleTokenLiquidity: new PublicKey("Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy"),
+  protocolAdmin: new PublicKey("6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck"),
+  cofferRewards: COFFER_REWARDS_PROGRAM_ID,
+};
+
 export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
-  // v6 programs are SEPARATE deployments next to v5 (`@coffer_so/sdk` 1.x
-  // keeps the v5 table). Pool accounts are owned by their generation's
-  // coffer_pool, so a v5 pool must be driven with the v5 SDK and vice versa.
-  mainnet: {
-    cofferPool: new PublicKey("6DhW1Ek5WLJSnFSpBBGYeVRbRiWtCXHbqyGJ6LcVZgH9"),
-    // TODO(mainnet): single_token_liquidity v6 is NOT deployed on mainnet
-    // yet; this is the id reserved for it (protocol_admin v6 already pins
-    // it). Planned zap stays disabled until the program is live.
-    singleTokenLiquidity: new PublicKey(
-      "Dh56yWNdJgmPxYosUu24cUumsEckEw56kXdPTHghLEBy",
-    ),
-    protocolAdmin: new PublicKey(
-      "6VbU3f7VDmvWAtzw1ujz4FmNBtNzgS4mVQVVAP7bc6ck",
-    ),
-    // Same id on every cluster (declare_id! in programs/coffer-rewards).
-    cofferRewards: COFFER_REWARDS_PROGRAM_ID,
-  },
+  mainnet: MAINNET_V61_PROGRAMS,
   devnet: {
     // v6 built from `contracts` v6 `7d753b3` with devnet `declare_id`s and a
     // devnet `PROTOCOL_ADMIN_PROGRAM_ID`, deployed 2026-10-10. Treasury PDA
@@ -49,33 +52,7 @@ export const NETWORK_PROGRAMS: Record<Network, NetworkPrograms> = {
     // Same id on every cluster (declare_id! in programs/coffer-rewards).
     cofferRewards: COFFER_REWARDS_PROGRAM_ID,
   },
-  localnet: {
-    // `anchor build` of contracts/v6 keeps the historical declare_ids.
-    cofferPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
-    singleTokenLiquidity: new PublicKey(
-      "7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2",
-    ),
-    protocolAdmin: new PublicKey(
-      "3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81",
-    ),
-    // Same id on every cluster (declare_id! in programs/coffer-rewards).
-    cofferRewards: COFFER_REWARDS_PROGRAM_ID,
-  },
-};
-
-/**
- * v6.1 (T4): the production v5.1 factory the v6.1 upgrade targets
- * (`upgrade_pool_program` keeps the ids; pools grow 1683 → 2304 bytes via
- * `migrate_pool_layout_v61`). It is NOT the default `mainnet` table — that
- * stays the v6 standalone factory until the upgrade lands; pass
- * `getConfig("mainnet", { programs: MAINNET_V51_FACTORY_PROGRAMS })` to
- * drive the upgraded v5.1 factory. Treasury PDA
- * B4gyhrqLzX36VEu54ShqgTkb4TpXooTdxtcmvER3d3Bg.
- */
-export const MAINNET_V51_FACTORY_PROGRAMS: NetworkPrograms = {
-  cofferPool: new PublicKey("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu"),
-  singleTokenLiquidity: new PublicKey("7BpdUH1tzTSXLuQNo6YpjJ8Eagw8AkrS6cnkxiJdCFS2"),
-  protocolAdmin: new PublicKey("3jiojHZbjJQ7QLMGSTjFwxVEmx4NtuRy34nLAmsJME81"),
+  localnet: { ...MAINNET_V61_PROGRAMS },
 };
 
 /**
@@ -108,14 +85,14 @@ export const DEVNET_V61_PROGRAMS: NetworkPrograms = {
 export const DEVNET_V61_UPGRADED_PROGRAMS: NetworkPrograms = DEVNET_V61_PROGRAMS;
 
 export const DEFAULT_RPC_ENDPOINT: Record<Network, string> = {
-  mainnet: "https://solana.drpc.org",
+  mainnet: "https://api.mainnet-beta.solana.com",
   devnet: "https://api.devnet.solana.com",
   localnet: "http://127.0.0.1:8899",
 };
 
 export const DEFAULT_RPC_ENDPOINTS: Record<Network, string[]> = {
   mainnet: [
-    "https://solana.drpc.org",
+    "https://api.mainnet-beta.solana.com",
     "https://solana-rpc.publicnode.com",
     "https://solana.api.pocket.network",
   ],

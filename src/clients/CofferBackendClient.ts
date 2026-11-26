@@ -1748,12 +1748,33 @@ export class CofferBackendClient {
     this.onAuthExpired = params.onAuthExpired;
   }
 
-  listPools(): Promise<SdkResult<PoolSummary[]>> {
-    return this.get<PoolSummary[]>("/api/pools");
+  async listPools(): Promise<SdkResult<PoolSummary[]>> {
+    const pools: PoolSummary[] = [];
+    let path = "/api/pools";
+    for (;;) {
+      const page = await this.get<PoolSummaryRow[] | { data: PoolSummaryRow[]; hasMore?: boolean }>(path);
+      if (!page.ok) return page;
+      const body = page.data;
+      const rows = Array.isArray(body) ? body : body?.data;
+      if (!Array.isArray(rows)) return err("parse_failure", "Invalid pool list from backend");
+      for (const row of rows) {
+        const pool = toPoolSummary(row);
+        if (!pool) return err("parse_failure", "Invalid pool summary from backend");
+        pools.push(pool);
+      }
+      if (Array.isArray(body) || !body.hasMore) return ok(pools);
+      if (!rows.length) return err("parse_failure", "Backend returned an empty intermediate pool page");
+      path = `/api/pools?limit=${rows.length}&offset=${pools.length}`;
+    }
   }
 
-  getPool(addr: string): Promise<SdkResult<PoolSummary>> {
-    return this.get<PoolSummary>(`/api/pools/${addr}`);
+  async getPool(addr: string): Promise<SdkResult<PoolSummary>> {
+    const result = await this.get<PoolSummaryRow | { data: PoolSummaryRow }>(`/api/pools/${encodeURIComponent(addr)}`);
+    if (!result.ok) return result;
+    const body = result.data;
+    if (!body || typeof body !== "object") return err("parse_failure", "Invalid pool summary from backend");
+    const pool = toPoolSummary("data" in body ? body.data : body);
+    return pool ? ok(pool) : err("parse_failure", "Invalid pool summary from backend");
   }
 
   /**
@@ -3198,6 +3219,48 @@ export class CofferBackendClient {
   private async getEnvelope<T>(path: string): Promise<SdkResult<T>> {
     return this.get<T>(path);
   }
+}
+
+type PoolSummaryRow = Omit<Partial<PoolSummary>, "tokens"> & {
+  poolAddress?: string;
+  volume24h?: number | null;
+  tokens?: Array<{
+    mint?: string;
+    mintAddress?: string;
+    symbol?: string;
+    ticker?: string;
+    weightBps?: number;
+    weight?: number;
+  }>;
+};
+
+/** Older servers return SDK-shaped summaries; the Nest API uses entity field names and percent weights. */
+function toPoolSummary(row: PoolSummaryRow | undefined): PoolSummary | undefined {
+  if (!row || typeof row.poolEnabled !== "boolean" || !Array.isArray(row.tokens)) return;
+  const address = row.address ?? row.poolAddress;
+  if (typeof address !== "string") return;
+  const tokens: PoolSummary["tokens"] = [];
+  for (const token of row.tokens) {
+    const mint = token?.mint ?? token?.mintAddress;
+    const weightBps = token?.weightBps ?? (
+      typeof token?.weight === "number" ? Math.round(token.weight * 100) : undefined
+    );
+    if (typeof mint !== "string" || typeof weightBps !== "number" || !Number.isFinite(weightBps)) return;
+    tokens.push({ mint, symbol: token.symbol ?? token.ticker, weightBps });
+  }
+  if (row.address && row.tokens.every(token => token.mint !== undefined && token.weightBps !== undefined)) {
+    return row as PoolSummary;
+  }
+  return {
+    address,
+    poolEnabled: row.poolEnabled,
+    tokens,
+    tvlUsd: row.tvlUsd ?? undefined,
+    volume24hUsd: row.volume24hUsd ?? row.volume24h ?? undefined,
+    feeApr7d: row.feeApr7d,
+    boost: row.boost,
+    boostAprPct: row.boostAprPct,
+  };
 }
 
 /**

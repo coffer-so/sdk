@@ -400,7 +400,7 @@ export { decodeTreasuryAccount, decodeTreasuryCooldownBlock, treasuryNeedsLayout
 export type { RawTreasuryAccount } from "./parsers/treasuryAccount";
 export { parseTokenMetadataExtension, lpMetadataOf } from "./parsers/mintAccount";
 export {
-  MAINNET_V51_FACTORY_PROGRAMS,
+  MAINNET_V61_PROGRAMS, MAINNET_V6_STANDALONE_PROGRAMS, MAINNET_V51_FACTORY_PROGRAMS,
 } from "./config/networks";
 export {
   MIN_INITIAL_LP_SUPPLY, MAX_INITIAL_LP_SUPPLY, DEFAULT_INITIAL_LP_SUPPLY, MAX_CREATOR_FEE_BPS, MAX_LIQUIDITY_FEE_BPS,

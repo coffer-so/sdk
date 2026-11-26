@@ -6,8 +6,8 @@ import { CofferPoolClient, getConfig } from "../src";
 import { PublicKey } from "@solana/web3.js";
 
 async function main() {
-  const cfg = getConfig("devnet");
-  const addr = new PublicKey(process.env.POOL_ADDRESS ?? "11111111111111111111111111111111");
+  const cfg = getConfig("mainnet", { rpcEndpoint: process.env.RPC_URL });
+  const addr = new PublicKey(process.env.POOL_ADDRESS ?? "EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy");
   const pool = new CofferPoolClient({
     config: cfg,
     poolAddress: addr,

@@ -2,8 +2,7 @@
  * Live mainnet integration tests for the SDK.
  *
  * These tests hit real Solana mainnet RPC and exercise the full sync /
- * derive / build flow against a migrated v5 mainnet pool
- * (`EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy`). They guard against the
+ * derive / build flow against the standalone v6 mainnet pool. They guard against the
  * regressions discovered during the mainnet rollout:
  *
  *   1. **Stale dist** — `frontend/node_modules/@coffer_so/sdk/dist/` had old
@@ -25,7 +24,7 @@
 
 import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
-import { getConfig } from "../src/config";
+import { getConfig, MAINNET_V6_STANDALONE_PROGRAMS } from "../src/config";
 import { CofferPoolClient } from "../src/clients/CofferPoolClient";
 import { RpcClient } from "../src/clients/RpcClient";
 import { deriveLpMint } from "../src/utils/pda";
@@ -49,10 +48,33 @@ function isSystemTransfer(programId: PublicKey, data: Buffer): boolean {
 const skipMainnet = process.env.SKIP_MAINNET_TESTS === "1";
 const describeOnline = skipMainnet ? describe.skip : describe;
 
+describeOnline("mainnet production factory in-place upgrade", () => {
+  test("reads an existing pool and builds the first liquidity instruction for its current layout", async () => {
+    const config = getConfig("mainnet", { rpcEndpoint: RPC });
+    const poolAddress = new PublicKey("EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy");
+    const client = new CofferPoolClient({ config, poolAddress });
+    const synced = await client.sync();
+    if (!synced.ok) throw new Error(synced.error.humanMessage);
+    const { dataLen, needsLayoutMigration, tokens, lpMint } = synced.data;
+    expect([1683, POOL_LEN]).toContain(dataLen);
+    expect(needsLayoutMigration).toBe(dataLen === 1683);
+    expect(deriveLpMint(config.programs.cofferPool, poolAddress)[0].equals(lpMint)).toBe(true);
+
+    const built = client.buildAddLiquidityTx({
+      user: poolAddress, tokenAmounts: tokens.map(t => t.actualBalance.divn(100).addn(1)), minimumLpAmount: new BN(1),
+    });
+    if (!built.ok) throw new Error(built.error.humanMessage);
+    const tags = built.data.instructions.filter(ix => ix.programId.equals(config.programs.cofferPool))
+      .map(ix => [...ix.data.subarray(0, 8)]);
+    const names = needsLayoutMigration ? ["migrate_pool_layout_v61", "add_liquidity"] : ["add_liquidity"];
+    expect(tags).toEqual(names.map(name => cofferPoolIdl.instructions.find(ix => ix.name === name)!.discriminator));
+  }, 30_000);
+});
+
 describeOnline("mainnet integration: sdk-v6 against v6 pool HGbQ…THA3", () => {
   jest.setTimeout(30_000);
 
-  const cfg = getConfig("mainnet", { rpcEndpoint: RPC });
+  const cfg = getConfig("mainnet", { rpcEndpoint: RPC, programs: MAINNET_V6_STANDALONE_PROGRAMS });
   const rpc = new RpcClient({ endpoint: RPC, commitment: "confirmed" });
   const client = new CofferPoolClient({
     config: cfg,

@@ -1,4 +1,4 @@
-# @coffer_so/sdk-v6
+# @coffer_so/sdk
 
 Client library for the **v6** Coffer Pool AMM contracts on Solana. Targeted
 at both frontend and backend consumers; no bundler-specific code.
@@ -11,35 +11,29 @@ for the migration table. The on-chain PDA seed bytes (`"cubic_pool"`,
 `"bpt_mint"`) are unchanged; only the constants' names are (`POOL_SEED`,
 `LP_MINT_SEED`).
 
-This is a separate package from [`@coffer_so/sdk`](https://www.npmjs.com/package/@coffer_so/sdk)
-(the 1.x line), which targets the historical v5 ABI.
-Pick by the program version you talk to:
-
-| Package | Contracts | Status |
-| --- | --- | --- |
-| `@coffer_so/sdk` 1.x | v5 (`main`, mainnet since 2026-09-07) | stable |
-| `@coffer_so/sdk-v6` 0.x | v6.1 (`../contracts-v6.1`: Token-2022 transfer fees, hooks and memos; planned and rc5 routed single-token deposits; 100 % fee ceilings; v6 rounding) | deployment verification required |
-
 ## Contract compatibility
 
-Source: `contracts-v6.1` `v6.1` at `e22707d` (rc7: rc5 plus the pool `vault_bump_cache` account field; rc5 candidate: the LP-transfer-fee ABI plus `swap_route_join_v1`,
-`deposit_single_token_routed` and errors 6116–6119 / STLD 6040; IDL sha256 pins in
-[CONTRACT_COMPATIBILITY.md](docs/CONTRACT_COMPATIBILITY.md)). Vendored IDLs
-contain 120 instructions (57 + 58 + 5) and 87 events (45 + 40 + 2); raw
-builders, generated types and event decoding cover that ABI.
-Program addresses are configuration values; this checkout has no verified owner
-deployment receipt for installed devnet v6.1. Final stable contract integration
-remains a parent gate. [Compatibility](docs/CONTRACT_COMPATIBILITY.md),
-[state fields](docs/STATE_FIELDS.md), [owner devnet tests](docs/OWNER_DEVNET_TESTS.md).
+`@coffer_so/sdk` 2.1 targets the production v6.1 upgrade of the existing v5.1
+factory. `getConfig("mainnet")` uses the four program addresses compiled into
+`contracts-v6.1` at `2a922f9`. Pool, LP mint and treasury addresses are stable
+across the upgrade. The SDK reads both the 1683-byte v5 layout and the 2304-byte
+v6.1 layout. After the program upgrade, the first supported write to an old pool
+can prepend its permissionless layout migration. Use the 1.x SDK for v5 writes
+until the on-chain programs are upgraded.
+
+For the independent v6 factory use
+`getConfig("mainnet", { programs: MAINNET_V6_STANDALONE_PROGRAMS })`.
+For the v6.1 Devnet stand use
+`getConfig("devnet", { programs: DEVNET_V61_PROGRAMS })`.
 
 The package also ships the `coffer_rewards` IDL and builders (boosts, [REWARDS.md](docs/REWARDS.md)) and the Coffer backend API client (`CofferBackendClient`).
 
 ## Install
 
 ```bash
-npm install @coffer_so/sdk-v6
+npm install @coffer_so/sdk
 # or
-yarn add @coffer_so/sdk-v6
+yarn add @coffer_so/sdk
 ```
 
 Workspace-local development (linking against the in-repo source):
@@ -50,12 +44,15 @@ npm install
 npm run build
 ```
 
+The runnable examples use Node.js 20.12 or newer. Examples 01 and 08 load the
+workspace `.env`; set `COFFER_API_URL=http://localhost:3001` to use the local backend.
+
 From sibling packages:
 
 ```json
 {
   "dependencies": {
-    "@coffer_so/sdk-v6": "file:../sdk"
+    "@coffer_so/sdk": "file:../sdk"
   }
 }
 ```
@@ -63,11 +60,11 @@ From sibling packages:
 ## Quick start
 
 ```ts
-import { getConfig, CofferPoolClient, CofferBackendClient } from "@coffer_so/sdk-v6";
+import { getConfig, CofferPoolClient, CofferBackendClient } from "@coffer_so/sdk";
 import { PublicKey } from "@solana/web3.js";
 
 const config = getConfig("mainnet", {
-  backendEndpoint: "https://api.coffer.so",
+  backendEndpoint: process.env.COFFER_API_URL ?? "https://api.coffer.so",
   // Optional: put your paid RPC first; SDK falls back to the defaults below.
   rpcEndpoints: [
     process.env.COFFER_RPC_URL!,
@@ -152,7 +149,7 @@ Builders return instructions. Call `compileBuiltTx` to fetch the pool's ALT and
 compile a v0 transaction. The wallet supplies signatures and the caller sends it.
 
 ```ts
-import { compileBuiltTx } from "@coffer_so/sdk-v6";
+import { compileBuiltTx } from "@coffer_so/sdk";
 
 const built = client.buildRemoveLiquidityTx({ user, lpAmount, minimumTokenAmounts });
 if (!built.ok) throw new Error(built.error.humanMessage);
@@ -164,7 +161,7 @@ if (!compiled.ok) throw new Error(compiled.error.humanMessage);
 ### Provisioning an ALT for a new pool
 
 ```ts
-import { buildInitializePoolAltTx } from "@coffer_so/sdk-v6";
+import { buildInitializePoolAltTx } from "@coffer_so/sdk";
 
 const recentSlot = new BN(await connection.getSlot("finalized"));
 const { instructions, lookupTable } = buildInitializePoolAltTx(config, {
