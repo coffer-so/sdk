@@ -1,0 +1,1451 @@
+{
+  "observed_at_utc": "2026-11-03T14:09:56.562198+00:00",
+  "rpc": "https://api.mainnet-beta.solana.com",
+  "commitment": "finalized",
+  "slot": 464927321,
+  "raw_receipt_slot": 464927322,
+  "records": [
+    {
+      "issuer": "Ondo",
+      "symbol": "USDY",
+      "mint": "A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6",
+      "source": "https://docs.ondo.finance/addresses",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "decimals": 6,
+      "supply": "123987861772800",
+      "mint_authority": "8n2uiRUd1A9NN78PKESkJe6k6zMqtKCZh3MrK1j9qkB1",
+      "freeze_authority": "51QVCuHfL1FeNjd8BDeffCKhCcAYoULnVB3yjNhShiuK",
+      "extensions": []
+    },
+    {
+      "issuer": "Ondo",
+      "symbol": "OUSG",
+      "mint": "i7u4r16TcsJTgq1kAG8opmVZyVnAKBwLKu6ZPMwzxNc",
+      "source": "https://docs.ondo.finance/addresses",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "decimals": 6,
+      "supply": "0",
+      "mint_authority": "6ViaRWzv7p56RfP1A9Hxy2ctu9kfE3XL43SxWuq3E4cE",
+      "freeze_authority": "6ViaRWzv7p56RfP1A9Hxy2ctu9kfE3XL43SxWuq3E4cE",
+      "extensions": []
+    },
+    {
+      "issuer": "Ondo",
+      "symbol": "USDon",
+      "mint": "ZPFtoCe7WWqG4N3ZFRccS8T9SMBeHsd1Vmgv2i7ondo",
+      "source": "https://docs.ondo.finance/addresses",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 9,
+      "supply": "10868859832403414",
+      "mint_authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+      "freeze_authority": "51QVCuHfL1FeNjd8BDeffCKhCcAYoULnVB3yjNhShiuK",
+      "extensions": [
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD"
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "metadataAddress": "ZPFtoCe7WWqG4N3ZFRccS8T9SMBeHsd1Vmgv2i7ondo"
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "paused": false
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "ZPFtoCe7WWqG4N3ZFRccS8T9SMBeHsd1Vmgv2i7ondo",
+            "name": "Ondo US Dollar Token",
+            "symbol": "USDon",
+            "updateAuthority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "uri": "https://app.ondo.finance/api/v2/assets/USDon/sol_metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "Superstate",
+      "symbol": "USTB",
+      "mint": "CCz3SGVziFeLYk2xfEstkiqJfYkjaSWb2GCABYsVcjo2",
+      "source": "https://docs.superstate.com/investors/smart-contracts",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 6,
+      "supply": "34875486253",
+      "mint_authority": "EfkJFKtVcpo8sgQGWLoaYcutxNdmqed81wdCcpn7egdz",
+      "freeze_authority": "2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x",
+      "extensions": [
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "frozen"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x"
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "EfkJFKtVcpo8sgQGWLoaYcutxNdmqed81wdCcpn7egdz",
+            "metadataAddress": "CCz3SGVziFeLYk2xfEstkiqJfYkjaSWb2GCABYsVcjo2"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "EfkJFKtVcpo8sgQGWLoaYcutxNdmqed81wdCcpn7egdz",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "CCz3SGVziFeLYk2xfEstkiqJfYkjaSWb2GCABYsVcjo2",
+            "name": "Invesco Short Duration US Government Securities Fund",
+            "symbol": "USTB",
+            "updateAuthority": "EfkJFKtVcpo8sgQGWLoaYcutxNdmqed81wdCcpn7egdz",
+            "uri": "https://api.superstate.com/v1/instruments/1/solana/token-metadata"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "Superstate",
+      "symbol": "USCC",
+      "mint": "BTRR3sj1Bn2ZjuemgbeQ6SCtf84iXS81CS7UDTSxUCaK",
+      "source": "https://docs.superstate.com/investors/smart-contracts",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 6,
+      "supply": "429805036336",
+      "mint_authority": "LEZGws32A591zEyNrnqjdbTxTw9AYg6wbVCCRAvMoHX",
+      "freeze_authority": "2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x",
+      "extensions": [
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "frozen"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x"
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "LEZGws32A591zEyNrnqjdbTxTw9AYg6wbVCCRAvMoHX",
+            "metadataAddress": "BTRR3sj1Bn2ZjuemgbeQ6SCtf84iXS81CS7UDTSxUCaK"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "LEZGws32A591zEyNrnqjdbTxTw9AYg6wbVCCRAvMoHX",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "BTRR3sj1Bn2ZjuemgbeQ6SCtf84iXS81CS7UDTSxUCaK",
+            "name": "Bitwise Crypto Carry Fund",
+            "symbol": "USCC",
+            "updateAuthority": "LEZGws32A591zEyNrnqjdbTxTw9AYg6wbVCCRAvMoHX",
+            "uri": "https://api.superstate.com/v1/instruments/2/solana/token-metadata"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "Superstate",
+      "symbol": "CUSHY",
+      "mint": "HSWt2izBvgNnxG982DcsysGikDnrgSq3EAWMYCSMGziP",
+      "source": "https://docs.superstate.com/investors/smart-contracts",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 6,
+      "supply": "240000000000",
+      "mint_authority": "7gF8fi4zEebLNGME2Qb5BM5AVasUJ5FeXrMho9DvxAHF",
+      "freeze_authority": "2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x",
+      "extensions": [
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "frozen"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x"
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "7gF8fi4zEebLNGME2Qb5BM5AVasUJ5FeXrMho9DvxAHF",
+            "metadataAddress": "HSWt2izBvgNnxG982DcsysGikDnrgSq3EAWMYCSMGziP"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "7gF8fi4zEebLNGME2Qb5BM5AVasUJ5FeXrMho9DvxAHF",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "HSWt2izBvgNnxG982DcsysGikDnrgSq3EAWMYCSMGziP",
+            "name": "Coinbase USD Stablecoin Yield Fund",
+            "symbol": "CUSHY",
+            "updateAuthority": "7gF8fi4zEebLNGME2Qb5BM5AVasUJ5FeXrMho9DvxAHF",
+            "uri": "https://api.superstate.com/v1/instruments/13/solana/token-metadata"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "Superstate",
+      "symbol": "FWDI",
+      "mint": "7GzQgf6DPo6ZANjnbhe9tNCpkGTv3zqHbsDx74jyQf9",
+      "source": "https://docs.superstate.com/investors/smart-contracts",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 6,
+      "supply": "7280819100000",
+      "mint_authority": "CWdsNnEuCYzxBjjd9dxvhYuatVHY2cGsMNNJcKsGFSqq",
+      "freeze_authority": "2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x",
+      "extensions": [
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "frozen"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x"
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "CWdsNnEuCYzxBjjd9dxvhYuatVHY2cGsMNNJcKsGFSqq",
+            "metadataAddress": "7GzQgf6DPo6ZANjnbhe9tNCpkGTv3zqHbsDx74jyQf9"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "CWdsNnEuCYzxBjjd9dxvhYuatVHY2cGsMNNJcKsGFSqq",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "7GzQgf6DPo6ZANjnbhe9tNCpkGTv3zqHbsDx74jyQf9",
+            "name": "Forward Industries, Inc.",
+            "symbol": "FWDI",
+            "updateAuthority": "CWdsNnEuCYzxBjjd9dxvhYuatVHY2cGsMNNJcKsGFSqq",
+            "uri": "https://api.superstate.com/v1/instruments/8/solana/token-metadata"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "xStocks",
+      "symbol": "AAPLx",
+      "mint": "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+      "source": "https://api.xstocks.fi/api/v2/public/assets/AAPLx",
+      "deployment": {
+        "address": "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+        "network": "Solana",
+        "supportsAtomicSwaps": true,
+        "stablecoins": [
+          {
+            "symbol": "USDC",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true,
+            "solanaTokenProgram": "TokenProgram"
+          },
+          {
+            "symbol": "USDG",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true
+          }
+        ]
+      },
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 8,
+      "supply": "15376115412160",
+      "mint_authority": "7pt9tkctJPK7PPNQJ77GKg8ZffSF6QxoMiCFYHxrtaCj",
+      "freeze_authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "metadataAddress": "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq"
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "S7vYFFWH6BjJyEsdrPQpqpYTqLTrPRK6KW3VwsJuRaS",
+            "multiplier": "1.0026642075893797",
+            "newMultiplier": "1.0032690125398187",
+            "newMultiplierEffectiveTimestamp": 1786149000
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+            "paused": false
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+            "name": "Apple xStock",
+            "symbol": "AAPLx",
+            "updateAuthority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "uri": "https://xstocks-metadata.backed.fi/tokens/Solana/AAPLx/metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "xStocks",
+      "symbol": "NVDAx",
+      "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+      "source": "https://api.xstocks.fi/api/v2/public/assets/NVDAx",
+      "deployment": {
+        "address": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+        "network": "Solana",
+        "supportsAtomicSwaps": true,
+        "stablecoins": [
+          {
+            "symbol": "USDC",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true,
+            "solanaTokenProgram": "TokenProgram"
+          },
+          {
+            "symbol": "USDG",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true
+          }
+        ]
+      },
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 8,
+      "supply": "32125893228871",
+      "mint_authority": "7pt9tkctJPK7PPNQJ77GKg8ZffSF6QxoMiCFYHxrtaCj",
+      "freeze_authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "metadataAddress": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq"
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "S7vYFFWH6BjJyEsdrPQpqpYTqLTrPRK6KW3VwsJuRaS",
+            "multiplier": "1.0009180758490996",
+            "newMultiplier": "1.001701196801074",
+            "newMultiplierEffectiveTimestamp": 1789000200
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+            "paused": false
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+            "name": "NVIDIA xStock",
+            "symbol": "NVDAx",
+            "updateAuthority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "uri": "https://xstocks-metadata.backed.fi/tokens/Solana/NVDAx/metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "xStocks",
+      "symbol": "SPYx",
+      "mint": "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
+      "source": "https://api.xstocks.fi/api/v2/public/assets/SPYx",
+      "deployment": {
+        "address": "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
+        "network": "Solana",
+        "supportsAtomicSwaps": true,
+        "stablecoins": [
+          {
+            "symbol": "USDC",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true,
+            "solanaTokenProgram": "TokenProgram"
+          },
+          {
+            "symbol": "USDG",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true
+          }
+        ]
+      },
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 8,
+      "supply": "9523051014616",
+      "mint_authority": "7pt9tkctJPK7PPNQJ77GKg8ZffSF6QxoMiCFYHxrtaCj",
+      "freeze_authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "metadataAddress": "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq"
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "S7vYFFWH6BjJyEsdrPQpqpYTqLTrPRK6KW3VwsJuRaS",
+            "multiplier": "1.0057321559499792",
+            "newMultiplier": "1.007474126658766",
+            "newMultiplierEffectiveTimestamp": 1793454300
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+            "paused": false
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
+            "name": "SP500 xStock",
+            "symbol": "SPYx",
+            "updateAuthority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "uri": "https://xstocks-metadata.backed.fi/tokens/Solana/SPYx/metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "xStocks",
+      "symbol": "TSLAx",
+      "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+      "source": "https://api.xstocks.fi/api/v2/public/assets/TSLAx",
+      "deployment": {
+        "address": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+        "network": "Solana",
+        "supportsAtomicSwaps": true,
+        "stablecoins": [
+          {
+            "symbol": "USDC",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true,
+            "solanaTokenProgram": "TokenProgram"
+          },
+          {
+            "symbol": "USDG",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true
+          }
+        ]
+      },
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 8,
+      "supply": "22963370995472",
+      "mint_authority": "7pt9tkctJPK7PPNQJ77GKg8ZffSF6QxoMiCFYHxrtaCj",
+      "freeze_authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "metadataAddress": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq"
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "S7vYFFWH6BjJyEsdrPQpqpYTqLTrPRK6KW3VwsJuRaS",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+            "paused": false
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+            "name": "Tesla xStock",
+            "symbol": "TSLAx",
+            "updateAuthority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "uri": "https://xstocks-metadata.backed.fi/tokens/Solana/TSLAx/metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "xStocks",
+      "symbol": "COINx",
+      "mint": "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
+      "source": "https://api.xstocks.fi/api/v2/public/assets/COINx",
+      "deployment": {
+        "address": "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
+        "network": "Solana",
+        "supportsAtomicSwaps": true,
+        "stablecoins": [
+          {
+            "symbol": "USDC",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true,
+            "solanaTokenProgram": "TokenProgram"
+          },
+          {
+            "symbol": "USDG",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true
+          }
+        ]
+      },
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 8,
+      "supply": "13617743370491",
+      "mint_authority": "7pt9tkctJPK7PPNQJ77GKg8ZffSF6QxoMiCFYHxrtaCj",
+      "freeze_authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "metadataAddress": "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq"
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "S7vYFFWH6BjJyEsdrPQpqpYTqLTrPRK6KW3VwsJuRaS",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+            "paused": false
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
+            "name": "Coinbase xStock",
+            "symbol": "COINx",
+            "updateAuthority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "uri": "https://xstocks-metadata.backed.fi/tokens/Solana/COINx/metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "xStocks",
+      "symbol": "SPCXx",
+      "mint": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
+      "source": "https://api.xstocks.fi/api/v2/public/assets/SPCXx",
+      "deployment": {
+        "address": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
+        "network": "Solana",
+        "supportsAtomicSwaps": true,
+        "stablecoins": [
+          {
+            "symbol": "USDC",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true,
+            "solanaTokenProgram": "TokenProgram"
+          },
+          {
+            "symbol": "USDG",
+            "currency": "USD",
+            "network": "Solana",
+            "address": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+            "decimals": 6,
+            "issuance": true,
+            "redemption": true,
+            "supportsAtomicSwaps": true
+          }
+        ]
+      },
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 8,
+      "supply": "55996905857916",
+      "mint_authority": "7pt9tkctJPK7PPNQJ77GKg8ZffSF6QxoMiCFYHxrtaCj",
+      "freeze_authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "metadataAddress": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq"
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "S7vYFFWH6BjJyEsdrPQpqpYTqLTrPRK6KW3VwsJuRaS",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "JDq14BWvqCRFNu1krb12bcRpbGtJZ1FLEakMw6FdxJNs",
+            "paused": false
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
+            "name": "SpaceX xStock",
+            "symbol": "SPCXx",
+            "updateAuthority": "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq",
+            "uri": "https://xstocks-metadata.backed.fi/tokens/Solana/SPCXx/metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "Franklin Templeton",
+      "symbol": "BENJI",
+      "mint": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1",
+      "source": "https://digitalassets.franklintempleton.com/benji/benji-contracts/",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 9,
+      "supply": "510970744703929",
+      "mint_authority": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1",
+      "freeze_authority": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1",
+            "metadataAddress": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1"
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1",
+            "programId": "huk3EPrNreTdUUjVKVkGSGKF1WC4P9BiUKBkn2kFWnP"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1"
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1",
+            "name": "BENJI",
+            "symbol": "BENJI",
+            "updateAuthority": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1",
+            "uri": "https://ipfs.io/ipfs/bafkreidud5dh37g5qhcumjchgn6omv52ecjhsdqbtzm7bfqkqumeidowh4"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "WisdomTree",
+      "symbol": "WTGXX",
+      "mint": "Em46fxxwgY2RRoUbBMSbEjJwY62x3ESMNdhnsGpEKewm",
+      "source": "https://dataspanapi.wisdomtree.com/pdr/documents/WEBSITE_FUND_DETAILS/WDT/US/EN-US/WTGXX_2/",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 9,
+      "supply": "38312834566",
+      "mint_authority": "2zuuNGN3G5dcZnYYzuB69hryW4S3e4XrFvuS9TcCvAJS",
+      "freeze_authority": "8nsmpDcJEfrzELoC4w5SN8MKqNuWgdjbQC1BrRaeaLaN",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "24NPdbDAaLN6VSW3xo9dPyNRGmTpq1jNWyS4XEY7z53J",
+            "metadataAddress": "Em46fxxwgY2RRoUbBMSbEjJwY62x3ESMNdhnsGpEKewm"
+          }
+        },
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "24NPdbDAaLN6VSW3xo9dPyNRGmTpq1jNWyS4XEY7z53J",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 0
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "4VcAXBXEyKeHsKkeS4Cdp3h6bEVpP8XEH4VDzaAddtms",
+            "paused": false
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "24NPdbDAaLN6VSW3xo9dPyNRGmTpq1jNWyS4XEY7z53J"
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "24NPdbDAaLN6VSW3xo9dPyNRGmTpq1jNWyS4XEY7z53J",
+            "programId": "F4wFSShcdmaHWGRRXhCHinNTt8spgdh26Wi8hbN2Rzbh"
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "Em46fxxwgY2RRoUbBMSbEjJwY62x3ESMNdhnsGpEKewm",
+            "name": "WisdomTree Government Money Market Digital Fund",
+            "symbol": "WTGXX",
+            "updateAuthority": "24NPdbDAaLN6VSW3xo9dPyNRGmTpq1jNWyS4XEY7z53J",
+            "uri": "https://gateway.pinata.cloud/ipfs/bafkreihnnhylzhkciuwik5hn25mglaigxlsjeqvw5lmpmpu3ioyoe32y74"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "WIF",
+      "symbol": "WIF",
+      "mint": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+      "source": "https://dogwifcoin.org/",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "decimals": 6,
+      "supply": "998836642272771",
+      "mint_authority": null,
+      "freeze_authority": null,
+      "extensions": []
+    },
+    {
+      "issuer": "POPCAT",
+      "symbol": "POPCAT",
+      "mint": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
+      "source": "https://popcatsolana.xyz/",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "decimals": 9,
+      "supply": "979931481088955654",
+      "mint_authority": null,
+      "freeze_authority": null,
+      "extensions": []
+    },
+    {
+      "issuer": "TRUMP",
+      "symbol": "TRUMP",
+      "mint": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+      "source": "https://gettrumpmemes.com/",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "decimals": 6,
+      "supply": "999998807474548",
+      "mint_authority": null,
+      "freeze_authority": null,
+      "extensions": []
+    },
+    {
+      "issuer": "Pudgy Penguins",
+      "symbol": "PENGU",
+      "mint": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
+      "source": "https://huddle.pudgypenguins.com/community",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "decimals": 6,
+      "supply": "76722781586114919",
+      "mint_authority": null,
+      "freeze_authority": null,
+      "extensions": []
+    },
+    {
+      "issuer": "Ondo Stocks",
+      "symbol": "AAPLon",
+      "mint": "123mYEnRLM2LLYsJW3K6oyYh8uP1fngj732iG638ondo",
+      "source": "https://docs.ondo.finance/addresses",
+      "address_registry": "ondo-official-tokens.csv",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 9,
+      "supply": "359441293746",
+      "mint_authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+      "freeze_authority": "51QVCuHfL1FeNjd8BDeffCKhCcAYoULnVB3yjNhShiuK",
+      "extensions": [
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "multiplier": "1.003376073740221",
+            "newMultiplier": "1.003376073740221",
+            "newMultiplierEffectiveTimestamp": 1792155555
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "metadataAddress": "123mYEnRLM2LLYsJW3K6oyYh8uP1fngj732iG638ondo"
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "paused": false
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "123mYEnRLM2LLYsJW3K6oyYh8uP1fngj732iG638ondo",
+            "name": "Apple (Ondo Tokenized)",
+            "symbol": "AAPLon",
+            "updateAuthority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "uri": "https://app.ondo.finance/api/v2/assets/AAPLon/sol_metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "Ondo Stocks",
+      "symbol": "NVDAon",
+      "mint": "gEGtLTPNQ7jcg25zTetkbmF7teoDLcrfTnQfmn2ondo",
+      "source": "https://docs.ondo.finance/addresses",
+      "address_registry": "ondo-official-tokens.csv",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 9,
+      "supply": "724624823373",
+      "mint_authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+      "freeze_authority": "51QVCuHfL1FeNjd8BDeffCKhCcAYoULnVB3yjNhShiuK",
+      "extensions": [
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "multiplier": "1.0017152487959897",
+            "newMultiplier": "1.0017152487959897",
+            "newMultiplierEffectiveTimestamp": 1788998645
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "metadataAddress": "gEGtLTPNQ7jcg25zTetkbmF7teoDLcrfTnQfmn2ondo"
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "paused": false
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "gEGtLTPNQ7jcg25zTetkbmF7teoDLcrfTnQfmn2ondo",
+            "name": "NVIDIA (Ondo Tokenized)",
+            "symbol": "NVDAon",
+            "updateAuthority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "uri": "https://app.ondo.finance/api/v2/assets/NVDAon/sol_metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "Ondo Stocks",
+      "symbol": "SPYon",
+      "mint": "k18WJUULWheRkSpSquYGdNNmtuE2Vbw1hpuUi92ondo",
+      "source": "https://docs.ondo.finance/addresses",
+      "address_registry": "ondo-official-tokens.csv",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 9,
+      "supply": "1512227534389",
+      "mint_authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+      "freeze_authority": "51QVCuHfL1FeNjd8BDeffCKhCcAYoULnVB3yjNhShiuK",
+      "extensions": [
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "multiplier": "1.0094730727840426",
+            "newMultiplier": "1.0094730727840426",
+            "newMultiplierEffectiveTimestamp": 1792155555
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "metadataAddress": "k18WJUULWheRkSpSquYGdNNmtuE2Vbw1hpuUi92ondo"
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "paused": false
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "k18WJUULWheRkSpSquYGdNNmtuE2Vbw1hpuUi92ondo",
+            "name": "SPDR S&P 500 ETF (Ondo Tokenized)",
+            "symbol": "SPYon",
+            "updateAuthority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "uri": "https://app.ondo.finance/api/v2/assets/SPYon/sol_metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "Ondo Stocks",
+      "symbol": "TSLAon",
+      "mint": "KeGv7bsfR4MheC1CkmnAVceoApjrkvBhHYjWb67ondo",
+      "source": "https://docs.ondo.finance/addresses",
+      "address_registry": "ondo-official-tokens.csv",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 9,
+      "supply": "386652315013",
+      "mint_authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+      "freeze_authority": "51QVCuHfL1FeNjd8BDeffCKhCcAYoULnVB3yjNhShiuK",
+      "extensions": [
+        {
+          "extension": "scaledUiAmountConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "multiplier": "1",
+            "newMultiplier": "1",
+            "newMultiplierEffectiveTimestamp": 1792155555
+          }
+        },
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "metadataAddress": "KeGv7bsfR4MheC1CkmnAVceoApjrkvBhHYjWb67ondo"
+          }
+        },
+        {
+          "extension": "pausableConfig",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "paused": false
+          }
+        },
+        {
+          "extension": "defaultAccountState",
+          "state": {
+            "accountState": "initialized"
+          }
+        },
+        {
+          "extension": "confidentialTransferMint",
+          "state": {
+            "auditorElgamalPubkey": null,
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "autoApproveNewAccounts": false
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "programId": null
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "KeGv7bsfR4MheC1CkmnAVceoApjrkvBhHYjWb67ondo",
+            "name": "Tesla (Ondo Tokenized)",
+            "symbol": "TSLAon",
+            "updateAuthority": "9foMHsSDq7nMg4WPusSz9eY7tyxyukqborA8GyU5cUxD",
+            "uri": "https://app.ondo.finance/api/v2/assets/TSLAon/sol_metadata.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "BlackRock / Securitize",
+      "symbol": "BUIDL",
+      "mint": "GyWgeqpy5GueU2YbkE8xqUeVEokCMMCEeUrfbtMw6phr",
+      "source": "https://investors.securitize.io/news/news-details/2025/BlackRock-and-Securitize-Debut-New-BUIDL-Share-Class-on-Solana-Network-03-25-2025/default.aspx",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 6,
+      "supply": "804903650910000",
+      "mint_authority": "APm3MWbXfMMKAWgsDVnxcAGbLjvRxubPu1A8a5SA2kbJ",
+      "freeze_authority": "APm3MWbXfMMKAWgsDVnxcAGbLjvRxubPu1A8a5SA2kbJ",
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": "APm3MWbXfMMKAWgsDVnxcAGbLjvRxubPu1A8a5SA2kbJ",
+            "metadataAddress": "GyWgeqpy5GueU2YbkE8xqUeVEokCMMCEeUrfbtMw6phr"
+          }
+        },
+        {
+          "extension": "mintCloseAuthority",
+          "state": {
+            "closeAuthority": "APm3MWbXfMMKAWgsDVnxcAGbLjvRxubPu1A8a5SA2kbJ"
+          }
+        },
+        {
+          "extension": "transferHook",
+          "state": {
+            "authority": "APm3MWbXfMMKAWgsDVnxcAGbLjvRxubPu1A8a5SA2kbJ",
+            "programId": "FsE8mCJyvgMzqJbfHbJQm3iuf3cRZC6n2vZi1Q8rQCy2"
+          }
+        },
+        {
+          "extension": "permanentDelegate",
+          "state": {
+            "delegate": "APm3MWbXfMMKAWgsDVnxcAGbLjvRxubPu1A8a5SA2kbJ"
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "GyWgeqpy5GueU2YbkE8xqUeVEokCMMCEeUrfbtMw6phr",
+            "name": "BlackRock USD Institutional Digital Liquidity Fund",
+            "symbol": "BUIDL",
+            "updateAuthority": "APm3MWbXfMMKAWgsDVnxcAGbLjvRxubPu1A8a5SA2kbJ",
+            "uri": "https://metadata.securitize.io/buidl.json"
+          }
+        }
+      ]
+    },
+    {
+      "issuer": "BONK",
+      "symbol": "BONK",
+      "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+      "source": "https://www.coinbase.com/price/bonk",
+      "source_scope": "Exchange canonical listing + chain mint; issuer site did not expose address in fetched page.",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "decimals": 5,
+      "supply": "8799430565935949643",
+      "mint_authority": null,
+      "freeze_authority": null,
+      "extensions": []
+    },
+    {
+      "issuer": "Pump platform observation; independent issuer unverified",
+      "symbol": "PUMP_LIVE_SAMPLE",
+      "mint": "DLpVt2tTCsH6qecy4Gy7fx9mNWkVAUUyB8DTANSgpump",
+      "source": "RPC-pump-recent-tx-version1.json",
+      "source_scope": "Finalized Pump transaction postTokenBalances; live mint, not verified creation date, brand, or popularity.",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "decimals": 6,
+      "supply": "1000000000000000",
+      "mint_authority": null,
+      "freeze_authority": null,
+      "extensions": [
+        {
+          "extension": "metadataPointer",
+          "state": {
+            "authority": null,
+            "metadataAddress": "DLpVt2tTCsH6qecy4Gy7fx9mNWkVAUUyB8DTANSgpump"
+          }
+        },
+        {
+          "extension": "tokenMetadata",
+          "state": {
+            "additionalMetadata": [],
+            "mint": "DLpVt2tTCsH6qecy4Gy7fx9mNWkVAUUyB8DTANSgpump",
+            "name": "45-47 Coin",
+            "symbol": "45-47",
+            "updateAuthority": null,
+            "uri": "https://ipfs.io/ipfs/bafkreiehqawr2gz34tobqjz5sy43vhx4wjpmio6cd7k4esosdfgt2u2egi"
+          }
+        }
+      ]
+    }
+  ],
+  "scope": "Read-only mint state; no transfer execution, issuer approval, or Coffer compatibility established."
+}

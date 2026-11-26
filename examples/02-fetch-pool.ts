@@ -1,13 +1,13 @@
 /**
  * Example 02 — Fetch + parse pool state from chain.
  */
-import { CubicPoolClient, getConfig } from "../src";
+import { CofferPoolClient, getConfig } from "../src";
 import { PublicKey } from "@solana/web3.js";
 
 async function main() {
-  const cfg = getConfig("devnet");
-  const addr = new PublicKey(process.env.POOL_ADDRESS ?? "11111111111111111111111111111111");
-  const pool = new CubicPoolClient({
+  const cfg = getConfig("mainnet", { rpcEndpoint: process.env.RPC_URL });
+  const addr = new PublicKey(process.env.POOL_ADDRESS ?? "EFfVk5qcKBKEQXeWwWjVsnit3YqLNXNENUDW5Fxdfyjy");
+  const pool = new CofferPoolClient({
     config: cfg,
     poolAddress: addr,
   });
@@ -25,7 +25,7 @@ async function main() {
         `w=${(t.weightBps / 100).toFixed(2)}% ` +
         `actBal=${t.actualBalance.toString()} ` +
         `virtBal=${t.virtualBalance.toString()} ` +
-        `conc=${t.concentration.toFixed(4)}`
+        `conc=${t.concentrationFactor.toFixed(4)}`
     );
   }
   console.log(
@@ -33,8 +33,8 @@ async function main() {
     info.swapFeeRate,
     "protocolFeeRate=",
     info.protocolFeeRate,
-    "bptSupply=",
-    info.bptTotalSupply.toString()
+    "lpSupply=",
+    info.lpTotalSupply.toString()
   );
 }
 

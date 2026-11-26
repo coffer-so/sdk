@@ -1,49 +1,38 @@
-import { SLIPPAGE_PRECISION, SWAP_FEE_PRECISION } from "../config";
-
-/**
- * min_out = expected * (SLIPPAGE_PRECISION - slippage_hbps) / SLIPPAGE_PRECISION.
- * Matches `apply_slippage` in stld's math.rs.
- */
+import { SLIPPAGE_PRECISION, SWAP_FEE_PRECISION, PROTOCOL_FEE_PRECISION, MAX_SWAP_FEE_RATE, MAX_PROTOCOL_FEE_RATE } from "../config";
+import { assertInteger, assertU64 } from "./fixedPoint";
 export function applySlippage(expected: bigint, slippageHbps: number): bigint {
-  if (slippageHbps < 0 || slippageHbps > SLIPPAGE_PRECISION) {
-    throw new Error(`slippage: ${slippageHbps} out of [0, ${SLIPPAGE_PRECISION}]`);
-  }
-  const keep = BigInt(SLIPPAGE_PRECISION - slippageHbps);
-  return (expected * keep) / BigInt(SLIPPAGE_PRECISION);
+    assertU64(expected);
+    assertInteger(slippageHbps, 0, SLIPPAGE_PRECISION, "slippage");
+    return expected * BigInt(SLIPPAGE_PRECISION - slippageHbps) / BigInt(SLIPPAGE_PRECISION);
 }
-
-/**
- * fee = amount * rate / SWAP_FEE_PRECISION. Returns amount - fee.
- * Matches `apply_swap_fee`.
- */
+function ceilRatio(amount: bigint, rate: number, scale: number): bigint {
+    const numerator = amount * BigInt(rate), denominator = BigInt(scale);
+    return numerator / denominator + (numerator % denominator === 0n ? 0n : 1n);
+}
+/** Base fee rounds UP, exactly as swap.rs. Rate is in hundredths of bps. */
+export function calculateSwapFee(amount: bigint, swapFeeRate: number): bigint {
+    assertU64(amount);
+    assertInteger(swapFeeRate, 0, MAX_SWAP_FEE_RATE, "swap fee");
+    return assertU64(ceilRatio(amount, swapFeeRate, SWAP_FEE_PRECISION));
+}
+/** Protocol share of the input fee also rounds UP. Rate is in basis points. */
+export function calculateProtocolFee(fee: bigint, protocolFeeRate: number): bigint {
+    assertU64(fee);
+    assertInteger(protocolFeeRate, 0, MAX_PROTOCOL_FEE_RATE, "protocol fee");
+    return assertU64(ceilRatio(fee, protocolFeeRate, PROTOCOL_FEE_PRECISION));
+}
 export function applySwapFee(amount: bigint, swapFeeRate: number): bigint {
-  if (swapFeeRate < 0) throw new Error("swapFee: negative rate");
-  const fee = (amount * BigInt(swapFeeRate)) / BigInt(SWAP_FEE_PRECISION);
-  if (swapFeeRate > 0 && fee === 0n) {
-    throw new Error("swapFee: amount too small, fee rounds to zero");
-  }
-  return amount - fee;
+    return amount - calculateSwapFee(amount, swapFeeRate);
 }
-
-/**
- * LP-accessible balances: lp_actual = actual - pfo; lp_virtual scaled to
- * match. Used by the off-chain single-token quote in `math/singleToken`.
- */
-export function lpBalances(actual: bigint, virtualBal: bigint, pfo: bigint): { lpActual: bigint; lpVirtual: bigint } {
-  const lpActual = actual >= pfo ? actual - pfo : 0n;
-  const lpVirtual =
-    actual > 0n ? (virtualBal * lpActual) / actual : virtualBal;
-  return { lpActual, lpVirtual };
+/** Stored actual balances already exclude protocol fees. The third argument is retained for compatibility. */
+export function lpBalances(actual: bigint, virtualBal: bigint, _protocolFeesOwed?: bigint): {
+    lpActual: bigint;
+    lpVirtual: bigint;
+} {
+    return { lpActual: assertU64(actual), lpVirtual: assertU64(virtualBal) };
 }
-
-/**
- * Price impact in hundredths of basis point: (spot - actual) / spot × 1_000_000.
- * 0 if spot is 0.
- */
 export function priceImpactHbps(spot: bigint, actual: bigint): number {
-  if (spot <= 0n) return 0;
-  if (actual >= spot) return 0;
-  const diff = spot - actual;
-  const hbps = (diff * BigInt(SLIPPAGE_PRECISION)) / spot;
-  return Number(hbps);
+    if (spot <= 0n || actual >= spot)
+        return 0;
+    return Number((spot - actual) * BigInt(SLIPPAGE_PRECISION) / spot);
 }

@@ -46,3 +46,6 @@ export function calcSpotPrice(params: {
   const denom = bO * weightInBps;
   return numer / denom;
 }
+
+// v6.1 (T2): `calculateInvariant` is gone — `seed_liquidity` mints the
+// creator-chosen `lp_amount`; no invariant is computed on chain any more.

@@ -36,8 +36,9 @@ describe("applySwapFee", () => {
     expect(applySwapFee(1_000_000n, 300)).toBe(999_700n);
   });
 
-  test("throws when non-zero fee rounds to zero", () => {
-    expect(() => applySwapFee(1n, 3000)).toThrow(/rounds to zero/);
+  test("non-zero fractional fee rounds up to one unit", () => {
+    expect(applySwapFee(1n, 3000)).toBe(0n);
+    expect(applySwapFee(3998n,1000)).toBe(3994n);
   });
 
   test("throws on negative rate", () => {
@@ -52,11 +53,11 @@ describe("lpBalances", () => {
     expect(lpVirtual).toBe(500n);
   });
 
-  test("pfo subtracted from actual; virt scaled by ratio", () => {
-    // actual=1000, pfo=100, virt=2000 → lpActual=900, lpVirt= 2000 * 900/1000 = 1800
+  test("stored actual excludes fees, so pending fees are not subtracted again", () => {
+    // Vault holdings are actual + pending fees.
     const { lpActual, lpVirtual } = lpBalances(1000n, 2000n, 100n);
-    expect(lpActual).toBe(900n);
-    expect(lpVirtual).toBe(1800n);
+    expect(lpActual).toBe(1000n);
+    expect(lpVirtual).toBe(2000n);
   });
 
   test("actual=0 returns virtual unchanged (frozen)", () => {

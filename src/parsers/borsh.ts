@@ -2,7 +2,7 @@ import BN from "bn.js";
 import { PublicKey } from "@solana/web3.js";
 
 /**
- * Minimal Borsh-compatible reader. Enough to decode the Cube contract
+ * Minimal Borsh-compatible reader. Enough to decode the Coffer contract
  * event structs (Pubkey × N, u8/u16/u32/u64/i64, bool, Vec<u64>,
  * Vec<Pubkey>). Avoids pulling a borsh dep into the SDK's hot path.
  */
@@ -14,35 +14,50 @@ export class BorshReader {
     return this.buf.length - this.offset;
   }
 
+  /** Current read position — pair with `seek` to re-parse an ambiguous tail. */
+  pos(): number {
+    return this.offset;
+  }
+
+  seek(offset: number): void {
+    this.offset = offset;
+  }
+
   skip(n: number): void {
+    this.requireBytes(n);
     this.offset += n;
   }
 
   u8(): number {
+    this.requireBytes(1);
     const v = this.buf.readUInt8(this.offset);
     this.offset += 1;
     return v;
   }
 
   u16(): number {
+    this.requireBytes(2);
     const v = this.buf.readUInt16LE(this.offset);
     this.offset += 2;
     return v;
   }
 
   u32(): number {
+    this.requireBytes(4);
     const v = this.buf.readUInt32LE(this.offset);
     this.offset += 4;
     return v;
   }
 
   u64(): BN {
+    this.requireBytes(8);
     const slice = this.buf.slice(this.offset, this.offset + 8);
     this.offset += 8;
     return new BN(slice, "le");
   }
 
   i64(): BN {
+    this.requireBytes(8);
     const slice = this.buf.slice(this.offset, this.offset + 8);
     this.offset += 8;
     // i64 is two's complement little-endian — treat as signed.
@@ -55,10 +70,13 @@ export class BorshReader {
   }
 
   bool(): boolean {
-    return this.u8() !== 0;
+    const value = this.u8();
+    if (value > 1) throw new Error(`BorshReader: invalid bool ${value}`);
+    return value === 1;
   }
 
   pubkey(): PublicKey {
+    this.requireBytes(32);
     const slice = this.buf.slice(this.offset, this.offset + 32);
     this.offset += 32;
     return new PublicKey(slice);
@@ -66,15 +84,83 @@ export class BorshReader {
 
   vecU64(): BN[] {
     const len = this.u32();
+    this.requireBytes(len * 8);
     const out: BN[] = [];
     for (let i = 0; i < len; i++) out.push(this.u64());
     return out;
   }
 
+  vecI64(): BN[] {
+    const len = this.u32();
+    this.requireBytes(len * 8);
+    const out: BN[] = [];
+    for (let i = 0; i < len; i++) out.push(this.i64());
+    return out;
+  }
+
+  /** Borsh `String`: u32 LE byte length + UTF-8 bytes. */
+  string(): string {
+    const len = this.u32();
+    this.requireBytes(len);
+    const s = this.buf.toString("utf8", this.offset, this.offset + len);
+    this.offset += len;
+    return s;
+  }
+
+  /** Borsh `Vec<u8>` / `bytes`. */
+  bytes(): Buffer {
+    const len = this.u32();
+    this.requireBytes(len);
+    const b = Buffer.from(this.buf.subarray(this.offset, this.offset + len));
+    this.offset += len;
+    return b;
+  }
+
   vecPubkey(): PublicKey[] {
     const len = this.u32();
+    this.requireBytes(len * 32);
     const out: PublicKey[] = [];
     for (let i = 0; i < len; i++) out.push(this.pubkey());
     return out;
+  }
+
+  /** Borsh `Vec<bool>` (one canonical byte per entry). */
+  vecBool(): boolean[] {
+    const len = this.u32();
+    this.requireBytes(len);
+    const out: boolean[] = [];
+    for (let i = 0; i < len; i++) out.push(this.bool());
+    return out;
+  }
+
+  /** Borsh `Vec<T>` with a per-element reader (nested structs). */
+  vec<T>(read: (r: BorshReader) => T): T[] {
+    const len = this.u32();
+    if (len > this.remaining()) throw new Error(`BorshReader: vector length ${len} exceeds the ${this.remaining()} remaining bytes`);
+    const out: T[] = [];
+    for (let i = 0; i < len; i++) out.push(read(this));
+    return out;
+  }
+
+  /** Borsh fixed `[u8; n]`. */
+  u8Array(n: number): Buffer {
+    this.requireBytes(n);
+    const b = Buffer.from(this.buf.subarray(this.offset, this.offset + n));
+    this.offset += n;
+    return b;
+  }
+
+  /** Borsh `Option<T>`: tag byte `0` ⇒ `null`, `1` ⇒ value; any other tag is a wire error. */
+  option<T>(read: (r: BorshReader) => T): T | null {
+    const tag = this.u8();
+    if (tag === 0) return null;
+    if (tag !== 1) throw new Error(`BorshReader: invalid Option tag ${tag}`);
+    return read(this);
+  }
+
+  private requireBytes(length: number): void {
+    if (!Number.isSafeInteger(length) || length < 0 || length > this.remaining()) {
+      throw new Error(`BorshReader: expected ${length} bytes at offset ${this.offset}, ${this.remaining()} remain`);
+    }
   }
 }

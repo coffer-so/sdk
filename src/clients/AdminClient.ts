@@ -2,59 +2,105 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import {
   AccountMeta,
+  AddressLookupTableProgram,
+  SYSVAR_CLOCK_PUBKEY,
+  SYSVAR_RENT_PUBKEY,
   Connection,
   PublicKey,
   SystemProgram,
 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
-import { CubeConfig } from "../config";
+import { CofferConfig } from "../config";
 import { PROTOCOL_ADMIN_IDL } from "../idl";
-import { deriveTreasuryPda } from "../utils/pda";
+import { buildContractInstruction } from "./contract-instructions";
+import { deriveAltAddress } from "./tx-builders";
+import { deriveHelperPda, deriveTreasuryPda } from "../utils/pda";
+import { PoolInfo } from "../types/pool";
+import { ProtocolAction, proposeActionRemainingAccounts, protocolActionKindName, protocolActionKindOf } from "./cooldown";
+import { buildCollectProtocolFeesIx, treasuryVaultPda } from "./feeClaim";
+import { buildExecutePoolSetLpTransferFeeProtocolShareIx, buildPoolRedeemLpTransferFeesIx, buildPoolSetLpTransferFeeProtocolShareIx } from "./lpTransferFee";
+import { PROTOCOL_ACTION_KIND, type ProtocolActionKindName } from "../parsers/layout";
+
+/** Upstream BPF upgradeable loader; ProgramData PDA = findPda([programId]). */
+export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+);
 
 /**
  * AdminClient — wraps `protocol_admin` with treasury-routed admin
  * operations.
  *
- * The cubic_pool program enforces that every admin instruction must be
+ * The coffer_pool program enforces that every admin instruction must be
  * signed by the Treasury PDA (`seeds = [b"treasury"]`, owned by
  * protocol_admin). This client builds the canonical flow:
  *
  *     admin wallet
  *       → protocol_admin.<wrapper>     (treasury.admin == signer)
- *       → CPI cubic_pool.<admin_ix>             (signer == TREASURY_PDA)
+ *       → CPI coffer_pool.<admin_ix>             (signer == TREASURY_PDA)
  *
- * Direct calls into cubic_pool admin instructions will fail on-chain.
+ * Direct calls into coffer_pool admin instructions will fail on-chain.
  *
- * Note: every method returns a `TransactionInstruction`. Compose into a tx
+ * Instruction methods return a `TransactionInstruction` (or a Promise of it). Compose into a tx
  * with `@solana/web3.js` and sign with the admin wallet.
+ *
+ * Current source restricts the supervisor to circuit-breaker actions:
+ * freeze, deactivate, disable the range manager and veto queued actions.
+ * Unfreeze, reactivation and other governance operations require admin.
+ * Program configuration alone does not verify a deployed revision.
+
  */
 export class AdminClient {
   readonly program: Program;
-  readonly cubicPoolProgramId: PublicKey;
+  readonly config: CofferConfig;
+  readonly cofferPoolProgramId: PublicKey;
+  readonly stldProgramId: PublicKey;
   readonly treasuryPda: PublicKey;
 
-  constructor(opts: { config: CubeConfig; provider: anchor.AnchorProvider }) {
+  constructor(opts: { config: CofferConfig; provider: anchor.AnchorProvider }) {
     const { config, provider } = opts;
+    this.config = config;
     const idl = JSON.parse(JSON.stringify(PROTOCOL_ADMIN_IDL)) as any;
     idl.address = config.programs.protocolAdmin.toString();
     this.program = new Program(idl, provider) as any;
-    this.cubicPoolProgramId = config.programs.cubicPool;
+    this.cofferPoolProgramId = config.programs.cofferPool;
+    this.stldProgramId = config.programs.singleTokenLiquidity;
     [this.treasuryPda] = deriveTreasuryPda(config.programs.protocolAdmin);
   }
 
   /**
-   * Idempotent treasury init. Returns true if a new treasury was created.
-   * Caller becomes the initial `treasury.admin`.
+   * ProgramData PDA of the protocol-admin program itself, under the
+   * upgradeable BPF loader. `initialize` is gated on it (audit L-5): only
+   * the key that can upgrade the program may bootstrap its Treasury.
    */
-  async initializeTreasuryIfMissing(connection: Connection, admin: PublicKey): Promise<boolean> {
+  programDataPda(): PublicKey {
+    const [programData] = PublicKey.findProgramAddressSync(
+      [this.program.programId.toBuffer()],
+      BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    );
+    return programData;
+  }
+
+  /**
+   * Idempotent treasury init. Returns true if a new treasury was created.
+   * `admin` becomes the initial `treasury.admin`.
+   *
+   * ⚠ v5.1 (audit L-5) added the `program_data` account: the signer must be
+   * the protocol-admin program's current upgrade authority, otherwise this
+   * reverts. `admin` may not be the all-zero pubkey (`InvalidAdmin`, 6009).
+   */
+  async initializeTreasuryIfMissing(connection: Connection, admin: PublicKey, payer: PublicKey = admin): Promise<boolean> {
     const info = await connection.getAccountInfo(this.treasuryPda);
     if (info) return false;
+    if (admin.equals(PublicKey.default)) {
+      throw new Error("AdminClient: admin cannot be the default (all-zero) pubkey");
+    }
     await (this.program.methods as any)
       .initialize(admin)
       .accounts({
         treasury: this.treasuryPda,
-        payer: admin,
+        payer,
+        programData: this.programDataPda(),
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -86,7 +132,11 @@ export class AdminClient {
 
   // ── Treasury vault management ────────────────────────────────────────────
 
+  /** v6: the vault is created under whichever program owns `mint` (SPL Token or Token-2022). */
   registerTokenIx(admin: PublicKey, mint: PublicKey, tokenProgram = TOKEN_PROGRAM_ID) {
+    if (!tokenProgram.equals(TOKEN_PROGRAM_ID) && !tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+      throw new Error("Treasury vaults support SPL Token and Token-2022 only");
+    }
     const [vault] = PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), mint.toBuffer()],
       this.program.programId,
@@ -104,13 +154,26 @@ export class AdminClient {
       .instruction();
   }
 
+  /**
+   * Withdraw from a registered treasury vault.
+   *
+   * v6 pays out with `transfer_checked`, so the mint is an account of the
+   * instruction (pinned to `vault.mint` on chain) and Token-2022 vaults are
+   * supported. For a mint with a transfer fee the vault is debited `amount`
+   * while the recipient is credited `amount − fee`. `extraAccounts` is the
+   * optional transfer-hook / memo tail (see `resolveTransferExtraAccounts`).
+   */
   withdrawIx(
     admin: PublicKey,
     mint: PublicKey,
     recipient: PublicKey,
     amount: BN,
     tokenProgram = TOKEN_PROGRAM_ID,
+    extraAccounts: AccountMeta[] = [],
   ) {
+    if (!tokenProgram.equals(TOKEN_PROGRAM_ID) && !tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+      throw new Error("Treasury vaults support SPL Token and Token-2022 only");
+    }
     const [vault] = PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), mint.toBuffer()],
       this.program.programId,
@@ -119,10 +182,71 @@ export class AdminClient {
       .withdraw(amount)
       .accounts({
         treasury: this.treasuryPda,
+        mint,
         vault,
         recipient,
         admin,
         tokenProgram,
+      })
+      .remainingAccounts(extraAccounts.map(assertTailMeta))
+      .instruction();
+  }
+
+  // ── Program upgrade authority ────────────────────────────────────────────
+
+  /**
+   * Hand the upgrade authority for `program` to `newAuthority`.
+   *
+   * ⚠ v5.1 (audit M-3) removed the `new_authority` ARGUMENT and made it an
+   * ACCOUNT that must **co-sign**: the loader's `SetAuthorityChecked` is
+   * used so a mistyped destination cannot take the authority
+   * irrecoverably. The returned instruction therefore has two required
+   * signers — the current `admin` and `newAuthority`. Both must sign the
+   * transaction or it fails signature verification before it ever reaches
+   * the program.
+   */
+  transferUpgradeAuthorityIx(
+    admin: PublicKey,
+    program: PublicKey,
+    newAuthority: PublicKey,
+  ) {
+    const [programdata] = PublicKey.findProgramAddressSync(
+      [program.toBuffer()],
+      BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    );
+    return (this.program.methods as any)
+      .transferUpgradeAuthority()
+      .accounts({
+        treasury: this.treasuryPda,
+        admin,
+        program,
+        programdata,
+        newAuthority,
+        bpfLoaderUpgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+      })
+      .instruction();
+  }
+
+  /**
+   * Make `program` permanently non-upgradeable.
+   *
+   * ⚠ v5.1 (audit M-3) dropped `new_authority_info` and added `program`:
+   * the account list is `[treasury, admin, program, programdata,
+   * bpf_loader_upgradeable]`. This is irreversible.
+   */
+  freezePoolProgramIx(admin: PublicKey, program: PublicKey) {
+    const [programdata] = PublicKey.findProgramAddressSync(
+      [program.toBuffer()],
+      BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    );
+    return (this.program.methods as any)
+      .freezePoolProgram()
+      .accounts({
+        treasury: this.treasuryPda,
+        admin,
+        program,
+        programdata,
+        bpfLoaderUpgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
       })
       .instruction();
   }
@@ -136,7 +260,7 @@ export class AdminClient {
         treasury: this.treasuryPda,
         admin,
         config,
-        cubicPoolProgram: this.cubicPoolProgramId,
+        cofferPoolProgram: this.cofferPoolProgramId,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -144,8 +268,7 @@ export class AdminClient {
 
   // setSwapFeeRate has been removed from the protocol-admin wrapper —
   // it's a level-1 (pool-admin) instruction, signed directly by the
-  // wallet stored in `pool.pool_admin`. Use `CubicPoolClient` for that
-  // call instead.
+  // wallet stored in `pool.pool_admin`. Use buildSetSwapFeeRateIx instead.
 
   setProtocolFeeRateIx(admin: PublicKey, config: PublicKey, pool: PublicKey, protocolFeeRate: number) {
     return (this.program.methods as any)
@@ -168,59 +291,492 @@ export class AdminClient {
       .instruction();
   }
 
-  setBannedExtensionsIx(admin: PublicKey, config: PublicKey, banned: BN) {
+  /**
+   * Drain lamports from a single-token-liquidity helper PDA.
+   *
+   * ⚠ v5.1 (audit L-8 / SF-12) added the `pool` and `system_program`
+   * accounts. `pool` is not merely a seed source: the program checks it
+   * belongs to `config`, closing the hole where the admin of one config
+   * could drain a helper governed by another.
+   */
+  stldWithdrawSolIx(
+    admin: PublicKey,
+    config: PublicKey,
+    pool: PublicKey,
+    source: PublicKey,
+    recipient: PublicKey,
+    amount: BN,
+  ) {
     return (this.program.methods as any)
-      .poolSetBannedExtensions(banned)
+      .stldWithdrawSol(amount)
       .accounts({
         treasury: this.treasuryPda,
         admin,
         config,
-        cubicPoolProgram: this.cubicPoolProgramId,
+        pool,
+        source,
+        recipient,
+        systemProgram: SystemProgram.programId,
+        stldProgram: this.stldProgramId,
       })
       .instruction();
   }
 
   /**
-   * Collects protocol fees from a pool to the supplied recipient ATAs.
+   * `stld_close_helper_token_account`: sweep and close a token account left
+   * on a pool's single-token-liquidity helper PDA (`[b"helper", pool]`).
+   * Instant (no cooldown): any balance can only reach the Treasury vault PDA
+   * of its mint (`[b"vault", mint]`, registered or not — it is read only when
+   * there is a balance) and the rent only the Treasury PDA. The helper PDA is
+   * derived here; `tail` carries the Token-2022 transfer-hook accounts of the
+   * sweep (never signers). STLD refuses the close while the account still
+   * holds withheld transfer fees (harvest them first) and, for a
+   * Token-2022 mint, harvests the account's own withheld amount to the mint
+   * before closing.
+   */
+  stldCloseHelperTokenAccountIx(
+    admin: PublicKey,
+    config: PublicKey,
+    pool: PublicKey,
+    helperTokenAccount: PublicKey,
+    mint: PublicKey,
+    tokenProgram: PublicKey = TOKEN_PROGRAM_ID,
+    tail: AccountMeta[] = [],
+  ) {
+    if (tail.some((meta) => meta.isSigner)) throw new Error("stld_close_helper_token_account: tail accounts cannot be signers");
+    const [helper] = deriveHelperPda(this.stldProgramId, pool);
+    return buildContractInstruction(this.config, "protocolAdmin", "stld_close_helper_token_account", {}, {
+      treasury: this.treasuryPda, admin, config, pool, helper, helper_token_account: helperTokenAccount, mint,
+      vault: treasuryVaultPda(mint, this.config.programs.protocolAdmin), token_program: tokenProgram, stld_program: this.stldProgramId,
+    }, tail.map((meta) => ({ pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable })));
+  }
+
+  // ── Circuit breaker (admin OR supervisor) ────────────────────────────────
+
+  /**
+   * Batch-freeze pools. `pairs` are `[config, pool]` tuples passed via
+   * remaining_accounts.
    *
-   * `vaults` / `recipients` / `tokenPrograms` must be aligned with
-   * `pool.token_mints` (one entry per token in pool order).
+   * Authority: treasury.admin or treasury.supervisor (restrictive direction).
+   */
+  freezePoolsIx(authority: PublicKey, pairs: Array<{ config: PublicKey; pool: PublicKey }>) {
+    return (this.program.methods as any)
+      .freezePools()
+      .accounts({
+        treasury: this.treasuryPda,
+        authority,
+        cofferPoolProgram: this.cofferPoolProgramId,
+      })
+      .remainingAccounts(this.configPoolRemaining(pairs, /* poolWritable */ true))
+      .instruction();
+  }
+
+  /**
+   * Batch-unfreeze pools — mirror of {@link freezePoolsIx}.
+   *
+   * Current source requires treasury.admin; cooldown applies when configured.
+   */
+  unfreezePoolsIx(admin: PublicKey, pairs: Array<{ config: PublicKey; pool: PublicKey }>) {
+    return (this.program.methods as any)
+      .unfreezePools()
+      .accounts({
+        treasury: this.treasuryPda,
+        authority: admin,
+        cofferPoolProgram: this.cofferPoolProgramId,
+      })
+      .remainingAccounts(this.configPoolRemaining(pairs, /* poolWritable */ true))
+      .instruction();
+  }
+
+  /**
+   * Flip a token's input kill switch on a pool.
+   *
+   * Admin may set either value; supervisor may deactivate only. Reactivation is queued when cooldown is configured.
+   */
+  setTokenActiveIx(
+    authority: PublicKey,
+    config: PublicKey,
+    pool: PublicKey,
+    tokenIndex: number,
+    isActive: boolean,
+  ) {
+    return (this.program.methods as any)
+      .poolSetTokenActive(tokenIndex, isActive)
+      .accounts({
+        treasury: this.treasuryPda,
+        authority,
+        config,
+        pool,
+        cofferPoolProgram: this.cofferPoolProgramId,
+      })
+      .instruction();
+  }
+
+  /**
+   * Set or revoke the supervisor pubkey. Admin only. Pass
+   * `PublicKey.default` to revoke.
+   *
+   * Supervisor authority is restrictive only. Setting or revoking it is admin-only and follows the configured cooldown.
+   */
+  setSupervisorIx(admin: PublicKey, newSupervisor: PublicKey) {
+    return (this.program.methods as any)
+      .setSupervisor(newSupervisor)
+      .accounts({
+        treasury: this.treasuryPda,
+        admin,
+      })
+      .instruction();
+  }
+
+  /**
+   * Collects protocol fees from a pool to the supplied recipient accounts.
+   *
+   * v6 layout: `[vault_i, recipient_i, mint_i, token_program_i]` per token
+   * in pool order, then the optional transfer-hook / memo tail. For a mint
+   * with a transfer fee the recipient receives `fees − transfer_fee`; the
+   * counter is cleared either way.
    */
   collectProtocolFeesIx(
     admin: PublicKey,
     config: PublicKey,
     pool: PublicKey,
-    vaults: PublicKey[],
-    recipients: PublicKey[],
-    tokenPrograms: PublicKey[] = vaults.map(() => TOKEN_PROGRAM_ID),
+    tokens: PoolTokenTransferAccounts,
   ) {
-    const remaining: AccountMeta[] = this.tripleRemaining(vaults, recipients, tokenPrograms);
     return (this.program.methods as any)
       .poolCollectProtocolFees()
       .accounts({ ...this.poolAdminAccounts(admin, config, pool) })
-      .remainingAccounts(remaining)
+      .remainingAccounts(quadRemaining(tokens))
       .instruction();
   }
 
   /**
    * Emergency drain. Pool must be paused first. `amounts.length` must equal
-   * the pool's token_count; pass 0 to skip a token.
+   * the pool's token_count; pass 0 to skip a token. Same v6 account layout
+   * as `collectProtocolFeesIx`.
    */
   debugWithdrawLiquidityIx(
     admin: PublicKey,
     config: PublicKey,
     pool: PublicKey,
     amounts: BN[],
-    vaults: PublicKey[],
-    recipients: PublicKey[],
-    tokenPrograms: PublicKey[] = vaults.map(() => TOKEN_PROGRAM_ID),
+    tokens: PoolTokenTransferAccounts,
   ) {
-    const remaining: AccountMeta[] = this.tripleRemaining(vaults, recipients, tokenPrograms);
+    if (amounts.length !== tokens.vaults.length) throw new Error("AdminClient: amounts must have one entry per pool token");
     return (this.program.methods as any)
       .poolDebugWithdrawLiquidity(amounts)
       .accounts({ ...this.poolAdminAccounts(admin, config, pool) })
-      .remainingAccounts(remaining)
+      .remainingAccounts(quadRemaining(tokens))
       .instruction();
+  }
+
+  /** Build Treasury initialization without sending. Payer must be the current
+   * protocol-admin upgrade authority; the assigned admin may be a different key.
+   */
+  initializeTreasuryIx(payer: PublicKey, admin: PublicKey) {
+    if (admin.equals(PublicKey.default)) throw new Error("Admin cannot be the default pubkey");
+    return buildContractInstruction(this.config, "protocolAdmin", "initialize", { admin }, {
+      treasury: this.treasuryPda, payer, program_data: this.programDataPda(), system_program: SystemProgram.programId,
+    });
+  }
+
+  upgradePoolProgramIx(admin: PublicKey, program: PublicKey, buffer: PublicKey, spill: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "upgrade_pool_program", {}, {
+      treasury: this.treasuryPda, admin, programdata: this.deriveProgramData(program),
+      program_to_upgrade: program, buffer, spill, rent: SYSVAR_RENT_PUBKEY,
+      clock: SYSVAR_CLOCK_PUBKEY, bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /** Closing a program disables it and returns its storage balance. */
+  closePoolProgramIx(admin: PublicKey, program: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "close_pool_program", {}, {
+      treasury: this.treasuryPda, admin, programdata: this.deriveProgramData(program),
+      program_to_close: program, recipient, bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /**
+   * rc2 `close_upgrade_buffer`: close a loader `Buffer` whose authority is the
+   * Treasury PDA and refund its rent to `recipient` (recovery after a cancelled
+   * or superseded upgrade proposal). Instant, admin-only; the buffer of the
+   * pending proposal is refused until that proposal is cancelled.
+   */
+  closeUpgradeBufferIx(admin: PublicKey, buffer: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "close_upgrade_buffer", {}, {
+      treasury: this.treasuryPda, admin, buffer, recipient, bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  withdrawSolIx(admin: PublicKey, recipient: PublicKey, amount: BN) {
+    return buildContractInstruction(this.config, "protocolAdmin", "withdraw_sol", { amount }, { treasury: this.treasuryPda, admin, recipient });
+  }
+
+  poolWithdrawSolIx(admin: PublicKey, config: PublicKey, source: PublicKey, recipient: PublicKey, amount: BN) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_withdraw_sol", { amount }, {
+      treasury: this.treasuryPda, admin, config, source, recipient, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  poolInitializeAltIx(admin: PublicKey, config: PublicKey, pool: PublicKey, recentSlot: BN) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_initialize_alt", { recent_slot: recentSlot }, {
+      treasury: this.treasuryPda, admin, pool, config,
+      lookup_table: deriveAltAddress(this.treasuryPda, recentSlot), system_program: SystemProgram.programId,
+      alt_program: AddressLookupTableProgram.programId, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  poolInitiateProtocolAdminTransferIx(admin: PublicKey, config: PublicKey, newAdmin: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_initiate_protocol_admin_transfer", { new_admin: newAdmin }, {
+      treasury: this.treasuryPda, admin, config, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  poolAcceptProtocolAdminTransferIx(admin: PublicKey, config: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_accept_protocol_admin_transfer", {}, {
+      treasury: this.treasuryPda, admin, config, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  poolCancelProtocolAdminTransferIx(admin: PublicKey, config: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_cancel_protocol_admin_transfer", {}, {
+      treasury: this.treasuryPda, admin, config, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  private deriveProgramData(program: PublicKey): PublicKey {
+    return PublicKey.findProgramAddressSync([program.toBuffer()], BPF_LOADER_UPGRADEABLE_PROGRAM_ID)[0];
+  }
+
+  // ── v6.1 (T5) protocol-fee claim to the Treasury vault PDAs ──────────────
+
+  /** Treasury vault PDA `[b"vault", mint]` — the ONLY recipient `pool_collect_protocol_fees` accepts since v6.1 (T5). */
+  treasuryVaultPda(mint: PublicKey): PublicKey {
+    return treasuryVaultPda(mint, this.program.programId);
+  }
+
+  /**
+   * `pool_collect_protocol_fees` with recipients forced to the Treasury
+   * vault PDAs (`InvalidVault` otherwise) and placeholders for zero-owed
+   * slots. Register each fee-bearing mint first (`registerTokenIx`). The
+   * instruction stays instant under the T3 cooldown.
+   */
+  collectProtocolFeesToTreasuryIx(admin: PublicKey, pool: PoolInfo, tail: AccountMeta[] = []) {
+    return buildCollectProtocolFeesIx({ cfg: this.config, abi: "v61", pool, admin, tail });
+  }
+
+  // ── v6.1 (T6 / T9) emergency switches (admin OR supervisor where noted) ──
+
+  /** T6: disable the pool's range manager (admin or supervisor; refused with `RangeManagerLocked` on a locked pool). */
+  poolDisableRangeManagerIx(authority: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_disable_range_manager", {}, {
+      treasury: this.treasuryPda, authority, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** T9: flip the pool's `hook_disabled` switch (admin only, instant, idempotent; the pool must have a hook). */
+  setHookDisabledIx(admin: PublicKey, config: PublicKey, pool: PublicKey, disabled: boolean) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_set_hook_disabled", { disabled }, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /**
+   * T22: `pool_rescale_virtual_balances(multiplier)` — multiply every slot's
+   * `virtual_balance` by `multiplier ≥ 2` (price-neutral; repairs a legacy
+   * pool at `V ≤ A` or below the per-slot floor). Admin only, D-class: direct
+   * while `Treasury.delay_secs == 0`, else queue
+   * `ProtocolActions.poolRescaleVirtualBalances` (kind 13). Allowed on a
+   * frozen pool. Preview with `CofferPoolClient.quoteRescaleVirtualBalances`.
+   */
+  poolRescaleVirtualBalancesIx(admin: PublicKey, config: PublicKey, pool: PublicKey, multiplier: BN | bigint | number) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_rescale_virtual_balances", { multiplier: rescaleMultiplierArg(multiplier) }, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** T22: `execute_pool_rescale_virtual_balances` for a ready kind-13 slot (the stored `{ pool, multiplier }` is applied). */
+  executePoolRescaleVirtualBalancesIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_rescale_virtual_balances", {}, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** Restore a range manager disabled by the protocol (delayed when a Treasury cooldown is set). */
+  poolEnableRangeManagerIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "pool_enable_range_manager", {}, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  executePoolEnableRangeManagerIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_enable_range_manager", {}, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  // ── LP transfer fee (2026-11-19) ─────────────────────────────────────────
+
+  /**
+   * `pool_set_lp_transfer_fee_protocol_share(bps)`: the protocol share
+   * (0..=10_000 bps) of every LP transfer fee `collect_lp_transfer_fees`
+   * books for `pool`; the rest is burned. Admin only, D-class: direct while
+   * `Treasury.delay_secs == 0`, else queue
+   * `ProtocolActions.poolSetLpTransferFeeProtocolShare` (kind 15) and run
+   * `executePoolSetLpTransferFeeProtocolShareIx`. Never retroactive.
+   */
+  poolSetLpTransferFeeProtocolShareIx(admin: PublicKey, config: PublicKey, pool: PublicKey, bps: number) {
+    return buildPoolSetLpTransferFeeProtocolShareIx(this.config, { admin, config, pool, bps });
+  }
+
+  /** `execute_pool_set_lp_transfer_fee_protocol_share` for a ready kind-15 slot (`pool` must hash to the slot's `pool_tag`). */
+  executePoolSetLpTransferFeeProtocolShareIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildExecutePoolSetLpTransferFeeProtocolShareIx(this.config, { admin, config, pool });
+  }
+
+  /**
+   * `pool_redeem_lp_transfer_fees`: burn the pool's
+   * `lp_transfer_fees_owed_protocol` LP from its LP fee account and pay the
+   * pro-rata reserves + surge bucket (no withdraw fee) into the Treasury
+   * vault PDAs (`InvalidVault` for any other recipient). Instant like
+   * `pool_collect_protocol_fees`; register every pool mint first
+   * (`registerTokenIx`). `tail` = Token-2022 transfer-hook / memo accounts.
+   */
+  poolRedeemLpTransferFeesIx(admin: PublicKey, pool: PoolInfo, tail: AccountMeta[] = []) {
+    return buildPoolRedeemLpTransferFeesIx(this.config, { admin, pool, tail });
+  }
+
+  // ── v6.1 (T3) protocol-admin cooldown queue ──────────────────────────────
+
+  /**
+   * Grow a 786 / 818-byte Treasury to the 1624-byte v3 layout (admin pays
+   * the rent delta). Required once after the v6.1 upgrade: until then every
+   * typed Treasury instruction fails to deserialise. `AlreadyMigrated` at 1624.
+   */
+  migrateTreasuryLayoutV61Ix(admin: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "migrate_treasury_layout_v61", {}, {
+      treasury: this.treasuryPda, admin, system_program: SystemProgram.programId,
+    });
+  }
+
+  /** `set_delay(secs)`: the protocol-admin cooldown (0..=30 d). Direct only while the delay is 0; otherwise queue `SetDelay`. */
+  setDelayIx(admin: PublicKey, secs: number) {
+    if (!Number.isInteger(secs) || secs < 0 || secs > 30 * 86_400) throw new Error("set_delay: secs must be 0..=2_592_000 (DelayTooLarge)");
+    return buildContractInstruction(this.config, "protocolAdmin", "set_delay", { secs }, { treasury: this.treasuryPda, admin });
+  }
+
+  /**
+   * `propose_action(action)` — admin only; one live slot per kind
+   * (re-proposing overwrites). `UpgradeProgram` carries the buffer as
+   * remaining account 0 (its authority must already be the Treasury PDA).
+   */
+  proposeActionIx(admin: PublicKey, action: ProtocolAction, remaining: AccountMeta[] = proposeActionRemainingAccounts(action)) {
+    protocolActionKindOf(action);
+    return buildContractInstruction(this.config, "protocolAdmin", "propose_action", { action }, { treasury: this.treasuryPda, admin }, remaining);
+  }
+
+  /** `cancel_action(kind)` — admin OR supervisor (cancelling only restricts). Kind 0 cancels the pending admin transfer. */
+  cancelActionIx(authority: PublicKey, kind: number | ProtocolActionKindName) {
+    const k = PROTOCOL_ACTION_KIND[protocolActionKindName(kind)];
+    return buildContractInstruction(this.config, "protocolAdmin", "cancel_action", { kind: k }, { treasury: this.treasuryPda, authority });
+  }
+
+  executeSetDelayIx(admin: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_set_delay", {}, { treasury: this.treasuryPda, admin });
+  }
+
+  executeSetSupervisorIx(admin: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_set_supervisor", {}, { treasury: this.treasuryPda, admin });
+  }
+
+  /** `execute_withdraw`: the queued `Withdraw { mint, recipient, amount }`; accounts re-pinned against the slot. */
+  executeWithdrawIx(admin: PublicKey, mint: PublicKey, recipient: PublicKey, tokenProgram = TOKEN_PROGRAM_ID, extraAccounts: AccountMeta[] = []) {
+    if (!tokenProgram.equals(TOKEN_PROGRAM_ID) && !tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) throw new Error("Treasury vaults support SPL Token and Token-2022 only");
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_withdraw", {}, {
+      treasury: this.treasuryPda, mint, vault: this.treasuryVaultPda(mint), recipient, admin, token_program: tokenProgram,
+    }, extraAccounts.map(assertTailMeta));
+  }
+
+  /** `execute_withdraw_sol` (route 0 of the queued `WithdrawSol`). */
+  executeWithdrawSolIx(admin: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_withdraw_sol", {}, { treasury: this.treasuryPda, admin, recipient });
+  }
+
+  /** `execute_pool_withdraw_sol` (route 1). */
+  executePoolWithdrawSolIx(admin: PublicKey, config: PublicKey, source: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_withdraw_sol", {}, {
+      treasury: this.treasuryPda, admin, config, source, recipient, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** `execute_stld_withdraw_sol` (route 2). */
+  executeStldWithdrawSolIx(admin: PublicKey, config: PublicKey, pool: PublicKey, source: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_stld_withdraw_sol", {}, {
+      treasury: this.treasuryPda, admin, config, pool, source, recipient, system_program: SystemProgram.programId, stld_program: this.stldProgramId,
+    });
+  }
+
+  /** `execute_pool_debug_withdraw(amounts)`: the SAME amounts / recipients as proposed (the slot stores their hash). */
+  executePoolDebugWithdrawIx(admin: PublicKey, config: PublicKey, pool: PublicKey, amounts: BN[], tokens: PoolTokenTransferAccounts) {
+    if (amounts.length !== tokens.vaults.length) throw new Error("AdminClient: amounts must have one entry per pool token");
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_debug_withdraw", { token_amounts: amounts }, {
+      treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId,
+    }, quadRemaining(tokens));
+  }
+
+  executePoolSetProtocolFeeRateIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_set_protocol_fee_rate", {}, { treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId });
+  }
+
+  executePoolSetPoolEnabledIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_set_pool_enabled", {}, { treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId });
+  }
+
+  executePoolSetTokenActiveIx(admin: PublicKey, config: PublicKey, pool: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_set_token_active", {}, { treasury: this.treasuryPda, admin, config, pool, coffer_pool_program: this.cofferPoolProgramId });
+  }
+
+  /** `execute_unfreeze_pools` with the SAME `[config, pool]` pairs as proposed (the slot stores a hash of the pools). */
+  executeUnfreezePoolsIx(admin: PublicKey, pairs: Array<{ config: PublicKey; pool: PublicKey }>) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_unfreeze_pools", {}, {
+      treasury: this.treasuryPda, admin, coffer_pool_program: this.cofferPoolProgramId,
+    }, this.configPoolRemaining(pairs, true));
+  }
+
+  executePoolProtocolAdminTransferIx(admin: PublicKey, config: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_pool_protocol_admin_transfer", {}, {
+      treasury: this.treasuryPda, admin, config, coffer_pool_program: this.cofferPoolProgramId,
+    });
+  }
+
+  /** `execute_upgrade_program`: `buffer` must be the proposed one (still Treasury-owned); `spill` receives the buffer's lamports. */
+  executeUpgradeProgramIx(admin: PublicKey, program: PublicKey, buffer: PublicKey, spill: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_upgrade_program", {}, {
+      treasury: this.treasuryPda, admin, programdata: this.deriveProgramData(program), program_to_upgrade: program, buffer, spill,
+      rent: SYSVAR_RENT_PUBKEY, clock: SYSVAR_CLOCK_PUBKEY, bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /** `execute_transfer_upgrade_authority` (ProgramOp op 0): the new authority co-signs (checked loader variant). */
+  executeTransferUpgradeAuthorityIx(admin: PublicKey, program: PublicKey, newAuthority: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_transfer_upgrade_authority", {}, {
+      treasury: this.treasuryPda, admin, program, programdata: this.deriveProgramData(program), new_authority: newAuthority,
+      bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /** `execute_freeze_pool_program` (ProgramOp op 1) — irreversible. */
+  executeFreezePoolProgramIx(admin: PublicKey, program: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_freeze_pool_program", {}, {
+      treasury: this.treasuryPda, admin, program, programdata: this.deriveProgramData(program), bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
+  }
+
+  /** `execute_close_pool_program` (ProgramOp op 2). */
+  executeClosePoolProgramIx(admin: PublicKey, program: PublicKey, recipient: PublicKey) {
+    return buildContractInstruction(this.config, "protocolAdmin", "execute_close_pool_program", {}, {
+      treasury: this.treasuryPda, admin, programdata: this.deriveProgramData(program), program_to_close: program, recipient,
+      bpf_loader_upgradeable: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    });
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
@@ -231,24 +787,65 @@ export class AdminClient {
       admin,
       config,
       pool,
-      cubicPoolProgram: this.cubicPoolProgramId,
+      cofferPoolProgram: this.cofferPoolProgramId,
     };
   }
 
-  private tripleRemaining(
-    vaults: PublicKey[],
-    recipients: PublicKey[],
-    tokenPrograms: PublicKey[],
+  private configPoolRemaining(
+    pairs: Array<{ config: PublicKey; pool: PublicKey }>,
+    poolWritable: boolean,
   ): AccountMeta[] {
-    if (vaults.length !== recipients.length || vaults.length !== tokenPrograms.length) {
-      throw new Error("AdminClient: vaults/recipients/tokenPrograms must be the same length");
-    }
     const acc: AccountMeta[] = [];
-    for (let i = 0; i < vaults.length; i++) {
-      acc.push({ pubkey: vaults[i], isSigner: false, isWritable: true });
-      acc.push({ pubkey: recipients[i], isSigner: false, isWritable: true });
-      acc.push({ pubkey: tokenPrograms[i], isSigner: false, isWritable: false });
+    for (const { config, pool } of pairs) {
+      acc.push({ pubkey: config, isSigner: false, isWritable: false });
+      acc.push({ pubkey: pool, isSigner: false, isWritable: poolWritable });
     }
     return acc;
   }
+
+}
+
+/**
+ * Per-token accounts of a pool-level payout (`collect_protocol_fees`,
+ * `debug_withdraw_liquidity`), all index-aligned with the pool's token slots.
+ * `mints` and `tokenPrograms` come straight from `PoolInfo.tokens[i]`.
+ */
+export interface PoolTokenTransferAccounts {
+  vaults: PublicKey[];
+  recipients: PublicKey[];
+  mints: PublicKey[];
+  tokenPrograms: PublicKey[];
+  /** Optional transfer-hook / memo tail appended after the fixed ×4 block. */
+  extraAccounts?: AccountMeta[];
+}
+
+/** v6 remaining accounts: `[vault, recipient, mint, token_program] × N` + tail. */
+function quadRemaining(t: PoolTokenTransferAccounts): AccountMeta[] {
+  const n = t.vaults.length;
+  if (n === 0 || t.recipients.length !== n || t.mints.length !== n || t.tokenPrograms.length !== n) {
+    throw new Error("AdminClient: vaults/recipients/mints/tokenPrograms must be the same non-zero length");
+  }
+  const acc: AccountMeta[] = [];
+  for (let i = 0; i < n; i++) {
+    acc.push({ pubkey: t.vaults[i], isSigner: false, isWritable: true });
+    acc.push({ pubkey: t.recipients[i], isSigner: false, isWritable: true });
+    acc.push({ pubkey: t.mints[i], isSigner: false, isWritable: false });
+    acc.push({ pubkey: t.tokenPrograms[i], isSigner: false, isWritable: false });
+  }
+  for (const extra of t.extraAccounts ?? []) acc.push(assertTailMeta(extra));
+  return acc;
+}
+
+/** Tail accounts never carry a signer bit; the pool PDA is the only signer of the payout. */
+function assertTailMeta(meta: AccountMeta): AccountMeta {
+  if (meta.isSigner) throw new Error("AdminClient: transfer-hook / memo tail accounts cannot be signers");
+  return { pubkey: meta.pubkey, isSigner: false, isWritable: meta.isWritable };
+}
+
+/** `rescale_virtual_balances` multiplier as the coder's `u64` (`InvalidVirtualRescale` below 2 mirrors the program). */
+export function rescaleMultiplierArg(multiplier: BN | bigint | number): BN {
+  const m = BN.isBN(multiplier) ? multiplier : new BN(multiplier.toString());
+  if (m.isNeg() || m.bitLength() > 64) throw new Error("rescale_virtual_balances: multiplier must be an unsigned 64-bit integer");
+  if (m.ltn(2)) throw new Error("rescale_virtual_balances: multiplier must be ≥ 2 (InvalidVirtualRescale)");
+  return m;
 }

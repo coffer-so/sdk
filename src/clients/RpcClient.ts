@@ -94,6 +94,16 @@ export class RpcClient {
     }, retry);
   }
 
+  getMultipleAccountsWithInfo(
+    pks: PublicKey[],
+    retry: RetryOptions = {}
+  ): Promise<SdkResult<({ data: Buffer; owner: PublicKey; lamports: number } | null)[]>> {
+    return this.callWithFallback(async (conn) => {
+      const infos = await conn.getMultipleAccountsInfo(pks, this.defaultCommitment);
+      return infos.map((i) => i ? { data: i.data, owner: i.owner, lamports: i.lamports } : null);
+    }, retry);
+  }
+
   getSlot(retry: RetryOptions = {}): Promise<SdkResult<number>> {
     return this.callWithFallback((conn) => conn.getSlot(this.defaultCommitment), retry);
   }

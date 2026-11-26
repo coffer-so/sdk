@@ -1,0 +1,674 @@
+/**
+ * v6 planned single-token deposit: one bank snapshot → local plan → signed
+ * `deposit_single_token_planned`.
+ *
+ * Flow: `quote()` (one `getMultipleAccountsInfoAndContext` of pool, LP
+ * mint, every token mint and Clock) → `ensureUserTokenAccountIxs()` (sent
+ * first if any account is missing; the program needs every `user_token_i`
+ * and the LP account to exist) → `resolveExtraAccounts()` (hook/memo tail,
+ * `[]` for classic pools) → `buildIx()`/`buildTx()` → optional wallet ALT
+ * (`prepareWalletLookupTable`/`waitForWalletLookupTable`) →
+ * `compileTransaction()` → simulate → sign within the plan's validity
+ * (≤ 90 s and ≤ `validForSlots` after the snapshot; any change to the pool,
+ * the LP supply, a committed mint field or the epoch makes it
+ * `AllocationPlanStale`).
+ *
+ * The join is priced on the pool's priced LP supply (mint supply net of the
+ * vested LP burn stream, `pricedLpSupply`), as the program does.
+ *
+ * Sidelined slots (NAV 0) are passed but never touched: their mint may be
+ * closed and the user's token account need not exist.
+ *
+ * rc5: the same quote can be sent as `deposit_single_token_routed` (one pool
+ * CPI, 64 KiB heap frame) — `buildRoutedTx` / `depositRouted`, or
+ * `buildDepositTx` with the constructor's `route: "auto" | "planned" | "routed"`.
+ * A plan without a swap leg runs the planned path inside the routed entry point.
+ */
+import { AccountMeta, AddressLookupTableAccount, Commitment, ComputeBudgetProgram, Connection, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import { createAssociatedTokenAccountIdempotentInstruction, getExtraAccountMetaAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import BN from "bn.js";
+import { CofferConfig } from "../../config";
+import { SdkResult, err, ok } from "../../types/result";
+import { BuiltTx, PlannedZapQuoteOptions, SwapFeeSource } from "../../types/tx";
+import { HOOK_FLAGS, MAX_SWAP_FEE_RATE } from "../../config";
+import { RpcClient } from "../RpcClient";
+import { decodePoolAccount, RawPoolAccount } from "../../parsers/poolAccount";
+import { validateTransferMintSnapshot, validatePlannedZapLpMint } from "../../parsers/mintAccount";
+import { deriveAta, deriveLpMint } from "../../utils/pda";
+import { requireHookSlice } from "../../utils/hooks";
+import { tokenTransferBlockers, unsupportedMintExtensions } from "../../utils/extensions";
+import { selectEpochFee } from "../../math/transferFee";
+import { applySlippage } from "../../math/slippage";
+import { MathError } from "../../math/fixedPoint";
+import { quoteZap, replay, assertZapDepositRoundingLoss, QuotePool, SimError, ZapQuote } from "../../math/planner";
+import { DepositRoundingLossError } from "../../math/liquidityRounding";
+import { concentrationFactorViolations } from "../../math/concentrationFactor";
+import { SwapLeg } from "../../math/swapSim";
+import { resolveTransferExtraAccounts, TransferLeg, UnsupportedTransferProfileError } from "../../utils/transferProfile";
+import { lpBurnStreamOf, pricedLpSupply } from "../../math/lpTransferFee";
+import { nav } from "../../math/surgeBucket";
+import { MAX_VALID_FOR_SLOTS, SnapshotAccount, stateCommitment } from "./stateCommitment";
+import { AllocationPlan, buildDirectZapIx, DirectZapRoute, PlannedZapAccounts, PLANNED_ZAP_CU_LIMIT, PLANNED_ZAP_MAX_TOKENS, PLANNED_ZAP_MIN_TOKENS, ROUTED_ZAP_DISCRIMINATOR_HEX, routedZapComputeBudgetIxs, ROUTED_ZAP_HEAP_FRAME_BYTES } from "./instruction";
+import { AltConnection, buildWalletLookupPreparation, compilePlannedZapTransaction, CompiledPlannedZap, resolveWalletLookupTable, waitForWalletLookupTable, WalletLookupPreparation } from "./walletAlt";
+
+const DEFAULT_VALID_FOR_SLOTS = 120;
+const bn = (v: bigint): BN => new BN(v.toString());
+
+/**
+ * rc5 route selection for the direct zap:
+ * - `"planned"` (default): `deposit_single_token_planned` (k swap CPIs + one join CPI), works on every v6 / v6.1 deployment.
+ * - `"routed"`: always `deposit_single_token_routed` (one `swap_route_join_v1` CPI + a 64 KiB heap frame); fails on a deployment without it.
+ * - `"auto"`: probe the deployed STLD and coffer-pool programs once ({@link PlannedZapClient.probeRoutedSupport}) and use the routed
+ *   entry point only when BOTH carry it; anything else (absent, unknown, RPC failure) falls back to `"planned"`.
+ */
+export type PlannedZapRoute = "auto" | DirectZapRoute;
+
+export interface PlannedZapClientParams {
+  config: CofferConfig;
+  poolAddress: PublicKey;
+  rpc?: RpcClient | { endpoint?: string; endpoints?: string[]; fallbackEndpoints?: string[]; apiKey?: string; commitment?: Commitment; timeoutMs?: number };
+  /** rc5 entry-point selection; default `"planned"`. */
+  route?: PlannedZapRoute;
+}
+
+/** Outcome of one instruction-presence probe. */
+export type RoutedProbeStatus = "present" | "absent" | "unknown";
+
+/** {@link PlannedZapClient.probeRoutedSupport} result. */
+export interface RoutedSupport {
+  /** True only when both programs answered `present`. */
+  supported: boolean;
+  stld: RoutedProbeStatus;
+  cofferPool: RoutedProbeStatus;
+  /** Raw simulation errors / RPC failures, for logs. */
+  detail: { stld?: unknown; cofferPool?: unknown };
+}
+
+/** Built direct-zap transaction plus the entry point actually used. */
+export interface BuiltDirectZapTx extends BuiltTx {
+  route: DirectZapRoute;
+  /** Why `"auto"` / `"routed"` ended up on `"planned"` (absent on the requested route). */
+  fallbackReason?: string;
+}
+
+/** Anchor framework codes the presence probe distinguishes. */
+const ANCHOR_INSTRUCTION_FALLBACK_NOT_FOUND = 101;
+const ANCHOR_INSTRUCTION_DID_NOT_DESERIALIZE = 102;
+/** `swap_route_join_v1` discriminator (pinned in tx-builders as well). */
+const SWAP_ROUTE_JOIN_V1_DISCRIMINATOR_HEX = "c81d70ad5bfad0c2";
+/** Any 32-byte base58 value; `replaceRecentBlockhash` swaps it for a live one. */
+const PROBE_BLOCKHASH = PublicKey.default.toBase58();
+
+/**
+ * Classify a discriminator-only simulation. Anchor 0.32 dispatch: a known
+ * discriminator deserializes its arguments BEFORE touching accounts, so empty
+ * args fail with `InstructionDidNotDeserialize` (102); an unknown one is
+ * `InstructionFallbackNotFound` (101). No account is read, no state can move.
+ */
+export function classifyInstructionProbe(simulationErr: unknown): RoutedProbeStatus {
+  const ix = (simulationErr as { InstructionError?: [number, unknown] } | null)?.InstructionError;
+  const custom = (ix?.[1] as { Custom?: number } | undefined)?.Custom;
+  if (custom === ANCHOR_INSTRUCTION_DID_NOT_DESERIALIZE) return "present";
+  if (custom === ANCHOR_INSTRUCTION_FALLBACK_NOT_FOUND) return "absent";
+  return "unknown";
+}
+
+/** Simulate `[discriminator]` against `programId` with no accounts (no signature, no fee, no state). */
+export async function probeInstructionPresence(connection: Pick<Connection, "simulateTransaction">, payer: PublicKey, programId: PublicKey, discriminatorHex: string): Promise<{ status: RoutedProbeStatus; detail?: unknown }> {
+  try {
+    const message = new TransactionMessage({
+      payerKey: payer,
+      recentBlockhash: PROBE_BLOCKHASH,
+      instructions: [new TransactionInstruction({ programId, keys: [], data: Buffer.from(discriminatorHex, "hex") })],
+    }).compileToV0Message();
+    const res = await connection.simulateTransaction(new VersionedTransaction(message), { sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" });
+    const status = res.value.err ? classifyInstructionProbe(res.value.err) : "unknown";
+    return status === "present" ? { status } : { status, detail: res.value.err ?? "simulation unexpectedly succeeded" };
+  } catch (e) {
+    return { status: "unknown", detail: e };
+  }
+}
+
+/** Everything a caller needs to build, size and sign the planned deposit. */
+export interface PlannedZapQuote {
+  tokenInIndex: number;
+  amountIn: BN;
+  /** The signed plan: gross budget per slot, state hash, snapshot timestamp, expiry slot. */
+  plan: AllocationPlan;
+  /** Exact replay of the plan on the snapshot (bigint). */
+  economics: ZapQuote;
+  /** A feasible result may be suboptimal because a non-monotone LP grid stopped search. */
+  searchLimitation?: "deposit_rounding_grid";
+  /** `economics.lp` as BN: the LP the user receives, NET of the pool's deposit fee (v6.1 T7). */
+  estimatedLp: BN;
+  /** LP the proportional join computes before the deposit fee (`economics.lpGross`). */
+  estimatedLpGross: BN;
+  /** `estimatedLpGross − estimatedLp`: withheld by the deposit fee. */
+  depositFeeLp: BN;
+  /** Effective exact LP fee is depositFeeLp / estimatedLpGross; this display rate is ceiled. */
+  depositFeeEffectiveHundredthsBpsCeil: number;
+  /** `max(1, estimatedLp after slippage)` — the instruction's only floor. */
+  minimumLp: BN;
+  /** Client-only per-leg join rounding-loss budget; independent of the on-chain minimumLp. */
+  slippageHundredthsBps?: number;
+  /**
+   * v6.1 (T9): where the legs' swap fee rate came from. `"hook_dynamic_unknown"`
+   * means the pool has an active `DYNAMIC_FEE` hook and no `hookFeeOverride`
+   * was supplied: the plan was priced at the base rate and the real LP may
+   * differ (the `minimumLp` floor absorbs it or the zap fails loudly).
+   */
+  feeSource: SwapFeeSource;
+  /** Plan allocations as BN (sum = `amountIn`). */
+  allocations: BN[];
+  /** Per-slot net swap output credited to the user's accounts before the join (`0` for the input slot and sidelined slots). */
+  expectedOuts: BN[];
+  /** Per-slot gross debit of the join (`depositedGross`). */
+  depositedAmounts: BN[];
+  /** v6.1 (T12): per-slot part of the join's credit that bought into the surge bucket (`surge_buy_in`). */
+  surgeBuyInAmounts: BN[];
+  /** Per-slot leftovers in the user's accounts after the join. */
+  dustAmounts: BN[];
+  /** Slots with NAV 0 (`actual + surge_fees_owed == 0`): no leg, zero allocation, no user token account needed. */
+  sidelinedTokenIndices: number[];
+  /** Snapshot the plan was hashed on; feed it to the tail resolver and to any re-pricing. */
+  snapshots: { pool: SnapshotAccount; lpMint: SnapshotAccount; mints: SnapshotAccount[] };
+  /** RPC context slot of the snapshot (equals Clock.slot in the same bank). */
+  contextSlot: number;
+  chainSlot: bigint;
+  chainEpoch: bigint;
+  /** Clock `unix_timestamp` of the snapshot (= `plan.quotedAt`). */
+  chainTimestamp: bigint;
+  /** Account set for the instruction, without the user-specific accounts (see `accountsFor`). */
+  layout: Omit<PlannedZapAccounts, "user" | "userTokenAccounts" | "userLpAccount" | "extraAccounts">;
+  /** The planner's pool snapshot (for callers that want to re-run `replay`). */
+  quotePool: QuotePool;
+}
+
+/** Explicit boundary: native pool-hook slice precedes Token-2022 transfer extras. */
+export interface PlannedZapExtraAccounts {
+  hookAccounts?: AccountMeta[];
+  token2022Accounts?: AccountMeta[];
+}
+
+export class PlannedZapClient {
+  readonly config: CofferConfig;
+  readonly poolAddress: PublicKey;
+  readonly rpc: RpcClient;
+  readonly route: PlannedZapRoute;
+  private routedSupport?: Promise<RoutedSupport>;
+
+  constructor(params: PlannedZapClientParams) {
+    this.config = params.config;
+    this.poolAddress = params.poolAddress;
+    const route = params.route ?? "planned";
+    if (route !== "auto" && route !== "planned" && route !== "routed") throw new Error(`PlannedZapClient: route must be "auto" | "planned" | "routed", got ${String(route)}`);
+    this.route = route;
+    this.rpc =
+      params.rpc instanceof RpcClient
+        ? params.rpc
+        : new RpcClient({
+            endpoint: params.rpc?.endpoint,
+            endpoints: params.rpc?.endpoints ?? (params.rpc?.endpoint ? undefined : params.config.defaults.rpcEndpoints),
+            fallbackEndpoints: params.rpc?.fallbackEndpoints,
+            apiKey: params.rpc?.apiKey,
+            commitment: params.rpc?.commitment ?? params.config.defaults.rpcCommitment,
+            timeoutMs: params.rpc?.timeoutMs ?? params.config.defaults.rpcTimeoutMs,
+          });
+  }
+
+  /**
+   * Snapshot, plan and price a single-token deposit. Two RPC calls at most:
+   * the pool account (to learn its mints), then one atomic
+   * `getMultipleAccountsInfoAndContext` of pool + LP mint + mints + Clock
+   * that every byte of the plan, its hash and its timestamps comes from.
+   */
+  async quote(tokenInIndex: number, amountIn: BN | bigint, options: PlannedZapQuoteOptions = {}): Promise<SdkResult<PlannedZapQuote>> {
+    const amount = typeof amountIn === "bigint" ? amountIn : BigInt(amountIn.toString());
+    if (amount <= 0n || amount > (1n << 64n) - 1n) return err("invalid_input", "amountIn must be a positive u64");
+    const slip = options.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps;
+    try { applySlippage(1n, slip); }
+    catch (e) { return err("invalid_input", "slippageHundredthsBps must be an integer in 0..1000000", e); }
+    const validForSlots = options.validForSlots ?? DEFAULT_VALID_FOR_SLOTS;
+    if (!Number.isInteger(validForSlots) || validForSlots < 1 || validForSlots > MAX_VALID_FOR_SLOTS) return err("invalid_input", `validForSlots must be 1..${MAX_VALID_FOR_SLOTS}`);
+    if (options.nowSeconds !== undefined && (!Number.isSafeInteger(options.nowSeconds) || options.nowSeconds < 0)) return err("invalid_input", "nowSeconds must be a non-negative integer");
+
+    const conn = this.rpc.connection;
+    let mints: PublicKey[];
+    try {
+      const first = await conn.getAccountInfo(this.poolAddress, "confirmed");
+      if (!first) return err("account_not_found", `Pool ${this.poolAddress.toBase58()} does not exist on-chain`);
+      if (!first.owner.equals(this.config.programs.cofferPool)) return err("parse_failure", "Pool account has an unexpected owner");
+      const raw = decodePoolAccount(first.data);
+      mints = raw.tokenMints.slice(0, raw.tokenCount);
+    } catch (e) {
+      return err(e instanceof Error && /decodePoolAccount/.test(e.message) ? "parse_failure" : "rpc_unavailable", "Could not read the pool account", e);
+    }
+    const [lpMint] = deriveLpMint(this.config.programs.cofferPool, this.poolAddress);
+    const keys = [this.poolAddress, lpMint, ...mints, SYSVAR_CLOCK_PUBKEY];
+    let response: Awaited<ReturnType<typeof conn.getMultipleAccountsInfoAndContext>>;
+    try {
+      response = await conn.getMultipleAccountsInfoAndContext(keys, { commitment: "confirmed" });
+    } catch (e) {
+      return err("rpc_unavailable", "Could not snapshot the pool, mints and Clock", e);
+    }
+    const accounts: SnapshotAccount[] = [];
+    for (let i = 0; i < keys.length; i++) {
+      const account = response.value[i];
+      if (!account) return err("account_not_found", `Missing quote account ${keys[i].toBase58()}`);
+      accounts.push({ key: keys[i], owner: account.owner, data: Buffer.from(account.data) });
+    }
+    const snapshots = { pool: accounts[0], lpMint: accounts[1], mints: accounts.slice(2, -1) };
+    const clock = Buffer.from(accounts[accounts.length - 1].data);
+    if (!accounts[accounts.length - 1].owner.equals(new PublicKey("Sysvar1111111111111111111111111111111111111")) || clock.length !== 40) return err("parse_failure", "Invalid Clock sysvar owner/layout");
+    const chainSlot = clock.readBigUInt64LE(0), chainEpoch = clock.readBigUInt64LE(16), chainTimestamp = clock.readBigInt64LE(32);
+
+    // Decode the snapshot into the planner's pool.
+    if (!snapshots.pool.owner.equals(this.config.programs.cofferPool)) return err("parse_failure", "Pool account has an unexpected owner");
+    let raw: RawPoolAccount;
+    try { raw = decodePoolAccount(Buffer.from(snapshots.pool.data)); } catch (e) { return err("parse_failure", "Could not decode pool account", e); }
+    const n = raw.tokenCount;
+    if (snapshots.mints.length !== n) return err("parse_failure", "Pool mint count changed during snapshot discovery");
+    if (n < PLANNED_ZAP_MIN_TOKENS || n > PLANNED_ZAP_MAX_TOKENS) return err("unsupported_pool_state", `Planned zap supports 2..${PLANNED_ZAP_MAX_TOKENS} tokens`);
+    if (!raw.poolEnabled) return err("pool_disabled", "Pool is disabled");
+    if (!raw.swapsEnabled) return err("swaps_disabled", "Swaps are disabled");
+    if (!Number.isInteger(tokenInIndex) || tokenInIndex < 0 || tokenInIndex >= n) return err("invalid_input", "Invalid tokenInIndex");
+    if (raw.actualBalances[tokenInIndex].isZero()) return err("invalid_input", "Input token is sidelined (zero actual balance)");
+    const now = options.nowSeconds !== undefined ? BigInt(options.nowSeconds) : chainTimestamp;
+    let mintSupply: bigint;
+    try { mintSupply = BigInt(validatePlannedZapLpMint(lpMint, snapshots.lpMint.owner, Buffer.from(snapshots.lpMint.data), this.poolAddress).supply.toString()); }
+    catch (e) { return err("unsupported_token_extension", e instanceof Error ? e.message : "Invalid LP mint", e); }
+    if (mintSupply === 0n) return err("invalid_input", "PoolNotSeeded");
+    // The join is priced on the supply net of the vested LP burn stream.
+    let lpSupply: bigint;
+    try { lpSupply = pricedLpSupply(mintSupply, lpBurnStreamOf(raw), now); }
+    catch (e) { return err("unsupported_pool_state", `LP burn stream inconsistent with the mint supply: ${e instanceof Error ? e.message : String(e)}`, e); }
+    if (lpSupply === 0n) return err("unsupported_pool_state", "PoolNotSeeded: the whole LP supply is vested in the burn stream");
+    const tokens: SwapLeg[] = [];
+    const tokenPrograms: PublicKey[] = [];
+    for (let i = 0; i < n; i++) {
+      const snapshot = snapshots.mints[i];
+      if (!snapshot.key.equals(raw.tokenMints[i])) return err("parse_failure", `Mint order mismatch at index ${i}`);
+      if (snapshot.key.equals(lpMint)) return err("unsupported_pool_state", "A pool mint equals the LP mint");
+      // A sidelined slot (NAV 0) moves nothing: the program checks only its mint and vault keys, so a
+      // closed or unsupported mint there must not block the zap and is not validated here.
+      const sidelined = nav(BigInt(raw.actualBalances[i].toString()), BigInt(raw.surgeFeesOwed[i]?.toString() ?? "0")) === 0n;
+      let mint: ReturnType<typeof validateTransferMintSnapshot> | null = null;
+      if (sidelined) {
+        try { mint = validateTransferMintSnapshot(snapshot.key, snapshot.owner, Buffer.from(snapshot.data)); } catch { mint = null; }
+      } else {
+        if (!snapshot.owner.equals(raw.tokenPrograms[i])) return err("parse_failure", `Mint token program mismatch at index ${i}`);
+        try { mint = validateTransferMintSnapshot(snapshot.key, snapshot.owner, Buffer.from(snapshot.data)); } catch (e) { return err("parse_failure", `Could not decode mint ${snapshot.key.toBase58()}`, e); }
+        const blockers = tokenTransferBlockers({ index: i, mint: snapshot.key, tokenProgram: snapshot.owner, unsupportedExtensions: unsupportedMintExtensions(mint.extensions), paused: mint.pausableConfig?.paused ?? false });
+        if (blockers.length) return err("unsupported_token_extension", `token[${i}] ${snapshot.key.toBase58()}: ${blockers.join("; ")}`);
+      }
+      tokens.push({
+        virtualBalance: BigInt(raw.virtualBalances[i].toString()),
+        actualBalance: BigInt(raw.actualBalances[i].toString()),
+        protocolFeesOwed: BigInt(raw.protocolFeesOwed[i].toString()),
+        // v6.1 (T14 / T12): the pool-level buckets, 0 on an unmigrated account.
+        creatorFeesOwed: BigInt(raw.creatorFeesOwed[i]?.toString() ?? "0"),
+        surgeFeesOwed: BigInt(raw.surgeFeesOwed[i]?.toString() ?? "0"),
+        weightBps: BigInt(raw.normalizedWeights[i].toString()),
+        isActive: raw.isActive[i],
+        maxSelloffPct: raw.maxSelloffPct[i],
+        maxSelloffPeriodLength: raw.maxSelloffPeriodLength[i],
+        curve: { thresholdPct: raw.variableFeeThresholdPct[i], slopeLowPct: raw.variableFeeSlopeLowPct[i], slopeMidPct: raw.variableFeeSlopeMidPct[i], slopeHighPct: raw.variableFeeSlopeHighPct[i], kinkPct: raw.variableFeeKinkPct[i] },
+        window: { previousSelloff: BigInt(raw.previousSelloff[i].toString()), currentSelloff: BigInt(raw.currentSelloff[i].toString()), windowStartTimestamp: BigInt(raw.windowStartTimestamp[i].toString()), selloffVbSnapshot: BigInt(raw.selloffVbSnapshot[i].toString()) },
+        transferFee: mint?.transferFeeConfig ? selectEpochFee(mint.transferFeeConfig, chainEpoch) : null,
+      });
+      tokenPrograms.push(raw.tokenPrograms[i]);
+    }
+    // v6.1 (T9): hook gate (a disabled fail-closed hook pauses swaps and
+    // deposits) and the dynamic-fee rate the zap's legs will run on.
+    const hookActive = !raw.hookProgram.equals(PublicKey.default) && raw.hookDisabled === 0;
+    if (!raw.hookProgram.equals(PublicKey.default) && raw.hookDisabled !== 0 && (raw.hookFlags & HOOK_FLAGS.PAUSE_WHEN_DISABLED) !== 0) {
+      return err("hook_rejected", "The pool's hook is disabled and fail-closed (HookPaused): swaps and deposits are paused");
+    }
+    const dynamicFee = hookActive && (raw.hookFlags & HOOK_FLAGS.DYNAMIC_FEE) !== 0;
+    if (options.hookFeeOverride !== undefined) {
+      if (!Number.isSafeInteger(options.hookFeeOverride) || options.hookFeeOverride < 0 || options.hookFeeOverride > MAX_SWAP_FEE_RATE) return err("invalid_input", `hookFeeOverride must be an integer in 0..=${MAX_SWAP_FEE_RATE}`);
+      if (!dynamicFee) return err("invalid_input", "hookFeeOverride given but the pool has no active DYNAMIC_FEE hook");
+    }
+    const feeSource: SwapFeeSource = options.hookFeeOverride !== undefined ? "hook_override" : dynamicFee ? "hook_dynamic_unknown" : "pool";
+    const quotePool: QuotePool = {
+      tokens, lpSupply, swapFeeRate: raw.swapFeeRate, protocolFeeRate: raw.protocolFeeRate,
+      creatorFeeBps: raw.creatorFeeBps, depositFeeBps: raw.depositFeeBps,
+      hookFeeOverride: options.hookFeeOverride, hookFeeMin: raw.hookFeeMin, hookFeeMax: raw.hookFeeMax,
+      now,
+    };
+
+    // v6.1 (T22): `QuotePool::from_pool` refuses a pool that already violates
+    // the strict concentrationFactor invariant (every swap / join CPI would revert).
+    const violating = concentrationFactorViolations(tokens.map((t) => t.virtualBalance), tokens.map((t) => t.actualBalance));
+    if (violating.length) return err("concentration_factor_invariant", `VirtualBalanceNotAboveActual: slot${violating.length > 1 ? "s" : ""} ${violating.join(", ")} at virtual ≤ actual; the pool cannot trade until the protocol admin runs rescale_virtual_balances`);
+    let economics: ZapQuote;
+    try {
+      economics = quoteZap(quotePool, tokenInIndex, amount);
+      assertZapDepositRoundingLoss(quotePool, economics, slip);
+    } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
+      if (e instanceof SimError && e.code === "DepositRoundingSearchIncomplete") return err("deposit_rounding_search_incomplete", e.message, e);
+      if (e instanceof SimError || e instanceof MathError) return err(e instanceof SimError && e.code === "AmountTooSmall" ? "amount_too_small" : "invalid_input", `Planned zap quote failed: ${e.message}`, e);
+      throw e;
+    }
+    // `economics.lp` is NET of the deposit fee (T7); the floor must be > 0
+    // (a zero `minimum_lp` would disable the only slippage guard, T8).
+    const slippedLp = applySlippage(economics.lp, slip);
+    const minimumLp = slippedLp > 0n ? slippedLp : 1n;
+    const plan: AllocationPlan = {
+      allocations: economics.allocations.slice(),
+      expectedState: stateCommitment(snapshots.pool, snapshots.lpMint, snapshots.mints, chainEpoch),
+      quotedAt: chainTimestamp,
+      validUntilSlot: chainSlot + BigInt(validForSlots),
+    };
+    const expectedOuts = tokens.map((_, i) => (i === tokenInIndex ? 0n : economics.available[i]));
+    return ok({
+      tokenInIndex,
+      amountIn: bn(amount),
+      plan,
+      economics,
+      searchLimitation: economics.searchLimitation,
+      estimatedLp: bn(economics.lp),
+      estimatedLpGross: bn(economics.lpGross),
+      depositFeeLp: bn(economics.depositFeeLp),
+      depositFeeEffectiveHundredthsBpsCeil: Number((economics.depositFeeLp * 1_000_000n + economics.lpGross - 1n) / economics.lpGross),
+      minimumLp: bn(minimumLp),
+      slippageHundredthsBps: slip,
+      feeSource,
+      allocations: economics.allocations.map(bn),
+      expectedOuts: expectedOuts.map(bn),
+      depositedAmounts: economics.depositedGross.map(bn),
+      surgeBuyInAmounts: economics.surgeBuyIn.map(bn),
+      dustAmounts: economics.dust.map(bn),
+      sidelinedTokenIndices: tokens.flatMap((t, i) => (nav(t.actualBalance, t.surgeFeesOwed ?? 0n) === 0n ? [i] : [])),
+      snapshots,
+      contextSlot: response.context.slot,
+      chainSlot,
+      chainEpoch,
+      chainTimestamp,
+      layout: {
+        pool: this.poolAddress,
+        lpMint,
+        cofferPoolProgram: this.config.programs.cofferPool,
+        lpTokenProgram: snapshots.lpMint.owner,
+        mints: mints.slice(),
+        vaults: mints.map((mint, i) => deriveAta(this.poolAddress, mint, tokenPrograms[i])),
+        tokenPrograms,
+      },
+      quotePool,
+    });
+  }
+
+  /** Re-price a fixed plan at another Clock second on the same snapshot (window decay only). */
+  replayAt(quote: PlannedZapQuote, nowSeconds: number): SdkResult<ZapQuote> {
+    try {
+      const economics = replay({ ...quote.quotePool, now: BigInt(nowSeconds) }, quote.tokenInIndex, BigInt(quote.amountIn.toString()), quote.plan.allocations);
+      assertZapDepositRoundingLoss(quote.quotePool, economics, quote.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps);
+      return ok(economics);
+    } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
+      if (e instanceof SimError || e instanceof MathError) return err("invalid_input", `Plan is infeasible at ${nowSeconds}: ${e.message}`, e);
+      throw e;
+    }
+  }
+
+  private assembleTail(quote: PlannedZapQuote, tails: PlannedZapExtraAccounts, validateTransfers = true): AccountMeta[] {
+    if (Array.isArray(tails)) throw new Error("Ambiguous extraAccounts: pass { hookAccounts, token2022Accounts }");
+    const raw = decodePoolAccount(Buffer.from(quote.snapshots.pool.data));
+    const active = !raw.hookProgram.equals(PublicKey.default) && raw.hookDisabled === 0;
+    const native = requireHookSlice(this.config, { address: this.poolAddress, hook: {
+      program: raw.hookProgram, active, disabled: raw.hookDisabled !== 0, accountsLen: raw.hookAccountsLen,
+    } as any }, tails.hookAccounts, "deposit_single_token_planned");
+    const tail = [...native, ...(tails.token2022Accounts ?? [])];
+    const seen = new Set<string>();
+    for (const m of tail) {
+      if (m.isSigner) throw new Error("Planned zap tail cannot contain signers");
+      const key = m.pubkey.toBase58();
+      if (seen.has(key)) throw new Error("duplicate native/Token-2022 extra account");
+      seen.add(key);
+    }
+    const moved = new Set<number>();
+    for (const swap of quote.economics.swaps) { if (swap.grossInput > 0n) moved.add(swap.input); if (swap.grossOutput > 0n) moved.add(swap.output); }
+    quote.economics.depositedGross.forEach((amount, i) => { if (amount > 0n) moved.add(i); });
+    for (const i of validateTransfers ? moved : []) {
+      const snapshot = quote.snapshots.mints[i];
+      const hook = validateTransferMintSnapshot(snapshot.key, snapshot.owner, Buffer.from(snapshot.data)).transferHook?.programId;
+      if (!hook || hook.equals(PublicKey.default)) continue;
+      for (const key of [hook, getExtraAccountMetaAddress(snapshot.key, hook)]) {
+        const meta = tails.token2022Accounts?.find(m => m.pubkey.equals(key));
+        if (!meta || meta.isSigner || meta.isWritable) throw new Error("Missing/invalid Token-2022 hook program or registry in explicit transfer tail");
+      }
+    }
+    return tail;
+  }
+
+  /** Full account set for `user` (ATAs for every slot and the LP mint). */
+  accountsFor(quote: PlannedZapQuote, user: PublicKey, tails?: PlannedZapExtraAccounts): PlannedZapAccounts {
+    const { layout } = quote;
+    return {
+      ...layout,
+      user,
+      userLpAccount: deriveAta(user, layout.lpMint, layout.lpTokenProgram),
+      userTokenAccounts: layout.mints.map((mint, i) => deriveAta(user, mint, layout.tokenPrograms[i])),
+      extraAccounts: tails ? this.assembleTail(quote, tails) : undefined,
+    };
+  }
+
+  /**
+   * Idempotent ATA creates for every live pool token and the LP mint. The
+   * program requires those to exist (writable); a sidelined slot
+   * (`sidelinedTokenIndices`) moves nothing, its user account is passed by
+   * address only and is not created (its mint may even be closed). Send them
+   * in a separate, earlier transaction: together with the zap they do not
+   * fit the 1232-byte packet on larger pools.
+   */
+  ensureUserTokenAccountIxs(quote: PlannedZapQuote, user: PublicKey, payer: PublicKey = user): TransactionInstruction[] {
+    const accounts = this.accountsFor(quote, user);
+    const sidelined = new Set(quote.sidelinedTokenIndices);
+    const ixs = accounts.mints.flatMap((mint, i) =>
+      sidelined.has(i) ? [] : [createAssociatedTokenAccountIdempotentInstruction(payer, accounts.userTokenAccounts[i], user, mint, accounts.tokenPrograms[i])]
+    );
+    ixs.push(createAssociatedTokenAccountIdempotentInstruction(payer, accounts.userLpAccount, user, accounts.lpMint, accounts.lpTokenProgram));
+    return ixs;
+  }
+
+  /**
+   * Hook/memo tail for every transfer of the planned route (swap legs in
+   * both directions and the join debits), resolved against the quote's own
+   * mint snapshots. `[]` for pools without Token-2022 mints.
+   */
+  async resolveExtraAccounts(quote: PlannedZapQuote, user: PublicKey, native: Pick<PlannedZapExtraAccounts, "hookAccounts"> = {}): Promise<SdkResult<PlannedZapExtraAccounts>> {
+    const accounts = this.accountsFor(quote, user);
+    const legs: TransferLeg[] = [];
+    for (const swap of quote.economics.swaps) {
+      legs.push({ mint: accounts.mints[swap.input], tokenProgram: accounts.tokenPrograms[swap.input], source: accounts.userTokenAccounts[swap.input], destination: accounts.vaults[swap.input], authority: user, amount: swap.grossInput });
+      // `ensureUserTokenAccountIxs` creates the user's output ATA in the same transaction; it may not exist yet.
+      legs.push({ mint: accounts.mints[swap.output], tokenProgram: accounts.tokenPrograms[swap.output], source: accounts.vaults[swap.output], destination: accounts.userTokenAccounts[swap.output], authority: accounts.pool, amount: swap.grossOutput, destinationCreatedInTx: true, destinationOwner: user });
+    }
+    quote.economics.depositedGross.forEach((gross, i) => {
+      if (gross > 0n) legs.push({ mint: accounts.mints[i], tokenProgram: accounts.tokenPrograms[i], source: accounts.userTokenAccounts[i], destination: accounts.vaults[i], authority: user, amount: gross });
+    });
+    try {
+      const mints = quote.snapshots.mints.map((m) => ({ address: m.key, owner: m.owner, data: m.data }));
+      const hookAccounts = this.assembleTail(quote, native, false);
+      if (hookAccounts.length) {
+        const infos = await this.rpc.connection.getMultipleAccountsInfo(hookAccounts.map(m => m.pubkey), "confirmed");
+        if (!infos[0]?.executable) throw new Error("Native hook program must be executable");
+        hookAccounts.slice(2).forEach((meta, i) => {
+          if (meta.isWritable && !infos[i + 2]?.owner.equals(hookAccounts[0].pubkey)) throw new Error("Writable native hook extras must be hook-owned");
+        });
+      }
+      const token2022Accounts = await resolveTransferExtraAccounts(this.rpc.connection, legs, mints, [user, accounts.pool, accounts.lpMint, accounts.userLpAccount, ...hookAccounts.map(m => m.pubkey)]);
+      return ok({ hookAccounts, token2022Accounts });
+    } catch (e) {
+      if (e instanceof UnsupportedTransferProfileError) return err("unsupported_token_extension", e.message, e);
+      return err("tx_build_failed", `Could not resolve the transfer-hook/memo tail: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /** The `deposit_single_token_planned` instruction for `user`. */
+  buildIx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): TransactionInstruction {
+    return this.buildDirectIx(quote, user, tails, "planned");
+  }
+
+  /**
+   * rc5: the `deposit_single_token_routed` instruction for `user` — same quote,
+   * same plan, same `minimumLp`, same accounts as {@link buildIx}; only the
+   * discriminator differs. Its transaction MUST request a 64 KiB heap frame
+   * (use {@link buildRoutedTx} / {@link depositRouted}, or
+   * `compileTransaction({ heapFrameBytes: ROUTED_ZAP_HEAP_FRAME_BYTES })`).
+   * A plan without a swap leg is accepted: the program runs the planned
+   * (join-only) path for it instead of `swap_route_join_v1`.
+   */
+  buildRoutedIx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): TransactionInstruction {
+    return this.buildDirectIx(quote, user, tails, "routed");
+  }
+
+  private buildDirectIx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts, route: DirectZapRoute): TransactionInstruction {
+    // Re-run the signed allocations; a manual positive minimumLp or edited
+    // displayed economics must not skip the client's rounding policy.
+    const economics = replay(quote.quotePool, quote.tokenInIndex, BigInt(quote.amountIn.toString()), quote.plan.allocations);
+    assertZapDepositRoundingLoss(quote.quotePool, economics, quote.slippageHundredthsBps ?? this.config.defaults.slippageHundredthsBps);
+    return buildDirectZapIx(this.config, this.accountsFor(quote, user, tails), {
+      amountIn: BigInt(quote.amountIn.toString()),
+      tokenInIndex: quote.tokenInIndex,
+      minimumLp: BigInt(quote.minimumLp.toString()),
+      plan: quote.plan,
+    }, route);
+  }
+
+  /** rc5: compute limit + 64 KiB heap frame + `deposit_single_token_routed`. ATA creates are NOT included. */
+  buildRoutedTx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): SdkResult<BuiltTx> {
+    try {
+      return ok({
+        instructions: [...routedZapComputeBudgetIxs(PLANNED_ZAP_CU_LIMIT), this.buildRoutedIx(quote, user, tails)],
+        suggestedCuLimit: PLANNED_ZAP_CU_LIMIT,
+      });
+    } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
+      return err("tx_build_failed", `Failed to build the routed zap: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /** rc5 alias of {@link buildRoutedTx}: the routed deposit for an unchanged planned quote. */
+  depositRouted(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): SdkResult<BuiltTx> {
+    return this.buildRoutedTx(quote, user, tails);
+  }
+
+  /**
+   * rc5 capability probe: does the deployed STLD carry `deposit_single_token_routed`
+   * AND the deployed coffer-pool carry `swap_route_join_v1`? Two discriminator-only
+   * simulations (`sigVerify: false`, no accounts; `payer` only pays nothing — it must
+   * exist on chain for the simulation to run). Cached per client; `refresh` re-probes.
+   */
+  probeRoutedSupport(payer: PublicKey, refresh = false): Promise<RoutedSupport> {
+    if (!this.routedSupport || refresh) {
+      const conn = this.rpc.connection;
+      const pending = Promise.all([
+        probeInstructionPresence(conn, payer, this.config.programs.singleTokenLiquidity, ROUTED_ZAP_DISCRIMINATOR_HEX),
+        probeInstructionPresence(conn, payer, this.config.programs.cofferPool, SWAP_ROUTE_JOIN_V1_DISCRIMINATOR_HEX),
+      ]).then(([stld, pool]): RoutedSupport => ({
+        supported: stld.status === "present" && pool.status === "present",
+        stld: stld.status,
+        cofferPool: pool.status,
+        detail: { stld: stld.detail, cofferPool: pool.detail },
+      }));
+      // Do not cache an inconclusive answer: the next call may reach the RPC.
+      this.routedSupport = pending.then((r) => {
+        if (r.stld === "unknown" || r.cofferPool === "unknown") this.routedSupport = undefined;
+        return r;
+      });
+    }
+    return this.routedSupport;
+  }
+
+  /** The entry point the constructor's `route` resolves to for this quote (probing once in `"auto"`). */
+  async resolveRoute(quote: PlannedZapQuote, payer: PublicKey): Promise<{ route: DirectZapRoute; fallbackReason?: string }> {
+    if (this.route === "planned") return { route: "planned" };
+    if (this.route === "routed") return { route: "routed" };
+    // A join-only plan needs no route (and no heap frame): the planned entry point does the join alone.
+    if (!planHasSwapLeg(quote)) return { route: "planned", fallbackReason: "plan has no swap leg (join only)" };
+    const support = await this.probeRoutedSupport(payer);
+    if (support.supported) return { route: "routed" };
+    return { route: "planned", fallbackReason: `routed zap unavailable (stld: ${support.stld}, coffer_pool: ${support.cofferPool})` };
+  }
+
+  /**
+   * Build the deposit on the constructor's route: `"planned"` → {@link buildTx};
+   * `"routed"` → {@link buildRoutedTx}; `"auto"` → routed when the probe finds
+   * both instructions, else planned. Same quote, plan and `minimumLp` either way.
+   */
+  async buildDepositTx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): Promise<SdkResult<BuiltDirectZapTx>> {
+    const { route, fallbackReason } = await this.resolveRoute(quote, user);
+    const built = route === "routed" ? this.buildRoutedTx(quote, user, tails) : this.buildTx(quote, user, tails);
+    if (!built.ok) return built;
+    return ok({ ...built.data, route, ...(fallbackReason ? { fallbackReason } : {}) });
+  }
+
+  /** Compute budget + the zap. ATA creates are NOT included (see `ensureUserTokenAccountIxs`). */
+  buildTx(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): SdkResult<BuiltTx> {
+    try {
+      return ok({
+        instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: PLANNED_ZAP_CU_LIMIT }), this.buildIx(quote, user, tails)],
+        suggestedCuLimit: PLANNED_ZAP_CU_LIMIT,
+      });
+    } catch (e) {
+      if (e instanceof DepositRoundingLossError) return err("deposit_rounding_loss", e.message, e);
+      return err("tx_build_failed", `Failed to build the planned zap: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /** Addresses the pool's own ALT does not cover: the user's token accounts, LP account and the tail. */
+  walletLookupAddresses(quote: PlannedZapQuote, user: PublicKey, tails: PlannedZapExtraAccounts = {}): PublicKey[] {
+    const accounts = this.accountsFor(quote, user);
+    return [...accounts.userTokenAccounts, accounts.userLpAccount, ...this.assembleTail(quote, tails).map((m) => m.pubkey)];
+  }
+
+  /** Plan the wallet-owned ALT setup (create/extend batches); see `walletAlt.ts`. */
+  prepareWalletLookupTable(user: PublicKey, addresses: PublicKey[], existing?: PublicKey, options?: { walletReserve?: number }): Promise<WalletLookupPreparation> {
+    return buildWalletLookupPreparation(this.altConnection(), user, addresses, existing, options);
+  }
+
+  waitForWalletLookupTable(preparation: WalletLookupPreparation, user: PublicKey, timeoutMs?: number): Promise<AddressLookupTableAccount> {
+    return waitForWalletLookupTable(this.altConnection(), preparation, user, timeoutMs);
+  }
+
+  resolveWalletLookupTable(address: PublicKey, user: PublicKey, addresses: PublicKey[]): Promise<AddressLookupTableAccount> {
+    return resolveWalletLookupTable(this.altConnection(), address, user, addresses);
+  }
+
+  /** Load the pool's ALT (if provisioned) for `compileTransaction`. */
+  async poolLookupTable(lookupTable: PublicKey | undefined): Promise<SdkResult<AddressLookupTableAccount | null>> {
+    if (!lookupTable || lookupTable.equals(PublicKey.default)) return ok(null);
+    try {
+      const res = await this.rpc.connection.getAddressLookupTable(lookupTable);
+      if (!res.value) return err("alt_fetch_failed", `Lookup table ${lookupTable.toBase58()} not found on-chain`);
+      return ok(res.value);
+    } catch (e) {
+      return err("alt_fetch_failed", `Failed to fetch lookup table ${lookupTable.toBase58()}`, e);
+    }
+  }
+
+  /** Compile against the given ALTs and refuse when the packet budget is exceeded. */
+  compileTransaction(options: { payer: PublicKey; blockhash: string; instructions: TransactionInstruction[]; lookupTables: AddressLookupTableAccount[]; walletReserve?: number; computeUnits?: number; heapFrameBytes?: number }): SdkResult<CompiledPlannedZap> {
+    try {
+      return ok(compilePlannedZapTransaction(options));
+    } catch (e) {
+      return err("tx_build_failed", e instanceof Error ? e.message : String(e), e);
+    }
+  }
+
+  private altConnection(): AltConnection {
+    return this.rpc.connection;
+  }
+}
+
+/** True when the plan sells into at least one slot other than the input (a join-only plan needs no `swap_route_join_v1`). */
+export function planHasSwapLeg(quote: Pick<PlannedZapQuote, "plan" | "tokenInIndex">): boolean {
+  return quote.plan.allocations.some((a, i) => i !== quote.tokenInIndex && a > 0n);
+}
+
+export { ROUTED_ZAP_HEAP_FRAME_BYTES };
+
+/** Convenience for callers holding a classic-token-only pool: a plain Token LP program. */
+export const DEFAULT_LP_TOKEN_PROGRAM = TOKEN_PROGRAM_ID;

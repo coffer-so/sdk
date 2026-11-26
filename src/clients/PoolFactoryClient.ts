@@ -1,17 +1,20 @@
 import { ComputeBudgetProgram, Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import BN from "bn.js";
-import { CubeConfig } from "../config";
+import { CofferConfig } from "../config";
 import { SdkResult, err, ok } from "../types/result";
-import { BuiltTx, DeployPoolParams } from "../types/tx";
+import { BuiltTx } from "../types/tx";
+import { DeployPoolParamsV61 } from "../types/tx-v61";
 import {
   buildDeployPoolTx,
-  buildInitializeCubicPoolIx,
-  buildInitializeConfigIx,
+  buildInitializePoolIx,
+  buildPoolInitializeConfigIx,
 } from "./tx-builders";
-import { derivePoolPda } from "../utils/pda";
+import { deriveLpMint, derivePoolPda } from "../utils/pda";
+import { buildAtomicDeploy, DeployBuildConnection } from "./atomicDeploy";
+import type { AtomicDeployParams, AtomicDeployResult } from "../types/tx-v61";
 
 export interface PoolFactoryClientParams {
-  config: CubeConfig;
+  config: CofferConfig;
 }
 
 export interface InitializeConfigParams {
@@ -24,21 +27,21 @@ export interface InitializeConfigParams {
  * by the deploy-pool UI flow and by the backend's admin tools.
  */
 export class PoolFactoryClient {
-  readonly config: CubeConfig;
+  readonly config: CofferConfig;
 
   constructor(params: PoolFactoryClientParams) {
     this.config = params.config;
   }
 
   /**
-   * Deploy a new pool atop an existing `CubicPoolConfig`. Caller is
+   * Deploy a new pool atop an existing `CofferPoolConfig`. Caller is
    * responsible for funding `params.payer` with enough SOL to cover rent
-   * for the pool account and the BPT mint PDA.
+   * for the pool account and the LP mint PDA.
    *
-   * Returns the `pool` and `bptMint` pubkeys it WILL create (derived PDAs)
+   * Returns the `pool` and `lpMint` pubkeys it WILL create (derived PDAs)
    * plus the signable tx.
    */
-  buildDeployPoolTx(params: DeployPoolParams): SdkResult<BuiltTx & { pool: PublicKey; bptMint: PublicKey }> {
+  buildDeployPoolTx(params: DeployPoolParamsV61): SdkResult<BuiltTx & { pool: PublicKey; lpMint: PublicKey }> {
     if (params.tokens.length < 2 || params.tokens.length > 10) {
       return err("invalid_input", "tokens.length must be in [2, 10]");
     }
@@ -54,32 +57,37 @@ export class PoolFactoryClient {
       if (vb.isZero()) return err("invalid_input", "virtualBalances must all be > 0");
     }
 
-    const [pool] = derivePoolPda(this.config.programs.cubicPool, params.configKey, params.poolId);
-    const [bptMint] = PublicKey.findProgramAddressSync(
-      [Buffer.from("bpt_mint"), pool.toBuffer()],
-      this.config.programs.cubicPool
-    );
+    const [pool] = derivePoolPda(this.config.programs.cofferPool, params.configKey, params.poolId);
+    const [lpMint] = deriveLpMint(this.config.programs.cofferPool, pool);
     try {
       const tx = buildDeployPoolTx(this.config, params);
-      return ok({ ...tx, pool, bptMint });
+      return ok({ ...tx, pool, lpMint });
     } catch (e) {
       return err("tx_build_failed", "Failed to build deploy-pool tx", e);
     }
   }
 
   /**
-   * Initialize a new CubicPoolConfig. The `config` signer must be freshly
-   * generated and paired with its keypair when signing the outer tx.
-   * Returns the tx + the config keypair the caller should sign with.
+   * Initialize a new `CofferPoolConfig`, through the protocol-admin wrapper.
+   *
+   * Routed via `protocol_admin::pool_initialize_config` rather than
+   * `coffer_pool::initialize_config` directly: post-audit the latter requires
+   * the Treasury PDA to SIGN (H-01), and a PDA signature can only come from
+   * the owning program's `invoke_signed`. Building the direct instruction
+   * yields a transaction no wallet can ever satisfy.
+   *
+   * `params.payer` must be the current `Treasury.admin` — it is the human
+   * signer the wrapper authenticates. The returned `configKeypair` is the
+   * second required signer (the config account is `init`, not a PDA).
    */
   buildInitializeConfigTx(params: InitializeConfigParams): SdkResult<
     BuiltTx & { configKeypair: Keypair }
   > {
     try {
       const configKeypair = Keypair.generate();
-      const ix = buildInitializeConfigIx(this.config, {
+      const ix = buildPoolInitializeConfigIx(this.config, {
         config: configKeypair.publicKey,
-        payer: params.payer,
+        admin: params.payer,
         defaultProtocolFeeRate: params.defaultProtocolFeeRate,
       });
       return ok({
@@ -93,10 +101,24 @@ export class PoolFactoryClient {
   }
 
   /**
-   * Low-level: return the raw `initialize_cubic_pool` ix without a CU
+   * v6.1 (T8): the one-approval deploy — `initialize_pool` + ATAs +
+   * `seed_liquidity` [+ `set_swaps_enabled(false)`] in 1..3 transactions
+   * sharing one blockhash; hand `transactions` to `signAllTransactions` and
+   * land them with `sendAtomicDeploy`. See `clients/atomicDeploy.ts`.
+   */
+  async buildAtomicDeploy(connection: DeployBuildConnection, params: AtomicDeployParams): Promise<SdkResult<AtomicDeployResult>> {
+    try {
+      return ok(await buildAtomicDeploy(this.config, connection, params));
+    } catch (e) {
+      return err("tx_build_failed", `Failed to build the atomic deploy: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  /**
+   * Low-level: return the raw `initialize_pool` ix without a CU
    * budget or wrapping. Useful for combining with other ixs in the same tx.
    */
-  initializeCubicPoolIx(params: DeployPoolParams): TransactionInstruction {
-    return buildInitializeCubicPoolIx(this.config, params);
+  initializePoolIx(params: DeployPoolParamsV61): TransactionInstruction {
+    return buildInitializePoolIx(this.config, params);
   }
 }
