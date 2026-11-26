@@ -25,6 +25,8 @@ A TypeScript return type does not prove that a route exists or validate its JSON
 | `uploadPoolImage`, `removePoolImage`; `additionalUrl` in `updatePoolSettings` / `createPool`; `imageUrl` / `additionalUrl` on pool objects, `AdminPoolEntry` and `pool` of portfolio v2 positions / activity | No matching `/api/pools/admin/:address/image` routes or fields in this revision — they need the backend that ships pool images (November 2026; the same release makes `renamePool` accept only 1–12 English letters and digits); the image routes answer `{ success, data }`, unwrapped by the SDK; see [POOL_ADMIN.md](POOL_ADMIN.md) |
 | `getPoolChart` with `metric: "lpPrice"` | No matching `/api/pools/:address/chart` controller in this revision (the route ships September 2026), so every `getPoolChart` call is a 404; a backend that has the route but not the LP price series (November 2026) answers 400 on `metric=lpPrice`. The route answers `{ success, data }`, returned as-is by `getPoolChart` like the other metrics; see [POOL_CHART.md](POOL_CHART.md) |
 | Public portfolio methods (`getPublicPortfolioChart`, `getPublicPortfolioActivity`, `getPublicPortfolioHoldings`, `getPublicPortfolioPositions`) and `getPublicProfile` by username (`alice`, `@alice`) | No matching `/api/profiles/:ref/portfolio/{chart,activity,holdings,positions}` controllers in this revision — they need the backend that ships the public portfolio (November 2026, a later release than the profile module). On a backend with the profile module alone the four routes are a 404 for any `ref`, an address included, and `/api/profiles/:address` takes only an address (a username is a 400). The routes answer flat JSON; the chart answers 503 with `Retry-After: 2` when too many are being built at once — `getPublicPortfolioChart` re-sends it twice, 2 s apart (a schedule of its own; the header is not read). The chart (`pnl` / `il`) and the activity route answer 422 when the answer is not in the backend's cache and the wallet has more than 200 withdrawals and LP transfers — final, not re-sent; see [PROFILE.md](PROFILE.md) and [PORTFOLIO_V2.md](PORTFOLIO_V2.md) |
+| Rewards methods (`getRewardBoosts`, `getRewardCampaigns`, `getWalletRewards`, `requestRewardVoucher`) and the optional `boost` / `boostAprPct` on pool objects, `AdminPoolEntry` and `boostAprPct` on portfolio v2 positions (SDK 1.5.0) | No matching `/api/rewards/*` controllers or fields in this revision — they need the backend that ships the rewards module (branch `feature/boosted-apy`, November 2026; off by default with `REWARDS_ENABLED=false`, when the GET routes answer empty lists, the voucher route 503 and every pool `boost: null, boostAprPct: null`). The routes answer flat JSON; error bodies are `{ success: false, error, code? }` (the voucher route sets `code` except on 400 and 429), read with `getRewardsApiError`. `requestRewardVoucher` retries only transport errors and timeouts. See [REWARDS.md](REWARDS.md) and the backend's `docs/BOOSTS.md` |
+| Pool admins' boosts (`getPoolAdminBoosts`, `getPoolAdminCampaignParams`, `registerPoolAdminCampaign`, `getPoolAdminCampaigns`, `refreshPoolAdminCampaign`, `previewPoolAdminBoost`, `createPoolAdminBoost`, `updatePoolAdminBoost`, `stopPoolAdminBoost`, `cancelPoolAdminBoost`), the voucher's `domain` / `expiresAt` / `windowResetsAt`, `PoolBoostItem.uncapped` / `paused` / `sponsor` (SDK 2.0.0) | `/api/pools/admin/:address/boosts/*` (JWT of the pool's on-chain admin) and voucher V2 come with the backend of contracts rc9 (`feature/boosted-apy`, November 2026), `REWARDS_POOL_ADMIN_ENABLED` (default on with the module). An older backend answers 404 on those routes and a V1 voucher (129-byte message), which `parseRewardVoucher` 2.0.0 refuses — 2.0.0 claims need the rc9 backend and program. See [REWARDS.md](REWARDS.md) §5 and the backend's `docs/BOOSTS.md` §9 |
 
 Construct the client with `new CofferBackendClient({ apiEndpoint })`. Its optional
 `apiKey` initializes Bearer authorization, not a global `X-Coffer-Api-Key` header.
@@ -39,8 +41,8 @@ and `humanMessage` = `"METHOD path → HTTP nnn statusText"`. A `fetch` the
 runtime refused to send (invalid URL or header value) is `unknown` with the
 original message and a non-JSON 2xx body is `backend_invalid_response`; both
 are final. Transport errors, timeouts, 429 and 5xx are retried (3 attempts)
-except where a method says otherwise: `claimAttribution` retries only
-transport errors and timeouts, `verifySignature`/`verifyTransaction` only 429
+except where a method says otherwise: `claimAttribution` and
+`requestRewardVoucher` retry only transport errors and timeouts, `verifySignature`/`verifyTransaction` only 429
 (single-use nonce, consumed before the signature check, so a 5xx may come
 after it is gone). Attempts are 200 ms and 500 ms apart; `getPublicPortfolioChart`
 alone waits 2 s both times. A 401 triggers one refresh via `/api/auth/refresh`,
@@ -57,7 +59,7 @@ Statistics and leaderboard list routes can return flat JSON. Do not assume one
 response envelope for all generic HTTP calls.
 
 The checked router uses its own surrounding reserve/fee logic around
-`calcOutGivenIn`, not `CubicPoolClient.quoteSwap`. It still subtracts protocol
+`calcOutGivenIn`, not `CofferPoolClient.quoteSwap`. It still subtracts protocol
 fees from v5 actual output balances, uses indexed fee metadata and omits the
 current sell-off/surge path. Re-sync and quote proposed legs with the current
 SDK before deriving signed output floors; server estimates are not executable
@@ -67,3 +69,23 @@ backend deployment.
 Other backend guides describe SDK-declared interface shapes. For methods absent
 from this source revision, treat those shapes as the integration contract for a
 server that implements them, rather than evidence of current runtime support.
+
+## v6 indexing (separate backend task)
+
+The backend indexer was written against the v5 event set. v6 (this SDK) adds
+fields and one event the indexer must learn before v6 pools are indexed:
+
+- `Swap.transfer_fee_in` / `transfer_fee_out` — the vault received
+  `amount_in − transfer_fee_in`; the user received `amount_out − transfer_fee_out`.
+  Volume/TVL accounting that reads `amount_in`/`amount_out` as vault deltas is
+  off by the fees on Token-2022 fee mints.
+- `SingleTokenDepositDirect` (planned zap) replaces `SingleTokenDeposit`
+  (helper route): no helper PDA, `dust_remaining` stays in the user's accounts,
+  `deposited_amounts` are measured join debits. v6.1 (T11) re-cut it again as
+  `SingleTokenDepositDirectV2` and retired `SingleTokenDeposit`; the v6.1
+  event set and the backend column mapping are in [EVENTS.md](EVENTS.md).
+- `PoolInitialized.pool_id`, `RangeManagerConfigSet.old/new_min_concentration_factor_bps`.
+
+Pricing and APY code that replays `calc_out_given_in` must switch to the v6
+math (`simulateSwap`) once v6 is deployed: equal-weight swaps and join/exit
+rounding differ from v5 at the raw-unit level.

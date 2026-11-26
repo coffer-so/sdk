@@ -1,0 +1,177 @@
+[
+  {
+    "symbol": "BENJI",
+    "mint": "5Tu84fKBpe9vfXeotjvfvWdWbAjy3hqsExvuHgFqFxA1",
+    "hook_program": "huk3EPrNreTdUUjVKVkGSGKF1WC4P9BiUKBkn2kFWnP",
+    "extra_account_meta_list": "4zTuZeWgxgKXN7sJ7Z9vcK5sJ56B4n536Tr4Wn5D6UhE",
+    "bump": 252,
+    "owner": "huk3EPrNreTdUUjVKVkGSGKF1WC4P9BiUKBkn2kFWnP",
+    "length": 191,
+    "data_sha256": "ae0f1a6ad50270913bb5f9a242f617af9ba48f102dadabf664d4e6fe0d6b5995",
+    "raw_hex": "692565c54bfb661ab3000000050000000009256f2d4cdf64307e568d42cd5400e7ebf51a37a3034a36484e456038837524000000817ee8c97dea492eec61899d3e417689a819d9147d1915260183f395c205e59300000046f0a0b659570ef36a63c4d382f20f1659617b9d184829e205866bb3f596fbb1000085030704002020000000000000000000000000000000000000000000000000000000008503070402202000000000000000000000000000000000000000000000000000000000",
+    "tlv_discriminator_hex": "692565c54bfb661a",
+    "entries": [
+      {
+        "discriminator": 0,
+        "address_config_hex": "09256f2d4cdf64307e568d42cd5400e7ebf51a37a3034a36484e456038837524",
+        "literal_address": "chn2eSrribmaDfGZF74aZRwrJBKoGqQiuUGwfGei8aP",
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 0,
+        "address_config_hex": "817ee8c97dea492eec61899d3e417689a819d9147d1915260183f395c205e593",
+        "literal_address": "9iVqGj95rmbKtsdsWdhQfz6eDBoR63CQ5gKAFqSoUWfk",
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 0,
+        "address_config_hex": "46f0a0b659570ef36a63c4d382f20f1659617b9d184829e205866bb3f596fbb1",
+        "literal_address": "5mvMNgkezKgRkEtSGrh7RJWLxEMcCToE44965L5UuDz8",
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 133,
+        "address_config_hex": "0307040020200000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 133,
+        "address_config_hex": "0307040220200000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      }
+    ]
+  },
+  {
+    "symbol": "WTGXX",
+    "mint": "Em46fxxwgY2RRoUbBMSbEjJwY62x3ESMNdhnsGpEKewm",
+    "hook_program": "F4wFSShcdmaHWGRRXhCHinNTt8spgdh26Wi8hbN2Rzbh",
+    "extra_account_meta_list": "Jispa3UhmCTTKjJMmVAqrTqGD2YhU5BiJLxENSMkeJe",
+    "bump": 254,
+    "owner": "F4wFSShcdmaHWGRRXhCHinNTt8spgdh26Wi8hbN2Rzbh",
+    "length": 256,
+    "data_sha256": "2e9923f00c012efa393aa466639432f48c4c150d160b4271042900c51bc6cae5",
+    "raw_hex": "692565c54bfb661ab300000005000000010111636f6d706c69616e63655f636f6e666967030100000000000000000000000000008c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f85900000006ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc0000860400202003070405282000000000000000000000000000000000000000000000000086040220200307040528200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "tlv_discriminator_hex": "692565c54bfb661a",
+    "entries": [
+      {
+        "discriminator": 1,
+        "address_config_hex": "0111636f6d706c69616e63655f636f6e66696703010000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 0,
+        "address_config_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+        "literal_address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 0,
+        "address_config_hex": "06ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc",
+        "literal_address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 134,
+        "address_config_hex": "0400202003070405282000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 134,
+        "address_config_hex": "0402202003070405282000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      }
+    ]
+  },
+  {
+    "symbol": "BUIDL",
+    "mint": "GyWgeqpy5GueU2YbkE8xqUeVEokCMMCEeUrfbtMw6phr",
+    "hook_program": "FsE8mCJyvgMzqJbfHbJQm3iuf3cRZC6n2vZi1Q8rQCy2",
+    "extra_account_meta_list": "GvEzD8fUqm65Bdzra3wS4w5KiA8sDpgiku9pNmRopajq",
+    "bump": 253,
+    "owner": "FsE8mCJyvgMzqJbfHbJQm3iuf3cRZC6n2vZi1Q8rQCy2",
+    "length": 331,
+    "data_sha256": "21a61954eed644c2f1d6c97eac1c40013738533e6affb5c3e95d9916b39ca500",
+    "raw_hex": "692565c54bfb661a3f01000009000000010301000000000000000000000000000000000000000000000000000000000000000100e74b510ee8542d3403d3300d2ddaf90106a3eb7024d6d59d8d0a3804c5e999b1000086030100000000000000000000000000000000000000000000000000000000000000008604002020030100000000000000000000000000000000000000000000000000000000860402202003010000000000000000000000000000000000000000000000000000000002020808000000000000000000000000000000000000000000000000000000000000000202090800000000000000000000000000000000000000000000000000000000000000010301030a000000000000000000000000000000000000000000000000000000000001010301030b000000000000000000000000000000000000000000000000000000000001",
+    "tlv_discriminator_hex": "692565c54bfb661a",
+    "entries": [
+      {
+        "discriminator": 1,
+        "address_config_hex": "0301000000000000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "discriminator": 0,
+        "address_config_hex": "e74b510ee8542d3403d3300d2ddaf90106a3eb7024d6d59d8d0a3804c5e999b1",
+        "literal_address": "GZsnjqT3c5zbHqsctrJ4EG4rbEfo7ZXyyUG7aDJNmxfA",
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 134,
+        "address_config_hex": "0301000000000000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 134,
+        "address_config_hex": "0400202003010000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 134,
+        "address_config_hex": "0402202003010000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 2,
+        "address_config_hex": "0208080000000000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 2,
+        "address_config_hex": "0209080000000000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "discriminator": 1,
+        "address_config_hex": "0301030a00000000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "discriminator": 1,
+        "address_config_hex": "0301030b00000000000000000000000000000000000000000000000000000000",
+        "literal_address": null,
+        "is_signer": false,
+        "is_writable": true
+      }
+    ]
+  }
+]

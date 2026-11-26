@@ -17,4 +17,6 @@ module.exports = {
   // anywhere in assertion payloads (or in thrown errors) break that.
   // Run everything in-band to avoid the worker serialiser.
   maxWorkers: 1,
+  // The planner parity suites replay thousands of bigint swap simulations.
+  testTimeout: 120_000,
 };

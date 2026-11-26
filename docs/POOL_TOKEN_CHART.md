@@ -76,7 +76,7 @@ virtual/actual balances, not stored settings**: every swap shifts them.
 
 Do not cache them as pool configuration or present them as a choice the
 creator made — a creator only influences them indirectly, through
-leverage. `null` means the pair has no usable state (a drained or unseeded
+concentrationFactor. `null` means the pair has no usable state (a drained or unseeded
 side); render "—" rather than zeros.
 
 ## Rendering notes

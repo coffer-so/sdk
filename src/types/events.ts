@@ -1,91 +1,342 @@
+/**
+ * v6.1 (T11) event shapes — the camelCase API of `parseCofferPoolEvents`.
+ *
+ * Every payload that changed since the v6 wire was RE-CUT under a new name
+ * (`…V2`, `PoolMigrationV5Applied`) and a new discriminator; nothing is
+ * appended under an old discriminator any more, so the decoders are strict
+ * (a truncated payload is `Unknown`, never a half value). The legacy
+ * discriminators (`Swap`, `LiquidityAdded`, `PoolStateLog`, …) do not
+ * decode on the v6.1 IDL: they surface as `Unknown` with `data.legacy`.
+ *
+ * Vectors are `token_count` long in pool order; amounts are raw `u64` (`BN`);
+ * `timestamp` is the Clock second (`number`); rates: `swapFeeRate` /
+ * `effectiveFeeRate` hundredths of bps, `protocolFeeRate` bps of the fee,
+ * `*Bps` bps.
+ */
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
+import type { SelloffParams } from "./tx";
 
-export type CubicPoolEvent =
-  | PoolInitializedEvent
-  | SwapEvent
-  | LiquidityAddedEvent
-  | LiquidityRemovedEvent
-  | ProtocolFeesCollectedEvent
+/** `actor_kind: u8` on instructions more than one signer class may call. */
+export const ACTOR_KINDS = ["USER", "POOL_ADMIN", "PROTOCOL_ADMIN", "SUPERVISOR", "RANGE_MANAGER"] as const;
+export type ActorKindName = (typeof ACTOR_KINDS)[number];
+export const ACTOR_KIND = { USER: 0, POOL_ADMIN: 1, PROTOCOL_ADMIN: 2, SUPERVISOR: 3, RANGE_MANAGER: 4 } as const satisfies Record<ActorKindName, number>;
+
+/** Name of an `actor_kind` value (`"UNKNOWN(n)"` for a value the SDK does not know). */
+export function actorKindName(kind: number): ActorKindName | `UNKNOWN(${number})` {
+  return ACTOR_KINDS[kind] ?? `UNKNOWN(${kind})`;
+}
+
+/** `SlotState`: one slot's full dynamics (`vault_i = actual + protocol + creator + surge`). */
+export interface SlotState {
+  virtualBalance: BN;
+  actualBalance: BN;
+  protocolFeesOwed: BN;
+  creatorFeesOwed: BN;
+  surgeFeesOwed: BN;
+}
+
+/** `SelloffWindow`: the input token's sell-off window after a swap (`SwapV2.selloffWindow`, only when the input token is capped). */
+export interface SelloffWindowState {
+  /** Window fill before this swap. */
+  effectiveSelloffBefore: BN;
+  effectiveSelloff: BN;
+  maxSelloffCap: BN;
+  vbSnapshot: BN;
+  previousSelloff: BN;
+  currentSelloff: BN;
+  windowStartTimestamp: number;
+}
+
+export type CofferPoolEvent =
+  | SwapV2Event
+  | LiquidityAddedV2Event
+  | LiquidityRemovedV2Event
+  | PoolInitializedV2Event
+  | PoolInfoV2Event
+  | ProtocolFeesCollectedV2Event
+  | CreatorFeesClaimedV2Event
+  | SidelinedTokenFundedEvent
+  | VirtualBalancesRescaledEvent
+  | HookInvokedEvent
+  | HookDisabledSetEvent
   | PoolEnabledUpdatedEvent
-  | SwapsEnabledUpdatedEvent
-  | SingleTokenDepositEvent
-  | PoolStateLogEvent
-  | MaxSelloffWindowAdvancedEvent
-  | BannedExtensionsUpdatedEvent
+  | SwapsEnabledUpdatedV2Event
+  | TokenActiveSetV2Event
+  | RangeManagerUpdatedV2Event
+  | MaxSelloffSetV2Event
+  | SingleTokenDepositDirectV2Event
+  | LpTransferFeeUpdatedEvent
+  | LpTransferFeeProtocolShareUpdatedEvent
+  | LpTransferFeesCollectedEvent
+  | LpTransferFeesRedeemedEvent
   | AdditionalContractEvent
   | UnknownEvent;
 
-export interface PoolInitializedEvent {
-  kind: "PoolInitialized";
-  pool: PublicKey;
-  config: PublicKey;
-  tokenCount: number;
-  bptMint: PublicKey;
-  timestamp: number;
-  /**
-   * Effective Token-2022 banned-extensions bitmap this pool's tokens were
-   * vetted against at creation (creator override OR-ed with the protocol's
-   * hard floor, or the parent config's default).
-   *
-   * Appended to the event in v5.1 — decodes as `0` for logs emitted by an
-   * older deployment, which is indistinguishable from a genuinely
-   * permissive `0`. Prefer the pool account's `bannedExtensions` field when
-   * the distinction matters.
-   */
-  bannedExtensions: BN;
-}
-
-export interface SwapEvent {
-  kind: "Swap";
+/** `swap` — the one event of a swap; carries the two touched slots before / after. */
+export interface SwapV2Event {
+  kind: "SwapV2";
   pool: PublicKey;
   user: PublicKey;
-  tokenIn: PublicKey;
-  tokenOut: PublicKey;
+  /** Token identity is by index: `PoolInitializedV2.mints[i]` or the pool account. */
+  tokenInIndex: number;
+  tokenOutIndex: number;
+  /** Gross input the user signed for. */
   amountIn: BN;
-  amountOut: BN;
+  /** Token-2022 transfer fee withheld on the input leg (`0` for classic mints). */
+  transferFeeIn: BN;
+  /** `amountIn − transferFeeIn`: what the vault received and the cascade ran on. */
+  amountInNet: BN;
+  /** Pool's configured base rate (hundredths of bps). */
+  swapFeeRate: number;
+  /** Rate actually applied: a `DYNAMIC_FEE` hook override clamped into `[hook_fee_min, hook_fee_max]`, else `swapFeeRate`. */
+  effectiveFeeRate: number;
+  /** Protocol share in force (bps of the fee). */
+  protocolFeeRate: number;
+  /** Creator share in force (bps of the LP remainder). */
+  creatorFeeBps: number;
+  /** Base swap fee on the input leg (`ceil(amountInNet · effectiveFeeRate)`). */
   feeAmount: BN;
   protocolFeeAmount: BN;
-  /**
-   * Variable sell-off surge fee taken from the OUTPUT token and routed
-   * 100% to the protocol bucket. `0` in the common case.
-   *
-   * ⚠ On the wire this field sits AFTER `timestamp`, not before it (see
-   * the `Swap` type in the IDL). The ordering here is presentational only.
-   */
+  creatorFeeAmount: BN;
+  /** Curve output before the surge fee. */
+  amountOutGross: BN;
+  /** Surge fee taken from the output leg; LP share = `surgeFeeAmount − surgeProtocolFeeAmount − surgeCreatorFeeAmount`. */
   surgeFeeAmount: BN;
-  timestamp: number;
-  /** Legacy compatibility field; the deployed without-SF event omits transfer
-   * fees, so this is zero for current events. No transfer-fee support is implied.
-   */
-  transferFeeIn: BN;
-  /** Legacy compatibility field; zero for the deployed without-SF event. */
+  surgeProtocolFeeAmount: BN;
+  surgeCreatorFeeAmount: BN;
+  /** Vault debit (`amountOutGross − surgeFeeAmount`); the user receives `amountOut − transferFeeOut`. */
+  amountOut: BN;
   transferFeeOut: BN;
+  inBefore: SlotState;
+  inAfter: SlotState;
+  outBefore: SlotState;
+  outAfter: SlotState;
+  timestamp: number;
+  /** The input token's window after the swap; `null` unless the input token is capped. */
+  selloffWindow: SelloffWindowState | null;
 }
 
-export interface LiquidityAddedEvent {
-  kind: "LiquidityAdded";
+/** `seed_liquidity` / `add_liquidity`. */
+export interface LiquidityAddedV2Event {
+  kind: "LiquidityAddedV2";
   pool: PublicKey;
   user: PublicKey;
+  isSeed: boolean;
+  /** Charged per token (gross, incl. the Token-2022 transfer fee). */
   tokenAmounts: BN[];
-  bptAmount: BN;
+  /** Net credited per token: `Δactual_i + Δsurge_i`. */
+  creditedAmounts: BN[];
+  /** Bucket share of the credit (`0` when the bucket is empty). */
+  surgeBuyIn: BN[];
+  /** LP minted, net of the deposit fee. */
+  lpAmount: BN;
+  /** LP withheld by the deposit fee (simply not minted). */
+  depositFeeLp: BN;
+  /** Rate applied (`0` on the fee-exempt seed). */
+  depositFeeBps: number;
+  lpSupplyBefore: BN;
+  /** `lpSupplyBefore + lpAmount`. */
+  lpSupplyAfter: BN;
+  virtualBalancesBefore: BN[];
+  virtualBalancesAfter: BN[];
+  actualBalancesBefore: BN[];
+  actualBalancesAfter: BN[];
+  surgeFeesOwedBefore: BN[];
+  surgeFeesOwedAfter: BN[];
   timestamp: number;
 }
 
-export interface LiquidityRemovedEvent {
-  kind: "LiquidityRemoved";
+/** `remove_liquidity` / `remove_liquidity_bypass_hooks`. */
+export interface LiquidityRemovedV2Event {
+  kind: "LiquidityRemovedV2";
   pool: PublicKey;
   user: PublicKey;
-  bptAmount: BN;
+  requestedLp: BN;
+  /** Effective burn (`≤ requestedLp`, `MIN_LP_SUPPLY` clamp). */
+  lpAmount: BN;
+  /** Reserve part of the vault debit per slot (leaves `actual`). */
   tokenAmounts: BN[];
+  /** Bucket part of the vault debit per slot (leaves `surge_fees_owed`). */
+  surgeAmounts: BN[];
+  /** Withheld by the withdraw fee (stays in the pool). */
+  withdrawFeeAmounts: BN[];
+  withdrawFeeBps: number;
+  /** Token-2022 transfer fee per leg; the user receives `tokenAmounts_i + surgeAmounts_i − transferFeesOut_i`. */
+  transferFeesOut: BN[];
+  /** `true` on `remove_liquidity_bypass_hooks` (no `HookInvoked`). */
+  hooksBypassed: boolean;
+  lpSupplyBefore: BN;
+  /** `lpSupplyBefore − lpAmount`. */
+  lpSupplyAfter: BN;
+  virtualBalancesBefore: BN[];
+  virtualBalancesAfter: BN[];
+  actualBalancesBefore: BN[];
+  actualBalancesAfter: BN[];
+  surgeFeesOwedBefore: BN[];
+  surgeFeesOwedAfter: BN[];
   timestamp: number;
 }
 
-export interface ProtocolFeesCollectedEvent {
-  kind: "ProtocolFeesCollected";
+/** `initialize_pool` — the creation record (the account after init). */
+export interface PoolInitializedV2Event {
+  kind: "PoolInitializedV2";
+  pool: PublicKey;
+  config: PublicKey;
+  poolId: BN;
+  poolAdmin: PublicKey;
+  lpMint: PublicKey;
+  lpTokenProgram: PublicKey;
+  tokenCount: number;
+  mints: PublicKey[];
+  tokenPrograms: PublicKey[];
+  /** Pinned decimals per slot (`bytes` on the wire). */
+  decimals: number[];
+  normalizedWeights: BN[];
+  initialVirtualBalances: BN[];
+  swapFeeRate: number;
+  protocolFeeRate: number;
+  creatorFeeBps: number;
+  depositFeeBps: number;
+  withdrawFeeBps: number;
+  lpName: string;
+  lpSymbol: string;
+  lpUri: string;
+  /** Hook block (`PublicKey.default` / zeros = no hook). */
+  hookProgram: PublicKey;
+  hookFlags: number;
+  hookFeeMin: number;
+  hookFeeMax: number;
+  hookMaxCu: number;
+  hookAccountsLen: number;
+  timestamp: number;
+}
+
+/** `get_pool_info` (simulate-only view, never indexed). */
+export interface PoolInfoV2Event {
+  kind: "PoolInfoV2";
+  pool: PublicKey;
+  config: PublicKey;
+  poolId: BN;
+  layoutVersion: number;
+  poolAdmin: PublicKey;
+  pendingPoolAdmin: PublicKey;
+  pendingPoolAdminEta: BN;
+  lpMint: PublicKey;
+  tokenCount: number;
+  tokens: PublicKey[];
+  tokenVaults: PublicKey[];
+  tokenPrograms: PublicKey[];
+  decimals: number[];
+  normalizedWeights: BN[];
+  virtualBalances: BN[];
+  actualBalances: BN[];
+  protocolFeesOwed: BN[];
+  creatorFeesOwed: BN[];
+  surgeFeesOwed: BN[];
+  isActive: boolean[];
+  selloffPolicy: SelloffParams[];
+  swapFeeRate: number;
+  protocolFeeRate: number;
+  creatorFeeBps: number;
+  depositFeeBps: number;
+  withdrawFeeBps: number;
+  liquidityFeeLock: number;
+  poolEnabled: boolean;
+  swapsEnabled: boolean;
+  rangeManager: PublicKey;
+  rangeManagerEnabled: boolean;
+  rangeManagerLocked: boolean;
+  rangeManagerMaxVbChangePct: number;
+  rangeManagerMaxWeightChangePct: number;
+  rangeManagerMinUpdateIntervalSecs: number;
+  rangeManagerMaxConcentrationFactorBps: number;
+  rangeManagerMinConcentrationFactorBps: number;
+  rangeManagerLastUpdated: BN;
+  lookupTable: PublicKey;
+  poolAdminDelaySecs: number;
+  poolAdminEpoch: number;
+  pendingActionsMask: number;
+  /** The eleven slot etas in kind order. */
+  pendingEtas: BN[];
+  hookProgram: PublicKey;
+  hookFlags: number;
+  hookDisabled: number;
+  hookFeeMin: number;
+  hookFeeMax: number;
+  hookMaxCu: number;
+  hookAccountsLen: number;
+  timestamp: number;
+}
+
+/** `collect_protocol_fees`: `tokenAmounts_i` = `protocol_fees_owed_i` before (after = 0); `recipients_i` = paid account or `PublicKey.default`. */
+export interface ProtocolFeesCollectedV2Event {
+  kind: "ProtocolFeesCollectedV2";
   pool: PublicKey;
   authority: PublicKey;
   tokenAmounts: BN[];
+  recipients: PublicKey[];
+  timestamp: number;
+}
+
+/** `claim_creator_fees`: same shape as `ProtocolFeesCollectedV2` over `creator_fees_owed`. */
+export interface CreatorFeesClaimedV2Event {
+  kind: "CreatorFeesClaimedV2";
+  pool: PublicKey;
+  authority: PublicKey;
+  tokenAmounts: BN[];
+  recipients: PublicKey[];
+  timestamp: number;
+}
+
+/** `fund_sidelined_token` (T10): one slot's `actual: 0 → actualAfter`. */
+export interface SidelinedTokenFundedEvent {
+  kind: "SidelinedTokenFunded";
+  pool: PublicKey;
+  authority: PublicKey;
+  tokenIndex: number;
+  amountCharged: BN;
+  amountCredited: BN;
+  actualAfter: BN;
+  virtualBalance: BN;
+  lpSupply: BN;
+  timestamp: number;
+}
+
+/** `rescale_virtual_balances` (T22): every `V_i` multiplied by `multiplier`; price-neutral. */
+export interface VirtualBalancesRescaledEvent {
+  kind: "VirtualBalancesRescaled";
+  pool: PublicKey;
+  authority: PublicKey;
+  multiplier: BN;
+  oldVirtualBalances: BN[];
+  newVirtualBalances: BN[];
+  timestamp: number;
+}
+
+/** One per hook callback, before the instruction's primary event (T9). */
+export interface HookInvokedEvent {
+  kind: "HookInvoked";
+  pool: PublicKey;
+  hookProgram: PublicKey;
+  /** `HOOK_CALLBACKS[callback].name`. */
+  callback: number;
+  /** `0` = Allow, `1` = Deny (informational on removes). */
+  verdict: number;
+  hasFeeOverride: boolean;
+  /** Raw override as returned by the hook (unclamped; `SwapV2.effectiveFeeRate` is the clamped rate). */
+  feeOverride: number;
+  cuUsed: number;
+  timestamp: number;
+}
+
+export interface HookDisabledSetEvent {
+  kind: "HookDisabledSet";
+  pool: PublicKey;
+  authority: PublicKey;
+  oldDisabled: boolean;
+  newDisabled: boolean;
+  pauseWhenDisabled: boolean;
   timestamp: number;
 }
 
@@ -98,101 +349,190 @@ export interface PoolEnabledUpdatedEvent {
   timestamp: number;
 }
 
-export interface SwapsEnabledUpdatedEvent {
-  kind: "SwapsEnabledUpdated";
+export interface SwapsEnabledUpdatedV2Event {
+  kind: "SwapsEnabledUpdatedV2";
   pool: PublicKey;
   authority: PublicKey;
+  /** `ACTOR_KIND.POOL_ADMIN` or `ACTOR_KIND.PROTOCOL_ADMIN`. */
+  actorKind: number;
   oldValue: boolean;
   newValue: boolean;
   timestamp: number;
 }
 
-export interface SingleTokenDepositEvent {
-  kind: "SingleTokenDeposit";
-  helper: PublicKey;
+export interface TokenActiveSetV2Event {
+  kind: "TokenActiveSetV2";
   pool: PublicKey;
-  user: PublicKey;
-  tokenInIndex: number;
-  amountIn: BN;
-  /** Per-token share of `amountIn` routed into each internal swap leg. */
-  allocations: BN[];
-  /** Per-token amounts actually passed to `add_liquidity`. */
-  depositedAmounts: BN[];
-  bptReceived: BN;
-  /**
-   * Per-token dust returned to the user after the proportional join,
-   * index-aligned with the pool's tokens.
-   *
-   * ⚠ Was a scalar `u64` before v5.1 — the helper only ever refunded the
-   * input token. It now refunds leftovers of every token, so this is a
-   * `Vec<u64>` on the wire and a `BN[]` here. Consumers summing "dust" must
-   * NOT add these together: each entry is denominated in a different mint.
-   */
-  dustRefunded: BN[];
+  authority: PublicKey;
+  actorKind: number;
+  tokenIndex: number;
+  oldValue: boolean;
+  newValue: boolean;
+  timestamp: number;
+}
+
+/** `range_manager_update`: sparse — only the touched indices, old (= the CAS `expected_current`) / new. */
+export interface RangeManagerUpdatedV2Event {
+  kind: "RangeManagerUpdatedV2";
+  pool: PublicKey;
+  manager: PublicKey;
+  vbIndices: number[];
+  vbOldValues: BN[];
+  vbNewValues: BN[];
+  weightIndices: number[];
+  weightOldValues: BN[];
+  weightNewValues: BN[];
+  timestamp: number;
+}
+
+/** `set_max_selloff`: the whole policy per token, before / after (all seven fields). */
+export interface MaxSelloffSetV2Event {
+  kind: "MaxSelloffSetV2";
+  pool: PublicKey;
+  authority: PublicKey;
+  oldParams: SelloffParams[];
+  newParams: SelloffParams[];
   timestamp: number;
 }
 
 /**
- * `set_banned_extensions` / `pool_set_banned_extensions` audit trail.
- *
- * `hard*` values are the protocol-level floor a pool creator's per-pool
- * override can never clear (`PermanentDelegate`, `TransferHook`, …); the
- * plain values are the config's default policy for new pools.
+ * `deposit_single_token_planned` receipt (STLD) — the LAST event of the
+ * transaction and self-contained: the zap row needs nothing from the inner
+ * legs (`innerSwapCount` × `SwapV2` then one `LiquidityAddedV2`, attributed to
+ * coffer-pool at CPI depth 2).
  */
-export interface BannedExtensionsUpdatedEvent {
-  kind: "BannedExtensionsUpdated";
-  config: PublicKey;
+export interface SingleTokenDepositDirectV2Event {
+  kind: "SingleTokenDepositDirectV2";
+  pool: PublicKey;
+  user: PublicKey;
+  tokenInIndex: number;
+  /** Gross input the user signed for (the plan's allocations sum to it). */
+  amountIn: BN;
+  minimumLpAmount: BN;
+  /** The plan: gross input spent on each swap leg; the input slot is the amount reserved for the join. */
+  allocations: BN[];
+  /** `stateCommitment` the plan was quoted against (32 bytes). */
+  planExpectedState: Buffer;
+  planQuotedAt: number;
+  planValidUntilSlot: BN;
+  innerSwapCount: number;
+  /** Measured per-token debits of the join. */
+  depositedAmounts: BN[];
+  lpReceived: BN;
+  /** Per-token unspent budget left in the user's accounts (each entry in a different mint). */
+  dustRemaining: BN[];
+  lpSupplyBefore: BN;
+  lpSupplyAfter: BN;
+  timestamp: number;
+}
+
+// ─── LP transfer fee (2026-11-19) ────────────────────────────────────────────
+
+/**
+ * `initialize_pool` (`oldBps = 0`, `authority` = the payer) and
+ * `set_lp_transfer_fee` (`authority` = the pool admin): the LP mint's
+ * scheduled `TransferFeeConfig` rate. Token-2022 applies `newBps` from the
+ * epoch after next; `oldBps` is the previously scheduled (`newer`) rate.
+ */
+export interface LpTransferFeeUpdatedEvent {
+  kind: "LpTransferFeeUpdated";
+  pool: PublicKey;
+  lpMint: PublicKey;
   authority: PublicKey;
-  oldValue: BN;
-  newValue: BN;
+  oldBps: number;
+  newBps: number;
   timestamp: number;
-  /** New in v5.1 — `0` for logs emitted by an older deployment. */
-  oldHardValue: BN;
-  /** New in v5.1 — `0` for logs emitted by an older deployment. */
-  newHardValue: BN;
 }
 
-export interface PoolStateLogEvent {
-  kind: "PoolStateLog";
+/** `set_lp_transfer_fee_protocol_share` (protocol admin): `lp_transfer_fee_protocol_share_bps` old → new; never retroactive. */
+export interface LpTransferFeeProtocolShareUpdatedEvent {
+  kind: "LpTransferFeeProtocolShareUpdated";
   pool: PublicKey;
-  virtualBalances: BN[];
-  actualBalances: BN[];
-  protocolFeesOwed: BN[];
+  authority: PublicKey;
+  oldBps: number;
+  newBps: number;
   timestamp: number;
 }
 
-export interface MaxSelloffWindowAdvancedEvent {
-  kind: "MaxSelloffWindowAdvanced";
+/**
+ * `collect_lp_transfer_fees` (permissionless): `collected = protocolPart +
+ * scheduledBurn`; the burn stream (L-1) advanced by `burnedNow`, which comes
+ * from EARLIER collections — nothing of `scheduledBurn` burns in this call.
+ * `lpSupplyAfter` is the mint supply after `burnedNow` left it; the stream
+ * vests linearly up to `burnEndTs` (`lpTransferFeeDrip`).
+ */
+export interface LpTransferFeesCollectedEvent {
+  kind: "LpTransferFeesCollected";
   pool: PublicKey;
-  tokenIndex: number;
-  effectiveSelloff: BN;
-  maxSelloffCap: BN;
-  vbSnapshot: BN;
-  previousSelloff: BN;
-  currentSelloff: BN;
-  windowStartTimestamp: number;
+  lpMint: PublicKey;
+  lpFeeAccount: PublicKey;
+  /** LP units collected in this call (withheld fees swept + any donation to the fee account). */
+  collected: BN;
+  /** LP units booked to the protocol (`lp_transfer_fees_owed_protocol += protocolPart`). */
+  protocolPart: BN;
+  /** LP units of this collection queued for the burn stream (`lp_transfer_fees_pending_burn += scheduledBurn`). */
+  scheduledBurn: BN;
+  /** LP units burned in this call: `lpTransferFeeDrip(pendingBefore, lastTs, endTs, timestamp)` (raises every LP unit's NAV). */
+  burnedNow: BN;
+  protocolOwedAfter: BN;
+  /** `lp_transfer_fees_pending_burn` after the call. */
+  pendingBurnAfter: BN;
+  lpSupplyAfter: BN;
   timestamp: number;
-  /**
-   * Window fill % = `effectiveSelloff / maxSelloffCap`. When this ratio
-   * reaches 1.0 the sell-off cap for the window is fully consumed.
-   */
+  /** `lp_transfer_fee_burn_end_ts` after the call: when `pendingBurnAfter` is fully burnable (`== timestamp` when nothing is pending). */
+  burnEndTs: BN;
 }
 
+/**
+ * `redeem_lp_transfer_fees` (protocol admin): `lpBurned` LP from the pool's
+ * LP fee account redeemed pro rata (no withdraw fee) into `recipients`
+ * (`PublicKey.default` for a zero-payout slot). The recipient receives
+ * `tokenAmounts_i + surgeAmounts_i − transferFeesOut_i`.
+ */
+export interface LpTransferFeesRedeemedEvent {
+  kind: "LpTransferFeesRedeemed";
+  pool: PublicKey;
+  authority: PublicKey;
+  lpBurned: BN;
+  tokenAmounts: BN[];
+  surgeAmounts: BN[];
+  transferFeesOut: BN[];
+  recipients: PublicKey[];
+  protocolOwedAfter: BN;
+  lpSupplyBefore: BN;
+  lpSupplyAfter: BN;
+  timestamp: number;
+}
+
+/**
+ * A `Program data:` line the SDK could not decode as a current event. `name`
+ * is the pinned legacy / retired name when the discriminator is a known
+ * pre-T11 one (`data.legacy === true`, `data.replacedBy` names the re-cut
+ * event, `data.retired === true` when nothing replaced it), the current name
+ * when the payload was malformed (`data.error`), else `"unknown"`.
+ */
 export interface UnknownEvent {
   kind: "Unknown";
   name: string;
   data: Record<string, unknown>;
 }
 
-/** Additional current-ABI events, with the camelCase fields used by the legacy
- * event API. Use parseContractEvents for exact IDL names and BN timestamps.
+/**
+ * Every other current event, decoded through the IDL coder with camelCase
+ * keys (nested structs included). The cooldown events' `kind: u8` data field
+ * is exposed as `actionKind` so it cannot shadow the event discriminator.
+ * Use `parseContractEvents` for exact IDL names and BN timestamps.
  */
 type CamelCase<S extends string> = S extends `${infer Head}_${infer Tail}` ? `${Head}${Capitalize<CamelCase<Tail>>}` : S;
-type CamelEventData<T> = { [K in keyof T as K extends string ? CamelCase<K> : K]: K extends "timestamp" ? number : T[K] };
-type ExistingEventName = "PoolInitialized" | "Swap" | "LiquidityAdded" | "LiquidityRemoved" | "ProtocolFeesCollected" | "PoolEnabledUpdated" | "SwapsEnabledUpdated" | "SingleTokenDeposit" | "PoolStateLog" | "MaxSelloffWindowAdvanced" | "BannedExtensionsUpdated";
+type CamelEventData<T> = { [K in keyof T as K extends "kind" ? "actionKind" : K extends string ? CamelCase<K> : K]: K extends "timestamp" ? number : T[K] };
+export type TypedEventName =
+  | "SwapV2" | "LiquidityAddedV2" | "LiquidityRemovedV2" | "PoolInitializedV2" | "PoolInfoV2" | "ProtocolFeesCollectedV2" | "CreatorFeesClaimedV2"
+  | "SidelinedTokenFunded" | "VirtualBalancesRescaled" | "HookInvoked" | "HookDisabledSet" | "PoolEnabledUpdated" | "SwapsEnabledUpdatedV2" | "TokenActiveSetV2"
+  | "RangeManagerUpdatedV2" | "MaxSelloffSetV2" | "SingleTokenDepositDirectV2"
+  | "LpTransferFeeUpdated" | "LpTransferFeeProtocolShareUpdated" | "LpTransferFeesCollected" | "LpTransferFeesRedeemed";
 export type AdditionalContractEvent = {
   [P in keyof import("./contracts").ContractEventMap]: {
-    [E in Exclude<keyof import("./contracts").ContractEventMap[P], ExistingEventName>]:
+    [E in Exclude<keyof import("./contracts").ContractEventMap[P], TypedEventName>]:
       { kind: E } & CamelEventData<import("./contracts").ContractEventMap[P][E]>
-  }[Exclude<keyof import("./contracts").ContractEventMap[P], ExistingEventName>]
+  }[Exclude<keyof import("./contracts").ContractEventMap[P], TypedEventName>]
 }[keyof import("./contracts").ContractEventMap];

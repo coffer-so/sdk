@@ -36,7 +36,7 @@ if you don't admin any pools.
 ### Check Admin Status for a Specific Pool
 
 ```ts
-const res = await client.isPoolAdmin("8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu");
+const res = await client.isPoolAdmin("HGbQ74sgfvyhyEBgPwtKBge2HFcnZbHXTCSA2QdBTHA3");
 if (res.ok) {
   console.log(res.data.isAdmin ? "You are the admin" : "Not admin");
 }
@@ -46,8 +46,8 @@ if (res.ok) {
 
 ```ts
 const res = await client.renamePool(
-  "8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu",
-  "BlueChips",
+  "HGbQ74sgfvyhyEBgPwtKBge2HFcnZbHXTCSA2QdBTHA3",
+  "My Awesome Pool",
 );
 if (res.ok) {
   console.log(`Renamed to: ${res.data.name}`);

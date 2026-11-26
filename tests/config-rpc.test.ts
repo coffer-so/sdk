@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { CubicPoolClient, getConfig } from "../src";
+import { CofferPoolClient, getConfig } from "../src";
 
 describe("RPC defaults in config", () => {
   test("mainnet config exposes a no-key fallback endpoint list", () => {
@@ -39,13 +39,13 @@ describe("RPC defaults in config", () => {
     expect(cfg.defaults.rpcTimeoutMs).toBe(750);
   });
 
-  test("CubicPoolClient uses config RPC defaults when rpc is omitted", () => {
+  test("CofferPoolClient uses config RPC defaults when rpc is omitted", () => {
     const cfg = getConfig("mainnet", {
       rpcEndpoints: ["https://one.rpc", "https://two.rpc"],
       rpcTimeoutMs: 750,
     });
 
-    const client = new CubicPoolClient({
+    const client = new CofferPoolClient({
       config: cfg,
       poolAddress: PublicKey.default,
     });
@@ -53,12 +53,12 @@ describe("RPC defaults in config", () => {
     expect(client.rpc.endpoints).toEqual(["https://one.rpc", "https://two.rpc"]);
   });
 
-  test("CubicPoolClient preserves explicit single-endpoint rpc configuration", () => {
+  test("CofferPoolClient preserves explicit single-endpoint rpc configuration", () => {
     const cfg = getConfig("mainnet", {
       rpcEndpoints: ["https://one.rpc", "https://two.rpc"],
     });
 
-    const client = new CubicPoolClient({
+    const client = new CofferPoolClient({
       config: cfg,
       poolAddress: PublicKey.default,
       rpc: { endpoint: "https://explicit.rpc" },

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Cubee uses **Sign In With Solana (SIWS)** for wallet-based authentication. The flow:
+Coffer uses **Sign In With Solana (SIWS)** for wallet-based authentication. The flow:
 
 1. Request a nonce from the backend
 2. Sign the returned message with the wallet

@@ -54,7 +54,7 @@ One call returns the whole table. Pass `token` to refresh a single row.
 `bounds.min` / `spot` / `max` come from the pool's current virtual and
 actual balances — **they move with every swap**. They are not a
 configuration the creator chose and must not be cached as pool metadata.
-A creator influences them only indirectly, through leverage.
+A creator influences them only indirectly, through concentrationFactor.
 
 `bounds: null` means there is nothing meaningful to show (the base token
 itself, or a drained side) — render "—".
@@ -78,7 +78,7 @@ Two consequences worth designing for:
 - **Charts are progressive, not required.** A row must be complete and
   useful with `series` still loading. Reserve the space, show a skeleton
   in it, and never gate the row's own numbers (weight, balances,
-  leverage) on the chart request.
+  concentrationFactor) on the chart request.
 - **Fetch the table once, not per row.** Call `getPoolTokenChart` without
   `token` on mount: it returns every row in one request, shares the
   cached per-mint price series between them, and is charged once against

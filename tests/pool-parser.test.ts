@@ -3,7 +3,7 @@
  * exactly as the on-chain Rust struct lays it out.
  *
  * Cross-validates against:
- *   contracts/programs/cubic-pool/src/state/cubic_pool.rs
+ *   contracts/programs/coffer-pool/src/state/coffer_pool.rs
  *
  * Layout (1683 bytes total, 8-byte disc + 1675 payload):
  *
@@ -31,7 +31,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { decodePoolAccount, POOL_V4_LEN } from "../src/parsers/poolAccount";
 
-const ANCHOR_POOL_DISC = Buffer.from([137, 210, 42, 22, 209, 156, 43, 78]); // CubicPool disc
+const ANCHOR_POOL_DISC = Buffer.from([137, 210, 42, 22, 209, 156, 43, 78]); // CofferPool disc
 
 function pk(): PublicKey {
   return Keypair.generate().publicKey;
@@ -181,7 +181,7 @@ describe("poolAccount.decode — v4 (AoS) layout", () => {
   it("rejects v3 (1154-byte) pools with an explicit migration hint", () => {
     const v3 = Buffer.alloc(1154);
     ANCHOR_POOL_DISC.copy(v3, 0);
-    expect(() => decodePoolAccount(v3)).toThrow(/migrate_to_v5/);
+    expect(() => decodePoolAccount(v3)).toThrow(/v3 size.*no migration path/);
   });
 
   it("rejects unknown sizes with a clear error", () => {

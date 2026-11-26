@@ -1,15 +1,17 @@
 {
   "name": "@coffer_so/sdk",
-  "version": "1.4.9",
+  "version": "2.0.0",
   "publishConfig": {
     "access": "public"
   },
-  "description": "Coffer DEX SDK — client library for interacting with the Cubic Pool AMM on Solana",
+  "description": "Coffer DEX SDK — v6.1 Coffer Pool contracts (Token-2022 transfer fees and hooks, planned single-token deposits), coffer_rewards boosts and the Coffer backend API client on Solana",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "src"
+    "src",
+    "docs",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "env:mainnet": "cp .env.mainnet .env && echo 'Active env: MAINNET'",
@@ -20,7 +22,13 @@
     "build:mainnet": "npm run env:mainnet && npm run build",
     "build:testnet": "npm run env:testnet && npm run build",
     "test": "jest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "types:generate": "node scripts/generate-contract-types.cjs",
+    "types:check": "node scripts/generate-contract-types.cjs --check",
+    "abi:check": "node scripts/check-contract-abi.cjs --contracts-dir ../contracts-v6.1 --idl-dir target/idl --ignore-address",
+    "fixtures:events": "node scripts/generate-event-fixtures.cjs",
+    "fixtures:events:check": "node scripts/generate-event-fixtures.cjs --check",
+    "fixtures:rust": "python3 tests/math/generate-rust-reference.py ../contracts-v6.1"
   },
   "repository": {
     "type": "git",
@@ -31,7 +39,9 @@
     "dex",
     "amm",
     "coffer",
-    "sdk"
+    "sdk",
+    "token-2022",
+    "v6"
   ],
   "license": "MIT",
   "peerDependencies": {
@@ -39,11 +49,13 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/spl-token": "^0.4.8",
-    "@solana/web3.js": "^1.95.0",
-    "bn.js": "^5.2.1"
+    "@noble/hashes": "^1.4.0",
+    "@solana/spl-token": "^0.4.14",
+    "bn.js": "^5.2.1",
+    "@solana/spl-token-metadata": "^0.1.6"
   },
   "devDependencies": {
+    "@solana/web3.js": "^1.95.0",
     "@types/bn.js": "^5.1.5",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.10.4",

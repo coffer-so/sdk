@@ -1,4 +1,4 @@
-import { SdkResult, err, ok } from "../types/result";
+import { SdkError, SdkResult, err, ok } from "../types/result";
 import { PoolSummary } from "../types/pool";
 import { RetryOptions, safeCall } from "../utils/retry";
 import { isFetchNetworkFailure, toSdkError } from "../utils/errors";
@@ -484,6 +484,16 @@ export interface AdminPoolEntry {
   additionalUrl?: string | null;
   tvlUsd: number;
   apy: number;
+  /**
+   * Boosts of the pool (see `PoolBoostSnapshot`); null without one. Backend
+   * with boosts (`@coffer_so/sdk` 1.5.0); absent on older backends.
+   */
+  boost?: PoolBoostSnapshot | null;
+  /**
+   * Boost APR now, % — simple, paid in the reward token, never part of
+   * `apy`; null when no boost is active. Same backend as `boost`.
+   */
+  boostAprPct?: number | null;
   volume24h: number;
   swapFee: number;
   poolEnabled: boolean;
@@ -860,10 +870,7 @@ export interface PortfolioChartResponse {
    * hit its cap / the history API was unavailable (amounts frozen at the
    * horizon); pnl — a position predating the range closed inside it;
    * il — a basis token without price history, a snapshot older than an
-   * LP event, or an exit that could not be priced; pnl / il — the
-   * backend's stored LP history has not caught up with the wallet's last
-   * deposit or withdrawal yet (usually under a minute, during which the
-   * chart can be off by about that transaction).
+   * LP event, or an exit that could not be priced.
    */
   approximate: boolean;
   /**
@@ -937,7 +944,7 @@ export interface PortfolioChartEvent {
    * the LP price at that moment. `null` when a transfer could not be priced.
    */
   usd: number | null;
-  /** LP tokens (BPT) moved, human units, same sign as `usd`. */
+  /** LP tokens moved, human units, same sign as `usd`. */
   bptDelta: number;
   /**
    * Transaction signature — pass it as `highlight` to `getPortfolioActivity`
@@ -1086,7 +1093,7 @@ export interface PortfolioPositionItem {
     tokens: ActivityTokenInfo[];
   };
   /**
-   * Position value from the 30s-fresh wallet BPT balance. In a
+   * Position value from the 30s-fresh wallet LP balance. In a
    * `getPublicPortfolioPositions` answer — from the balance of the
    * backend's stored position snapshot.
    */
@@ -1100,6 +1107,12 @@ export interface PortfolioPositionItem {
   netPnl: number;
   /** POOL-wide APY, % (24h-based) — the same number as the pools page. */
   apy: number;
+  /**
+   * Boost APR of the pool now, % (simple, in the reward token; never part
+   * of `apy`); null without an active boost. Backend with boosts (1.5.0);
+   * absent on older backends.
+   */
+  boostAprPct?: number | null;
 }
 
 export interface PortfolioPositionsResponse {
@@ -1110,6 +1123,420 @@ export interface PortfolioPositionsResponse {
   /** Σ value of ALL active positions (the header total), not the page. */
   totalValueUsd: number;
   data: PortfolioPositionItem[];
+}
+
+// ── Boosts (coffer_rewards) types — backend docs/BOOSTS.md ──
+//
+// Every `…Raw` field is a decimal string of raw u64 units (never a JS
+// number); times are ISO 8601 UTC; APRs are percents (18.4 = 18.4 %).
+
+export type PoolBoostStatus = "scheduled" | "active" | "ended" | "cancelled";
+
+/** One boost of a pool (`Pool.boost.items[]`). */
+export interface PoolBoostItem {
+  /** The boost id. */
+  id: number;
+  /** The campaign account a voucher and a claim name. */
+  campaign: string;
+  /** Reward mint; wrapped SOL (So111…112) for a SOL campaign. */
+  rewardMint: string;
+  rewardSymbol: string | null;
+  rewardDecimals: number;
+  /** Price when the snapshot was written; null = no price. */
+  rewardPriceUsd: number | null;
+  /** Recomputed from the clock every time the pool is read. */
+  status: PoolBoostStatus;
+  /** Whole UTC hours. */
+  startAt: string;
+  /** Planned end of the terms in force; can move earlier (stop, shorten). */
+  endAt: string;
+  /** min(cap, budget per day × 365 × price / eligibleTvlUsd), simple; a projection while scheduled, 0 once ended. */
+  aprPct: number;
+  aprCapPct: number;
+  /** The cap is below the budget APR: the rest of the budget is refunded. */
+  capBinding: boolean;
+  /** Budget per day of the terms in force; "0" once ended. */
+  ratePerDayRaw: string;
+  budgetRaw: string;
+  /** Accrued to LPs by the finalized days. */
+  emittedRaw: string;
+  /** Back to the campaign: above the cap, rounding, forfeits. */
+  refundedRaw: string;
+  /** End of the last finalized day; null before the first. */
+  finalizedThrough: string | null;
+  /** Vouchers are signed for this campaign now. */
+  claimsOpen: boolean;
+  /** The campaign's liquidity covers what it owes (a pool admin's: plus the rest of its budgets). */
+  funded: boolean;
+  unreliable: boolean;
+  /** No APR cap (a pool admin's boost in a token without a price): show the reward per day, not a cap; aprCapPct is 0. Absent on older backends. */
+  uncapped?: boolean;
+  /** Paused because its campaign stopped covering it: it pays nothing until funded again. */
+  paused?: "underfunded" | null;
+  /** Who pays: the protocol, or the pool admin from its own campaign (which it can withdraw from — say so next to the APR). */
+  sponsor?: { kind: "protocol" | "pool_admin"; wallet: string | null };
+}
+
+/** Plan name of a pool boost item. */
+export type PoolBoost = PoolBoostItem;
+
+/**
+ * `Pool.boost` (version 1). On every raw pool answer as `boost`
+ * (`PoolBoostSnapshot | null`) next to `boostAprPct` (`number | null`).
+ * Treat a `v` other than 1 as "no boost".
+ */
+export interface PoolBoostSnapshot {
+  v: 1;
+  asOf: string;
+  /** Σ aprPct of the active items (= boostAprPct); 0 when none is active. */
+  aprPct: number;
+  unreliable: boolean;
+  /** USD value of the LP held by the wallets that take part; the APR is computed on it. */
+  eligibleTvlUsd: number;
+  items: PoolBoostItem[];
+}
+
+/** An item of `GET /api/rewards/boosts`. */
+export interface PublicBoostPool {
+  poolAddress: string;
+  poolName: string;
+  imageUrl: string | null;
+  bptMint: string | null;
+  tvlUsd: number | null;
+  /** null when no item is active (only scheduled boosts). */
+  boostAprPct: number | null;
+  /** items: active and scheduled only. */
+  boost: PoolBoostSnapshot;
+}
+
+/** `GET /api/rewards/boosts`: pools with an active or scheduled boost, highest boostAprPct first. */
+export interface PublicBoostsResponse {
+  asOf: string;
+  pools: PublicBoostPool[];
+}
+
+/** A live campaign of the backend, as last read from the chain. */
+export interface PublicCampaign {
+  id: number;
+  address: string;
+  programId: string;
+  admin: string;
+  /** Who funds it; absent on older backends (= the protocol). */
+  ownerKind?: "protocol" | "pool_admin";
+  /** Most gross units all claims together may take per window ("0" = no limit), and the window. */
+  payoutLimitRaw?: string;
+  payoutWindowSec?: string;
+  /** Closed on chain: it pays nothing more. */
+  closedAt?: string | null;
+  /** 32 bytes, hex: sha256("coffer-boosts:v2:<cluster>:<mint|native>:<generation>"). */
+  campaignId: string;
+  bump: number;
+  native: boolean;
+  /** On-chain field: 1111…1111 for SOL. */
+  mint: string;
+  /** Wrapped SOL for a SOL campaign. */
+  rewardMint: string;
+  rewardSymbol: string | null;
+  tokenProgram: string;
+  decimals: number;
+  /** Token-2022 extension types of the mint. */
+  mintExtensions: number[];
+  /** ATA(campaign, mint, tokenProgram), or PDA ["sol", campaign] for SOL. */
+  vault: string;
+  backendSigner: string;
+  signerEpoch: string;
+  liquidityRaw: string;
+  /** null when the vault was not read yet or does not exist; lamports with rent for SOL. */
+  vaultBalanceRaw: string | null;
+  stateSlot: string | null;
+  stateReadAt: string | null;
+  /** Includes backendSigner === signer. */
+  claimsOpen: boolean;
+  label: string | null;
+}
+
+/** `GET /api/rewards/campaigns`. */
+export interface PublicCampaignsResponse {
+  programId: string;
+  cluster: "mainnet" | "devnet";
+  /** null while the backend does not sign. */
+  signer: string | null;
+  campaigns: PublicCampaign[];
+}
+
+export interface WalletCampaignRewards {
+  /** Backend id of the campaign (not the on-chain 32-byte id). */
+  campaignId: number;
+  campaign: string;
+  rewardMint: string;
+  rewardSymbol: string | null;
+  rewardDecimals: number;
+  /** Finalized all-time total. */
+  earnedRaw: string;
+  /** Admin additions younger than the change delay: in earnedRaw, not claimable yet. */
+  pendingRaw: string;
+  claimedRaw: string;
+  /** max(0, earned − pending − claimed). */
+  claimableRaw: string;
+  /** claimableRaw clipped to the last-read liquidity and vault (estimate). */
+  claimableNowRaw: string;
+  /** Reserved while the wallet's LP history is checked; not in earnedRaw. */
+  heldRaw: string;
+  finalizedThrough: string | null;
+  claimsOpen: boolean;
+}
+
+export interface WalletBoostRewards {
+  boostId: number;
+  poolAddress: string;
+  /** null once the boost left Pool.boost (7 days after its end). */
+  poolName: string | null;
+  campaignId: number;
+  campaign: string;
+  rewardMint: string;
+  rewardSymbol: string | null;
+  rewardDecimals: number;
+  /** null once the boost left Pool.boost. */
+  status: PoolBoostStatus | null;
+  startAt: string;
+  endAt: string;
+  /** null once the boost left Pool.boost. */
+  aprPct: number | null;
+  earnedRaw: string;
+  heldRaw: string;
+  /** Stored LP balance of the wallet on that pool. */
+  lpBalanceRaw: string;
+  /** The wallet takes part (signer key, not a pool holder, not excluded, not the campaign admin). */
+  eligible: boolean;
+  /** Estimate at the APR now; "0" when active but not earning; null when not active or not computable. */
+  estPerDayRaw: string | null;
+  finalizedThrough: string | null;
+}
+
+/** `GET /api/rewards/wallets/:ref`. */
+export interface WalletRewardsResponse {
+  wallet: string;
+  asOf: string;
+  campaigns: WalletCampaignRewards[];
+  boosts: WalletBoostRewards[];
+}
+
+/** `POST /api/rewards/vouchers` — check and use it with `parseRewardVoucher` / `buildRewardClaimTx`. */
+export interface RewardVoucherResponse {
+  programId: string;
+  campaign: string;
+  beneficiary: string;
+  /** Campaign.domain, 32 bytes base64 (signed into the voucher). */
+  domain: string;
+  signerEpoch: string;
+  /** Cumulative net total the voucher allows, all time. */
+  totalRaw: string;
+  /** Unix seconds (decimal string): claim before it, or ask for a new voucher (6009 VoucherExpired). */
+  expiresAt: string;
+  signer: string;
+  /** Ed25519, base64. */
+  signature: string;
+  /** The 169 signed bytes (voucher V2), base64. */
+  message: string;
+  /** Receipt.claimed at confirmed; "0" without a receipt. */
+  claimedRaw: string;
+  /** What a claim would pay now: due, clipped to liquidity, vault and the payout window's allowance. */
+  claimableNowRaw: string;
+  /** Unix seconds when the payout window's allowance resets; null without a limit or when it is not exhausted. */
+  windowResetsAt?: string | null;
+  liquidityRaw: string;
+  /** 1111…1111 for SOL. */
+  mint: string;
+  tokenProgram: string;
+  decimals: number;
+}
+
+// ── Boosts run by a pool admin ──
+
+/** A boost's terms from a pool admin; times ISO or unix seconds, whole UTC hours. */
+export interface PoolAdminBoostTerms {
+  campaignId: number;
+  startAt: string;
+  endAt: string;
+  /** Total budget, raw net units of the reward token. */
+  budgetRaw: string;
+  /** APR cap, bps: required for a reward token with a price, left out without one (the budget alone). */
+  capBps?: number;
+}
+
+/** A registered campaign as the backend stores it (numbers as strings, times ISO). */
+export interface PoolAdminCampaign {
+  id: number;
+  address: string;
+  admin: string;
+  ownerKind: "protocol" | "pool_admin";
+  idGeneration: number;
+  native: boolean;
+  mint: string;
+  tokenProgram: string;
+  decimals: number;
+  vaultAddress: string;
+  backendSigner: string;
+  signerEpoch: string;
+  liquidityRaw: string;
+  payoutLimitRaw: string;
+  payoutWindowSec: string;
+  issuancePaused: boolean;
+  closedAt: string | null;
+  label: string | null;
+  [key: string]: unknown;
+}
+
+/** The funding of a campaign now (backend funding.util): what it owes and what a pool admin's campaign must hold. */
+export interface PoolAdminCampaignFunding {
+  liquidityRaw: string;
+  outstandingGrossRaw: string;
+  committedRaw: string;
+  requiredFullRaw: string;
+  fullyFunded: boolean;
+  depositToFullRaw: string;
+  withdrawableFullRaw: string;
+  payoutLimitRaw: string;
+  payoutWindowSec: string;
+  payoutLimitPerDayRaw: string | null;
+  payoutLimitOk: boolean;
+  payoutLimitMinPerDayRaw: string;
+  projectedDailyRaw: string;
+  [key: string]: unknown;
+}
+
+export interface PoolAdminCampaignWithFunding {
+  campaign: PoolAdminCampaign;
+  /** null when the chain could not be read now, or the campaign is closed. */
+  funding: PoolAdminCampaignFunding | null;
+}
+
+export interface PoolAdminCampaignParams {
+  programId: string;
+  cluster: "mainnet" | "devnet";
+  admin: string;
+  mint: string;
+  /** Generation of the campaign id (a closed address is never reused). */
+  generation: number;
+  /** The 32-byte id, hex: `boostsCampaignId(cluster, mint, generation)`. */
+  campaignIdHex: string;
+  address: string;
+  bump: number;
+  /** free: create it; unregistered: it exists, register it; registered: `campaign` is it. */
+  state: "free" | "unregistered" | "registered";
+  campaign: PoolAdminCampaign | null;
+  backendSigner: string;
+  /** The longest payout window the backend accepts (the limit is required). */
+  payoutWindowSec: number;
+  note: string;
+}
+
+/** A boost as the backend answers it: the row, its phase and every terms version. */
+export interface PoolAdminBoostView {
+  boost: { id: number; poolAddress: string; campaignId: number; state: string; startAt: string; endAt: string; fundingPausedAt: string | null; hiddenAt: string | null; [key: string]: unknown };
+  phase: "scheduled" | "active" | "ended" | "cancelled";
+  terms: Array<{ id: number; kind: string; effectiveFrom: string; endAt: string; budgetRaw: string; capBps: number; delayed: boolean; increases: string[]; [key: string]: unknown }>;
+  keptTermsIds: number[];
+  currentTermsId: number | null;
+}
+
+export interface PoolAdminBoostsOverview {
+  poolAddress: string;
+  enabled: boolean;
+  boosts: Array<PoolAdminBoostView & { ownerKind: "protocol" | "pool_admin"; yours: boolean }>;
+  campaigns: PoolAdminCampaignWithFunding[];
+}
+
+export interface PoolAdminBoostPreview {
+  durationDays: number;
+  budgetPerDayRaw: string;
+  budgetPerDayUsd: number | null;
+  capPct: number;
+  uncapped: boolean;
+  rewardPriceUsd: number | null;
+  rewardHasPrice: boolean;
+  capBps: number;
+  breakEvenTvlUsd: number | null;
+  atCurrent: { tvlUsd: number; aprPct: number; capBinding: boolean; spendPerDayRaw: string; spendPerDayUsd: number | null; refundPerDayRaw: string } | null;
+  curve: Array<{ tvlUsd: number; aprPct: number; capBinding: boolean; spendPerDayRaw: string; spendPerDayUsd: number | null; refundPerDayRaw: string }>;
+  valid: boolean;
+  error: string | null;
+  prefund: { liquidityRaw: string; requiredRaw: string; depositRaw: string; fullyFunded: boolean; payoutLimitOk: boolean; payoutLimitMinPerDayRaw: string } | null;
+}
+
+/** `code` of a `/api/rewards/*` error answer (`{ statusCode, code, message }`). */
+export type RewardVoucherErrorCode =
+  | "unknown_campaign" // 404
+  | "campaign_closed" // 410
+  | "not_funded" // 409 (pool admin boosts)
+  | "payout_limit_low" // 409
+  | "cap_required" // 400
+  | "cap_without_price" // 400
+  | "budget_too_small" // 400
+  | "not_your_campaign" // 403
+  | "not_your_pool" // 400
+  | "campaign_checks" // 400
+  | "boosts_off" // 503
+  | "nothing_accrued" // 404
+  | "already_claimed" // 409
+  | "change_pending" // 409
+  | "issuance_paused" // 423
+  | "signer_mismatch" // 423
+  | "signing_off" // 503
+  | "ledger_check"; // 503
+
+/** The JSON body of a `/api/rewards/*` error. */
+/**
+ * A failed rewards call's body. BOOSTS.md documents `{ statusCode, code, message }`;
+ * a backend whose global exception filter rewrites errors sends
+ * `{ success: false, error }` instead, without `code`.
+ */
+export interface RewardsApiErrorBody {
+  statusCode?: number;
+  code?: string;
+  /** An array for a 400 from validation. */
+  message?: string | string[];
+  success?: false;
+  /** The message in the `{ success: false, error }` shape. */
+  error?: string;
+}
+
+/** What `getRewardsApiError` reads off a failed rewards call. */
+export interface RewardsApiError {
+  status: number;
+  /**
+   * A known code; null for none (400, 429, a plain 503), an unknown one (see
+   * `body.code`), or a `{ success: false, error }` body, which carries no code.
+   */
+  code: RewardVoucherErrorCode | null;
+  message: string;
+  body: RewardsApiErrorBody | null;
+}
+
+const REWARD_VOUCHER_ERROR_CODES: ReadonlySet<string> = new Set([
+  "unknown_campaign",
+  "nothing_accrued",
+  "already_claimed",
+  "change_pending",
+  "issuance_paused",
+  "signer_mismatch",
+  "signing_off",
+  "ledger_check",
+]);
+
+/**
+ * The HTTP status and the backend `code` of a failed rewards call
+ * (`getRewardBoosts`, `getRewardCampaigns`, `getWalletRewards`,
+ * `requestRewardVoucher`); null when no HTTP answer came back.
+ */
+export function getRewardsApiError(error: SdkError): RewardsApiError | null {
+  const cause = error.cause as { status?: unknown; body?: unknown } | null | undefined;
+  if (!cause || typeof cause.status !== "number") return null;
+  const body = cause.body && typeof cause.body === "object" ? (cause.body as RewardsApiErrorBody) : null;
+  const code = typeof body?.code === "string" && REWARD_VOUCHER_ERROR_CODES.has(body.code) ? (body.code as RewardVoucherErrorCode) : null;
+  const raw = body ? body.message ?? body.error : undefined;
+  const message = Array.isArray(raw) ? raw.join("; ") : typeof raw === "string" ? raw : "";
+  return { status: cause.status, code, message: message || error.humanMessage, body };
 }
 
 // ── Token pair-chart types (pool creation range picker) ──
@@ -1154,7 +1581,7 @@ export interface TokenPairChartResponse {
 // ── Pool chart types (pool page) ──
 
 /**
- * `lpPrice` — USD price of ONE LP token (BPT) of the pool (backend release
+ * `lpPrice` — USD price of ONE LP token of the pool (backend release
  * of November 2026; backends before it answer 400 for it, and 404 before the
  * chart route existed, September 2026).
  */
@@ -1290,8 +1717,8 @@ export interface AuthTokens {
  * `humanMessage` reads "METHOD path → HTTP nnn …"), and so are a request
  * the runtime refused to send (invalid URL or header value: `unknown` with
  * the original message) and a 2xx body that is not JSON
- * (`backend_invalid_response`). `claimAttribution` retries only transport
- * errors and timeouts; `verifySignature` and `verifyTransaction` retry only
+ * (`backend_invalid_response`). `claimAttribution` and
+ * `requestRewardVoucher` retry only transport errors and timeouts; `verifySignature` and `verifyTransaction` retry only
  * HTTP 429 (the nonce is single-use, and a 5xx, a transport error or a
  * timeout may come after the server already consumed it). Between attempts
  * the client waits 200 ms, then 500 ms; `getPublicPortfolioChart` alone
@@ -2101,7 +2528,7 @@ export class CofferBackendClient {
 
   /**
    * Position Pools: the user's ACTIVE LP positions with per-pool money
-   * metrics — value (from the fresh wallet BPT balance), fees earned,
+   * metrics — value (from the fresh wallet LP balance), fees earned,
    * unrealized + realized IL, net PnL and personal compounded APY.
    * A freshly received (transferred) position appears immediately with
    * its value and zeroed metrics until the background snapshot builds.
@@ -2316,8 +2743,8 @@ export class CofferBackendClient {
    * Ranges: `1m` (default), `6m`, `1y`, `all` (whole history, never
    * shorter than a year); `24h`/`1w` remain accepted for older UIs.
    *
-   * `metric: "lpPrice"` — the pool's LP token (BPT) price in USD per token,
-   * from the metrics cron's per-bucket pool snapshot ÷ BPT supply (no
+   * `metric: "lpPrice"` — the pool's LP token price in USD per token,
+   * from the metrics cron's per-bucket pool snapshot ÷ LP supply (no
    * external price feed on the request path). Its points start where the
    * backend's snapshots start (2026-07-26), so an older pool's `all`/`1y`
    * line begins there.
@@ -2451,6 +2878,71 @@ export class CofferBackendClient {
     this.refreshToken = null;
   }
 
+  // ── Rewards (boosts; backend docs/BOOSTS.md) ──
+  //
+  // Public, flat JSON. While the backend's rewards module is off the GET
+  // routes answer empty lists and the voucher route 503. On a failure
+  // `getRewardsApiError(result.error)` gives the status and the backend
+  // `code`.
+
+  /**
+   * Pools with an active or scheduled boost (from `Pool.boost`), highest
+   * `boostAprPct` first; each pool's `boost.items` holds only its active and
+   * scheduled items. Public, cached 60 s by the backend.
+   */
+  getRewardBoosts(): Promise<SdkResult<PublicBoostsResponse>> {
+    return this.requestWithRefresh<PublicBoostsResponse>("GET", "/api/rewards/boosts", undefined, {}, true);
+  }
+
+  /**
+   * The backend's live reward campaigns as last read from the chain and the
+   * key it signs vouchers with (`signer`, null while it does not sign).
+   * Public, cached 60 s.
+   */
+  getRewardCampaigns(): Promise<SdkResult<PublicCampaignsResponse>> {
+    return this.requestWithRefresh<PublicCampaignsResponse>("GET", "/api/rewards/campaigns", undefined, {}, true);
+  }
+
+  /**
+   * What a wallet earned, can claim and has held, per campaign and per
+   * boost. `ref` is a wallet address, a username or `@` + username (400
+   * malformed, 404 a username nobody holds). Public, database only, cached
+   * 30 s (dropped when one of the wallet's claims is indexed).
+   */
+  getWalletRewards(ref: string): Promise<SdkResult<WalletRewardsResponse>> {
+    return this.requestWithRefresh<WalletRewardsResponse>("GET", `/api/rewards/wallets/${encodeURIComponent(ref)}`, undefined, {}, true);
+  }
+
+  /**
+   * A signed voucher for the wallet's finalized all-time total in a
+   * campaign; build the claim with `buildRewardClaimTx(voucher, …)`.
+   * Public: only the beneficiary can claim with it. Errors (see
+   * `getRewardsApiError`): 404 `unknown_campaign` / `nothing_accrued`, 409
+   * `already_claimed` / `change_pending`, 423 `issuance_paused` /
+   * `signer_mismatch`, 429 rate limit, 503 `signing_off` / `ledger_check`.
+   * Only transport errors and timeouts are retried: every 429 counts
+   * against the backend's per-wallet window, and a 503 does not clear in
+   * milliseconds. Asking again for a voucher already signed returns the same one.
+   */
+  requestRewardVoucher(params: { wallet: string; campaign: string }): Promise<SdkResult<RewardVoucherResponse>>;
+  requestRewardVoucher(wallet: string, campaign: string): Promise<SdkResult<RewardVoucherResponse>>;
+  requestRewardVoucher(
+    walletOrParams: string | { wallet: string; campaign: string },
+    campaignArg?: string,
+  ): Promise<SdkResult<RewardVoucherResponse>> {
+    const body =
+      typeof walletOrParams === "string"
+        ? { wallet: walletOrParams, campaign: campaignArg }
+        : { wallet: walletOrParams.wallet, campaign: walletOrParams.campaign };
+    return this.requestWithRefresh<RewardVoucherResponse>(
+      "POST",
+      "/api/rewards/vouchers",
+      body,
+      { shouldRetry: retryTransportOnly },
+      true,
+    );
+  }
+
   /**
    * Generic GET with retry. Callers that need it for other endpoints.
    * `retry` replaces parts of the default policy for this one call
@@ -2469,6 +2961,73 @@ export class CofferBackendClient {
     return this.requestWithRefresh<T>("PUT", path, body);
   }
 
+  // ── Boosts run by a pool admin (backend docs/BOOSTS.md §9) ──
+  //
+  // JWT of the pool's on-chain admin. The campaign is the admin's own: it is
+  // created, funded, limited, withdrawn from and closed with the admin's
+  // wallet (`buildPoolAdminCampaignSetup`, `buildRewardDepositIx`,
+  // `buildRewardWithdrawIx`, `buildRewardSetPayoutLimitIx`,
+  // `buildRewardCloseIx`); these routes register it and run boosts from it.
+  // Errors carry `code` (getRewardsApiError): `not_funded` (409, with
+  // `depositRaw`), `payout_limit_low` (409), `cap_required` /
+  // `cap_without_price` / `budget_too_small` (400), `not_your_campaign` /
+  // `not_your_pool` (403 / 400), `campaign_checks` (400, with `checks`),
+  // `boosts_off` / `signing_off` (503).
+
+  private poolBoostsPath(poolAddress: string, rest = ""): string {
+    return `/api/pools/admin/${encodeURIComponent(poolAddress)}/boosts${rest}`;
+  }
+
+  /** Boosts of the pool (yours and the protocol's) and your campaigns with their funding now. */
+  getPoolAdminBoosts(poolAddress: string): Promise<SdkResult<PoolAdminBoostsOverview>> {
+    return this.requestWithRefresh<PoolAdminBoostsOverview>("GET", this.poolBoostsPath(poolAddress), undefined, {}, true);
+  }
+
+  /** What to create your campaign with for `mint` (or "native"): id, address, our backend signer, the payout window; or your existing campaign. */
+  getPoolAdminCampaignParams(poolAddress: string, mint: string | "native"): Promise<SdkResult<PoolAdminCampaignParams>> {
+    return this.requestWithRefresh<PoolAdminCampaignParams>("GET", this.poolBoostsPath(poolAddress, `/campaign-params?mint=${encodeURIComponent(mint)}`), undefined, {}, true);
+  }
+
+  /** Register your campaign once it is on chain (finalized). */
+  registerPoolAdminCampaign(poolAddress: string, body: { address: string; label?: string; note?: string }): Promise<SdkResult<PoolAdminCampaign>> {
+    return this.requestWithRefresh<PoolAdminCampaign>("POST", this.poolBoostsPath(poolAddress, "/campaigns"), body, {}, true);
+  }
+
+  /** Your campaigns with their funding now (owed, committed, required, what to deposit, what you may withdraw, the payout limit). */
+  getPoolAdminCampaigns(poolAddress: string): Promise<SdkResult<PoolAdminCampaignWithFunding[]>> {
+    return this.requestWithRefresh<PoolAdminCampaignWithFunding[]>("GET", this.poolBoostsPath(poolAddress, "/campaigns"), undefined, {}, true);
+  }
+
+  /** Re-read your campaign from the chain after a deposit, a withdrawal or a limit change. */
+  refreshPoolAdminCampaign(poolAddress: string, campaignId: number): Promise<SdkResult<PoolAdminCampaign>> {
+    return this.requestWithRefresh<PoolAdminCampaign>("POST", this.poolBoostsPath(poolAddress, `/campaigns/${campaignId}/refresh`), {}, {}, true);
+  }
+
+  /** APR and spend for these terms, and what your campaign must hold to start them. `capBps` only for a reward token with a price. */
+  previewPoolAdminBoost(poolAddress: string, body: PoolAdminBoostTerms): Promise<SdkResult<PoolAdminBoostPreview>> {
+    return this.requestWithRefresh<PoolAdminBoostPreview>("POST", this.poolBoostsPath(poolAddress, "/preview"), body, {}, true);
+  }
+
+  /** Create a boost on the pool from your campaign: it must already hold what it owes plus every budget (this one included). */
+  createPoolAdminBoost(poolAddress: string, body: PoolAdminBoostTerms & { label?: string; note?: string }): Promise<SdkResult<PoolAdminBoostView>> {
+    return this.requestWithRefresh<PoolAdminBoostView>("POST", this.poolBoostsPath(poolAddress), body, {}, true);
+  }
+
+  /** New terms: a raise (budget, cap, end) waits 1 h and must be on the campaign; a cut starts at the next hour. */
+  updatePoolAdminBoost(poolAddress: string, boostId: number, body: { budgetRaw?: string; capBps?: number; endAt?: string; note?: string }): Promise<SdkResult<PoolAdminBoostView>> {
+    return this.requestWithRefresh<PoolAdminBoostView>("PUT", this.poolBoostsPath(poolAddress, `/${boostId}`), body, {}, true);
+  }
+
+  /** Stop your boost at the next hour; what it has not handed out stays in your campaign. */
+  stopPoolAdminBoost(poolAddress: string, boostId: number, note?: string): Promise<SdkResult<PoolAdminBoostView>> {
+    return this.requestWithRefresh<PoolAdminBoostView>("POST", this.poolBoostsPath(poolAddress, `/${boostId}/stop`), note ? { note } : {}, {}, true);
+  }
+
+  /** Cancel your boost before its first hour. */
+  cancelPoolAdminBoost(poolAddress: string, boostId: number): Promise<SdkResult<PoolAdminBoostView>> {
+    return this.requestWithRefresh<PoolAdminBoostView>("DELETE", this.poolBoostsPath(poolAddress, `/${boostId}`), undefined, {}, true);
+  }
+
   // ── Private: HTTP layer with auto-refresh ──
 
   /**
@@ -2479,30 +3038,37 @@ export class CofferBackendClient {
    *   3. On failure: notify via onAuthExpired callback, return original error
    */
   private async requestWithRefresh<T>(
-    method: "GET" | "POST" | "PUT",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
     retry: RetryOptions = {},
+    errorBody = false,
   ): Promise<SdkResult<T>> {
-    const result = await this.rawRequest<T>(method, path, body, retry);
+    const result = await this.rawRequest<T>(method, path, body, retry, errorBody);
 
     // Don't auto-refresh for auth endpoints themselves
     const isAuthPath = path.startsWith("/api/auth/");
     if (!isAuthPath && !result.ok && this.is401(result) && this.refreshToken) {
       const refreshed = await this.tryRefresh();
       if (refreshed) {
-        return this.rawRequest<T>(method, path, body, retry);
+        return this.rawRequest<T>(method, path, body, retry, errorBody);
       }
     }
 
     return result;
   }
 
+  /**
+   * `errorBody`: on a non-2xx answer also read the JSON body into
+   * `cause.body` (and its string `code` into `cause.code`); a body that is
+   * not JSON is ignored.
+   */
   private async rawRequest<T>(
-    method: "GET" | "POST" | "PUT",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
     retry: RetryOptions = {},
+    errorBody = false,
   ): Promise<SdkResult<T>> {
     const url = `${this.endpoint}${path}`;
     const fetchOpts: RequestInit = {
@@ -2524,6 +3090,15 @@ export class CofferBackendClient {
           `${method} ${path} → HTTP ${res.status} ${res.statusText}`,
         );
         (error as any).status = res.status;
+        if (errorBody) {
+          try {
+            const parsed = await res.json();
+            (error as any).body = parsed;
+            if (typeof parsed?.code === "string") (error as any).code = parsed.code;
+          } catch {
+            // Not JSON, or the body broke off: the status alone.
+          }
+        }
         throw error;
       }
       try {
