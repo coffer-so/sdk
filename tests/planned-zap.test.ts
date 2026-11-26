@@ -6,7 +6,7 @@
 import { AddressLookupTableAccount, AddressLookupTableProgram, ComputeBudgetInstruction, ComputeBudgetProgram, Keypair, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
 import { BorshInstructionCoder } from "@coral-xyz/anchor";
 import { sha256 } from "@noble/hashes/sha256";
-import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import {
   buildPlannedZapIx,
@@ -453,6 +453,34 @@ describe("PlannedZapClient.quote", () => {
   });
 });
 
+describe("N=10 zap setup and execution", () => {
+  test.each(["planned", "routed"] as const)("%s keeps idempotent wallet ATAs separate from the deposit", async route => {
+    const { client, cfg, programs } = mockClient(10, [1, 3, 5, 7, 9], { route });
+    const quoted = await client.quote(0, 50_000_000n);
+    if (!quoted.ok) throw new Error(quoted.error.humanMessage);
+    const user = pk();
+    const payer = pk();
+    const accounts = client.accountsFor(quoted.data, user);
+    const setup = client.ensureUserTokenAccountIxs(quoted.data, user, payer);
+    const mints = [...accounts.mints, accounts.lpMint];
+    const tokenPrograms = [...programs, accounts.lpTokenProgram];
+    expect(setup).toHaveLength(11);
+    for (const [i, ix] of setup.entries()) {
+      expect(ix.programId).toEqual(ASSOCIATED_TOKEN_PROGRAM_ID);
+      expect(ix.data).toEqual(Buffer.from([1])); // SPL CreateIdempotent
+      expect(ix.keys.slice(0, 4).map(k => k.pubkey)).toEqual([
+        payer, deriveAta(user, mints[i], tokenPrograms[i]), user, mints[i],
+      ]);
+      expect(ix.keys[5].pubkey).toEqual(tokenPrograms[i]);
+    }
+    const built = await client.buildDepositTx(quoted.data, user);
+    if (!built.ok) throw new Error(built.error.humanMessage);
+    expect(built.data.route).toBe(route);
+    const financial = built.data.instructions.filter(ix => !ix.programId.equals(ComputeBudgetProgram.programId));
+    expect(financial.map(ix => ix.programId)).toEqual([cfg.programs.singleTokenLiquidity]);
+  });
+});
+
 describe("transaction budget", () => {
   test("N=10 zap fits the packet with the pool ALT plus a wallet ALT and leaves the wallet reserve", async () => {
     const m = mockClient(10);
@@ -466,6 +494,14 @@ describe("transaction budget", () => {
     const walletAlt = table(pk(), m.client.walletLookupAddresses(res.data, user));
     const compiled = compilePlannedZapTransaction({ payer: user, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [poolAlt, walletAlt] });
     expect(compiled.wireBytes + compiled.walletReserve).toBeLessThanOrEqual(1232);
+    expect(poolAlt.state.addresses.some(address => accounts.userTokenAccounts.some(ata => ata.equals(address)))).toBe(false);
+    expect(compiled.transaction.message.addressTableLookups.map(table => table.accountKey)).toEqual([poolAlt.key, walletAlt.key]);
+    const compileWithReserve = (walletReserve: number) => m.client.compileTransaction({
+      payer: user, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [poolAlt, walletAlt], walletReserve,
+    });
+    expect(compileWithReserve(compiled.remainingBytes).ok).toBe(true);
+    expect(compileWithReserve(compiled.remainingBytes + 1).ok).toBe(false);
+    expect(compileWithReserve(-1).ok).toBe(false);
     expect(() => compilePlannedZapTransaction({ payer: user, blockhash: PublicKey.default.toBase58(), instructions: [ix], lookupTables: [] })).toThrow(/wallet reserve/);
     // Wallet ALT setup for the 11 user accounts fits one packet.
     const prep = await m.client.prepareWalletLookupTable(user, m.client.walletLookupAddresses(res.data, user));
